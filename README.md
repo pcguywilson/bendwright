@@ -40,14 +40,42 @@ machine.
 - **Auto-shutdown** - close the browser and the server (and its console window)
   shut down on their own a few seconds later.
 
-## Requirements
+## Setup
 
-- **Python 3.8+** (standard library only).
-- **[Archify](https://github.com/tt-a1i/archify)** and **Node.js**, for validation
-  and live preview. bendwright still runs a structural-check save without them,
-  but you lose preview and full validation.
+1. **Install the prerequisites.** Python 3.8 or newer, and (for validation and live
+   preview) Node.js 18 or newer. bendwright itself has no third-party Python
+   dependencies.
 
-## Quick start
+2. **Get Archify (the renderer).** The simplest setup for bendwright is to clone it
+   next to bendwright:
+
+   ```
+   git clone https://github.com/tt-a1i/archify
+   ```
+
+   Archify also documents `npx skills add tt-a1i/archify -g`; if you install it that
+   way, note the path to `archify.mjs` for step 4.
+
+3. **Get bendwright.**
+
+   ```
+   git clone https://github.com/pcguywilson/bendwright
+   ```
+
+   Keep the two folders side by side, for example `code/archify` and `code/bendwright`.
+
+4. **Point bendwright at Archify.** Any one of these:
+
+   - Nothing to do if the `archify` folder sits next to the `bendwright` folder.
+     bendwright finds `archify/bin/archify.mjs` on its own.
+   - Set `ARCHIFY_HOME` to the Archify folder (the one whose `bin/` holds
+     `archify.mjs`), or to the full path of `archify.mjs`.
+   - Pass `--archify path/to/archify/bin/archify.mjs` when you launch.
+
+Without Archify, bendwright still runs and saves with a structural check, but you
+lose live preview and full validation.
+
+## Running it
 
 **Windows:** double-click `bendwright.bat`. Your browser opens; click **Open** to
 pick a diagram. You can also drag a `*.workflow.json` file onto the `.bat` to open
@@ -61,19 +89,8 @@ python bendwright.py path/to/diagram.workflow.json
 python bendwright.py diagram.workflow.json --port 8770 --archify /path/to/archify.mjs
 ```
 
-A sample diagram, `bendwright.example.workflow.json`, is included.
-
-## Finding Archify
-
-bendwright looks for `archify.mjs` in this order:
-
-1. The `--archify /path/to/archify.mjs` argument.
-2. The `ARCHIFY_HOME` environment variable, set to the Archify project directory
-   (the folder whose `bin/` contains `archify.mjs`) or to the full path of
-   `archify.mjs` itself.
-3. An `archify/` checkout next to `bendwright.py`, then in the current directory
-   and your home directory.
-4. `archify` on your `PATH`.
+A sample diagram, `bendwright.example.workflow.json`, is included, so you can launch
+and click Open to try it right away.
 
 ## The IR format
 
