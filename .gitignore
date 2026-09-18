@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Local diagrams -- keep only the bundled example
+*.workflow.json
+!bendwright.example.workflow.json
+
+# Rendered Archify output
+*.preview.html
+*.out.html
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini

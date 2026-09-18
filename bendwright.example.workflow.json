@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Example: Support Request Flow",
+    "subtitle": "Sample diagram shipped with bendwright",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "customer",    "label": "Customer" },
+    { "id": "triage",      "label": "Triage" },
+    { "id": "engineering", "label": "Engineering" },
+    { "id": "ops",         "label": "Operations" }
+  ],
+  "nodes": [
+    { "id": "request",  "lane": "customer",    "col": 0, "type": "external",   "label": "New request", "sublabel": "web form",   "tag": "start" },
+    { "id": "intake",   "lane": "triage",      "col": 0, "type": "backend",    "label": "Intake",      "sublabel": "queue" },
+    { "id": "classify", "lane": "triage",      "col": 1, "type": "backend",    "label": "Classify",    "sublabel": "rules + tags" },
+    { "id": "kb",       "lane": "triage",      "col": 2, "type": "database",   "label": "KB lookup",   "sublabel": "articles" },
+    { "id": "route",    "lane": "triage",      "col": 3, "type": "security",   "label": "Route",       "sublabel": "priority" },
+    { "id": "fix",      "lane": "engineering", "col": 3, "type": "backend",    "label": "Apply fix",   "sublabel": "code change" },
+    { "id": "review",   "lane": "engineering", "col": 4, "type": "security",   "label": "Code review", "sublabel": "approve" },
+    { "id": "verify",   "lane": "engineering", "col": 5, "type": "backend",    "label": "Verify",      "sublabel": "smoke test" },
+    { "id": "deploy",   "lane": "ops",         "col": 4, "type": "cloud",      "label": "Deploy",      "sublabel": "CI/CD" },
+    { "id": "notify",   "lane": "ops",         "col": 5, "type": "messagebus", "label": "Notify",      "sublabel": "status page" },
+    { "id": "reply",    "lane": "customer",    "col": 5, "type": "external",   "label": "Send reply",  "sublabel": "email",      "tag": "end" }
+  ],
+  "edges": [
+    { "from": "request",  "to": "intake",   "label": "submit",   "role": "main" },
+    { "from": "intake",   "to": "classify", "label": "queue",    "role": "main" },
+    { "from": "classify", "to": "kb",       "label": "search",   "role": "branch" },
+    { "from": "classify", "to": "route",    "label": "triage",   "role": "main" },
+    { "from": "kb",       "to": "route",    "label": "found",    "role": "branch" },
+    { "from": "route",    "to": "fix",      "label": "escalate", "role": "main" },
+    { "from": "route",    "to": "reply",    "label": "answer",   "role": "branch" },
+    { "from": "fix",      "to": "review",   "label": "PR",       "role": "main" },
+    { "from": "review",   "to": "deploy",   "label": "approved", "role": "main" },
+    { "from": "deploy",   "to": "verify",   "label": "released", "role": "main" },
+    { "from": "verify",   "to": "notify",   "label": "green",    "role": "main" },
+    { "from": "verify",   "to": "reply",    "label": "resolved", "role": "main" }
+  ],
+  "cards": [
+    { "dot": "cyan",    "title": "About this file", "items": [
+      "A fictional sample - no real systems or data.",
+      "Open it in bendwright to try dragging, editing, and rewiring." ] },
+    { "dot": "emerald", "title": "Try it", "items": [
+      "Drag a node to a new lane/column.",
+      "Double-click a node or edge to rename it.",
+      "Switch to Connect mode to add, delete, or reroute arrows." ] }
+  ]
+}
