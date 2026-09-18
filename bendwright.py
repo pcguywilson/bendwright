@@ -16,7 +16,7 @@ import tempfile
 import threading
 import time
 import webbrowser
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -69,11 +69,13 @@ _archify_path: str | None = None
 _preview_html: bytes | None = None
 _diagram_html: bytes | None = None
 
-# M16: idle auto-shutdown (close browser -> heartbeats stop -> server exits)
-IDLE_TIMEOUT = 6.0
+# M16/M18: idle auto-shutdown (close browser -> heartbeats stop -> server exits)
+IDLE_TIMEOUT = 30.0
 _last_seen: float = time.monotonic()
 _client_seen: bool = False
-_httpd: HTTPServer | None = None
+_httpd: ThreadingHTTPServer | None = None
+_inflight: int = 0
+_inflight_lock = threading.Lock()
 
 
 def touch_seen() -> None:
@@ -81,6 +83,22 @@ def touch_seen() -> None:
     global _last_seen, _client_seen
     _last_seen = time.monotonic()
     _client_seen = True
+
+
+def _begin_request() -> None:
+    """Enter a request: arm inflight + refresh idle (M18)."""
+    global _inflight
+    with _inflight_lock:
+        _inflight += 1
+    touch_seen()
+
+
+def _end_request() -> None:
+    """Leave a request: refresh idle on completion, then drop inflight (M18)."""
+    global _inflight
+    touch_seen()
+    with _inflight_lock:
+        _inflight -= 1
 
 
 def detect_archify(cli_path: str | None) -> tuple[str | None, str]:
@@ -601,172 +619,178 @@ class Handler(BaseHTTPRequestHandler):
             return None, f"invalid JSON body: {e}"
 
     def do_GET(self) -> None:  # noqa: N802
-        touch_seen()
-        parsed = urlparse(self.path)
-        path = parsed.path
-        if path == "/":
-            html = SPA_HTML.encode("utf-8")
-            self._send(200, html, "text/html; charset=utf-8")
-            return
-        if path == "/preview":
-            with _state_lock:
-                body = _preview_html
-            if body is None:
-                self._send_json(
-                    200,
-                    {
-                        "ok": False,
-                        "error": "no preview available (archify absent or deliver not yet run)",
-                    },
-                )
+        _begin_request()
+        try:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            if path == "/":
+                html = SPA_HTML.encode("utf-8")
+                self._send(200, html, "text/html; charset=utf-8")
                 return
-            self._send(200, body, "text/html; charset=utf-8")
-            return
-        if path == "/api/diagram":
-            with _state_lock:
-                body = _diagram_html
-                archify = _archify_path
-            if archify is None:
-                self._send_json(404, {"archify": False})
+            if path == "/preview":
+                with _state_lock:
+                    body = _preview_html
+                if body is None:
+                    self._send_json(
+                        200,
+                        {
+                            "ok": False,
+                            "error": "no preview available (archify absent or deliver not yet run)",
+                        },
+                    )
+                    return
+                self._send(200, body, "text/html; charset=utf-8")
                 return
-            if body is None:
-                self._send_json(
-                    404,
-                    {"ok": False, "error": "no diagram fragment (deliver not yet run)"},
-                )
+            if path == "/api/diagram":
+                with _state_lock:
+                    body = _diagram_html
+                    archify = _archify_path
+                if archify is None:
+                    self._send_json(404, {"archify": False})
+                    return
+                if body is None:
+                    self._send_json(
+                        404,
+                        {"ok": False, "error": "no diagram fragment (deliver not yet run)"},
+                    )
+                    return
+                self._send(200, body, "text/html; charset=utf-8")
                 return
-            self._send(200, body, "text/html; charset=utf-8")
-            return
-        if path == "/api/layout":
-            # Layout from in-memory _doc (may differ from disk until Save).
-            with _state_lock:
-                archify = _archify_path
-                dtype = _diagram_type
-                doc = _doc
-                trailing = _had_trailing_newline
-                has_file = _file_path is not None
-            if archify is None or not has_file:
-                self._send_json(404, {"archify": False})
-                return
-            tmp_name = _write_system_temp_json(doc, trailing)
-            try:
-                layout, err = fetch_layout(archify, dtype, Path(tmp_name))
-            finally:
+            if path == "/api/layout":
+                # Layout from in-memory _doc (may differ from disk until Save).
+                with _state_lock:
+                    archify = _archify_path
+                    dtype = _diagram_type
+                    doc = _doc
+                    trailing = _had_trailing_newline
+                    has_file = _file_path is not None
+                if archify is None or not has_file:
+                    self._send_json(404, {"archify": False})
+                    return
+                tmp_name = _write_system_temp_json(doc, trailing)
                 try:
-                    os.unlink(tmp_name)
-                except OSError:
-                    pass
-            if layout is None:
-                self._send_json(
-                    200,
-                    {"ok": False, "error": err or "layout-json failed"},
-                )
+                    layout, err = fetch_layout(archify, dtype, Path(tmp_name))
+                finally:
+                    try:
+                        os.unlink(tmp_name)
+                    except OSError:
+                        pass
+                if layout is None:
+                    self._send_json(
+                        200,
+                        {"ok": False, "error": err or "layout-json failed"},
+                    )
+                    return
+                self._send_json(200, layout)
                 return
-            self._send_json(200, layout)
-            return
-        if path == "/api/heartbeat":
-            # Idle-period keepalive; do_GET already touched. Arms _client_seen.
-            self._send_json(200, {"ok": True})
-            return
-        if path == "/api/state":
-            with _state_lock:
-                payload = state_payload()
-            self._send_json(200, payload)
-            return
-        self._send_json(404, {"ok": False, "error": "not found"})
+            if path == "/api/heartbeat":
+                # Idle-period keepalive; request enter/leave touches. Arms _client_seen.
+                self._send_json(200, {"ok": True})
+                return
+            if path == "/api/state":
+                with _state_lock:
+                    payload = state_payload()
+                self._send_json(200, payload)
+                return
+            self._send_json(404, {"ok": False, "error": "not found"})
+        finally:
+            _end_request()
 
     def do_POST(self) -> None:  # noqa: N802
-        touch_seen()
-        path = urlparse(self.path).path
-        if path == "/api/pick":
-            self._handle_pick()
-            return
-        if path == "/api/open":
-            self._handle_open()
-            return
-        if path == "/api/preview":
-            self._handle_preview()
-            return
-        if path != "/api/save":
-            self._send_json(404, {"ok": False, "error": "not found"})
-            return
-
-        with _state_lock:
-            if _file_path is None:
-                self._send_json(
-                    200,
-                    {"ok": False, "saved": False, "errors": ["no file open"]},
-                )
+        _begin_request()
+        try:
+            path = urlparse(self.path).path
+            if path == "/api/pick":
+                self._handle_pick()
+                return
+            if path == "/api/open":
+                self._handle_open()
+                return
+            if path == "/api/preview":
+                self._handle_preview()
+                return
+            if path != "/api/save":
+                self._send_json(404, {"ok": False, "error": "not found"})
                 return
 
-        candidate, err = self._read_json_body()
-        if err is not None:
-            self._send_json(
-                200,
-                {"ok": False, "saved": False, "errors": [err]},
-            )
-            return
-
-        if not isinstance(candidate, dict):
-            self._send_json(
-                200,
-                {"ok": False, "saved": False, "errors": ["body must be a JSON object"]},
-            )
-            return
-
-        errors = structural_check(candidate)
-        if errors:
-            self._send_json(200, {"ok": False, "saved": False, "errors": errors})
-            return
-
-        with _state_lock:
-            if _file_path is None:
-                self._send_json(
-                    200,
-                    {"ok": False, "saved": False, "errors": ["no file open"]},
-                )
-                return
-            archify = _archify_path
-            trailing = _had_trailing_newline
-            dtype = _diagram_type
-            target = _file_path
-
-        if archify:
-            ok_v, v_errors = validate_candidate(archify, dtype, candidate, trailing)
-            if not ok_v:
-                self._send_json(200, {"ok": False, "saved": False, "errors": v_errors})
-                return
-
-        with _state_lock:
-            if _file_path is None:
-                self._send_json(
-                    200,
-                    {"ok": False, "saved": False, "errors": ["no file open"]},
-                )
-                return
-            try:
-                atomic_write(target, candidate, trailing)
-            except OSError as e:
-                self._send_json(
-                    200,
-                    {"ok": False, "saved": False, "errors": [f"write failed: {e}"]},
-                )
-                return
-            global _doc
-            _doc = candidate
-
-        receipt: dict[str, Any] = {"ok": True, "saved": True, "structural": True}
-        if archify:
-            html, note = deliver_preview(archify, dtype, target)
             with _state_lock:
-                if html is not None:
-                    set_preview_html(html)
-            if note:
-                receipt["note"] = note
-            else:
-                receipt["preview"] = True
+                if _file_path is None:
+                    self._send_json(
+                        200,
+                        {"ok": False, "saved": False, "errors": ["no file open"]},
+                    )
+                    return
 
-        self._send_json(200, receipt)
+            candidate, err = self._read_json_body()
+            if err is not None:
+                self._send_json(
+                    200,
+                    {"ok": False, "saved": False, "errors": [err]},
+                )
+                return
+
+            if not isinstance(candidate, dict):
+                self._send_json(
+                    200,
+                    {"ok": False, "saved": False, "errors": ["body must be a JSON object"]},
+                )
+                return
+
+            errors = structural_check(candidate)
+            if errors:
+                self._send_json(200, {"ok": False, "saved": False, "errors": errors})
+                return
+
+            with _state_lock:
+                if _file_path is None:
+                    self._send_json(
+                        200,
+                        {"ok": False, "saved": False, "errors": ["no file open"]},
+                    )
+                    return
+                archify = _archify_path
+                trailing = _had_trailing_newline
+                dtype = _diagram_type
+                target = _file_path
+
+            if archify:
+                ok_v, v_errors = validate_candidate(archify, dtype, candidate, trailing)
+                if not ok_v:
+                    self._send_json(200, {"ok": False, "saved": False, "errors": v_errors})
+                    return
+
+            with _state_lock:
+                if _file_path is None:
+                    self._send_json(
+                        200,
+                        {"ok": False, "saved": False, "errors": ["no file open"]},
+                    )
+                    return
+                try:
+                    atomic_write(target, candidate, trailing)
+                except OSError as e:
+                    self._send_json(
+                        200,
+                        {"ok": False, "saved": False, "errors": [f"write failed: {e}"]},
+                    )
+                    return
+                global _doc
+                _doc = candidate
+
+            receipt: dict[str, Any] = {"ok": True, "saved": True, "structural": True}
+            if archify:
+                html, note = deliver_preview(archify, dtype, target)
+                with _state_lock:
+                    if html is not None:
+                        set_preview_html(html)
+                if note:
+                    receipt["note"] = note
+                else:
+                    receipt["preview"] = True
+
+            self._send_json(200, receipt)
+        finally:
+            _end_request()
 
     def _handle_preview(self) -> None:
         """Validate + deliver from a temp candidate; never write the real file (M13)."""
@@ -4431,13 +4455,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _idle_watchdog() -> None:
-    """Daemon: shut down HTTPServer after IDLE_TIMEOUT with no client activity."""
+    """Daemon: shut down server after IDLE_TIMEOUT with no client activity and no in-flight requests."""
     global _httpd
     while True:
         time.sleep(1.0)
         if not _client_seen:
             continue
-        if (time.monotonic() - _last_seen) > IDLE_TIMEOUT:
+        with _inflight_lock:
+            inflight = _inflight
+        if inflight == 0 and (time.monotonic() - _last_seen) > IDLE_TIMEOUT:
             httpd = _httpd
             if httpd is not None:
                 httpd.shutdown()
@@ -4546,7 +4572,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass
 
-    server = HTTPServer(("127.0.0.1", args.port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     _httpd = server
     threading.Thread(target=_idle_watchdog, name="idle-watchdog", daemon=True).start()
     try:
