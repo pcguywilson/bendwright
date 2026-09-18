@@ -70,30 +70,27 @@ A diagram is a single JSON object: `lanes`, `nodes`, `edges`, and optional
 `bendwright.example.workflow.json` for a complete, valid example, and the Archify
 schema for the full contract.
 
-## Screenshots
+## Demos
 
-**Move nodes** - drag a node; it snaps to the nearest lane and column.
+**Move a node** - drag it; it snaps to the nearest lane and column.
 
-![Before moving a node](screenshots/move-node-before.png)
-![After moving a node](screenshots/move-node-after.png)
+![Move a node](gifs/move-node.gif)
 
-**Add a connection** - click a source node, then a target.
+**Add a connection** - switch to **+ Connection**, click a source node, then a target.
 
-![Before adding a connection](screenshots/create-connection-before.png)
-![After adding a connection](screenshots/create-connection-after.png)
+![Add a connection](gifs/add-connection.gif)
 
-**Reroute a connection** - drag an endpoint to a different node.
+**Reroute a connection** - drag an endpoint onto a different node.
 
-![Before rerouting](screenshots/move-connection-before.png)
-![After rerouting](screenshots/move-connection-after.png)
+![Reroute a connection](gifs/reroute-connection.gif)
 
-**Edit labels** - double-click to rename a node, edge, or lane.
+**Edit a label** - double-click a node, edge, or lane to rename it.
 
-![Editing labels](screenshots/edit-labels.png)
+![Edit a label](gifs/edit-label.gif)
 
-**Duplicate and delete** - manage nodes from the layout editor.
+**Duplicate and delete** - clone a node, then remove it.
 
-![Duplicate and delete a node](screenshots/duplicate-and-delete.png)
+![Duplicate and delete](gifs/duplicate-delete.gif)
 
 ## License
 
