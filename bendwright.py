@@ -1179,13 +1179,56 @@ button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.danger { border-color: var(--danger); color: var(--danger); }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
+#status-bar {
+  position: relative;
+  height: 44px; box-sizing: border-box; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
 #status {
-  font-size: 12px; padding: 6px 16px; border-bottom: 1px solid var(--border);
+  font-size: 12px; padding: 6px 16px; padding-right: 96px;
   height: 44px; box-sizing: border-box; overflow: hidden;
   color: var(--muted); white-space: pre-wrap;
 }
 #status.ok { color: var(--ok); }
 #status.err { color: var(--danger); }
+#status.status-clipped { cursor: pointer; }
+#status-more {
+  display: none;
+  position: absolute;
+  right: 10px; top: 50%; transform: translateY(-50%);
+  z-index: 1;
+  font-size: 11px; padding: 2px 8px;
+}
+#status-bar.status-clipped #status-more { display: inline-block; }
+#status-overlay {
+  display: none;
+  position: fixed;
+  z-index: 50;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 24px));
+  max-height: 40vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55);
+  padding: 12px 14px;
+}
+#status-overlay.active { display: block; }
+#status-overlay.ok { border-color: var(--ok); }
+#status-overlay.err { border-color: var(--danger); }
+#status-overlay .open-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px; font-size: 13px; font-weight: 600;
+}
+#status-overlay .status-overlay-body {
+  margin: 0; font-size: 12px; line-height: 1.45;
+  white-space: pre-wrap; font-family: inherit; color: var(--text);
+}
+#status-overlay.ok .status-overlay-body { color: var(--ok); }
+#status-overlay.err .status-overlay-body { color: var(--danger); }
 .tabs {
   display: flex; gap: 2px; align-items: center; padding: 8px 16px 0; background: var(--bg);
   border-bottom: 1px solid var(--border); min-height: 40px; box-sizing: border-box;
@@ -1437,7 +1480,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     <button type="button" id="btn-dirty-cancel">Cancel</button>
   </div>
 </div>
-<div id="status">Ready</div>
+<div id="status-overlay" role="dialog" aria-label="Full status message" aria-hidden="true">
+  <div class="open-head">
+    <span>Status</span>
+    <button type="button" id="btn-status-close" title="Close">Close</button>
+  </div>
+  <pre id="status-overlay-body" class="status-overlay-body"></pre>
+</div>
+<div id="status-bar">
+  <div id="status">Ready</div>
+  <button type="button" id="status-more" title="Show full message" aria-hidden="true">Show more</button>
+</div>
 <div class="tabs" role="tablist">
   <button type="button" data-tab="layout" id="tab-layout" class="hidden">Layout</button>
   <button type="button" class="active" data-tab="nodes">Nodes</button>
@@ -1575,14 +1628,68 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   var nodeEdit = null;
   var singleEdit = null;
   var pendingDirtyAction = null;
+  var statusKind = "";
 
   function $(id) { return document.getElementById(id); }
 
+  function isStatusOverlayActive() {
+    var panel = $("status-overlay");
+    return !!(panel && panel.classList.contains("active"));
+  }
+
+  function closeStatusOverlay() {
+    var panel = $("status-overlay");
+    if (!panel) return;
+    panel.classList.remove("active");
+    panel.setAttribute("aria-hidden", "true");
+  }
+
+  function openStatusOverlay() {
+    var el = $("status");
+    var bar = $("status-bar");
+    var panel = $("status-overlay");
+    var body = $("status-overlay-body");
+    if (!el || !panel || !body) return;
+    if (!bar || !bar.classList.contains("status-clipped")) return;
+    body.textContent = el.title || el.textContent || "";
+    panel.classList.remove("ok", "err");
+    if (statusKind === "ok" || statusKind === "err") panel.classList.add(statusKind);
+    panel.classList.add("active");
+    panel.setAttribute("aria-hidden", "false");
+  }
+
+  function measureStatusClip() {
+    var el = $("status");
+    var bar = $("status-bar");
+    var more = $("status-more");
+    if (!el || !bar) return;
+    var clipped = el.scrollHeight > el.clientHeight + 1;
+    if (clipped) {
+      el.classList.add("status-clipped");
+      bar.classList.add("status-clipped");
+      if (more) more.setAttribute("aria-hidden", "false");
+    } else {
+      el.classList.remove("status-clipped");
+      bar.classList.remove("status-clipped");
+      if (more) more.setAttribute("aria-hidden", "true");
+      closeStatusOverlay();
+    }
+  }
+
   function setStatus(msg, kind) {
     var el = $("status");
+    statusKind = kind || "";
     el.textContent = msg || "";
     el.title = msg || "";
-    el.className = kind || "";
+    el.className = statusKind;
+    var bar = $("status-bar");
+    if (bar) bar.classList.remove("status-clipped");
+    var more = $("status-more");
+    if (more) more.setAttribute("aria-hidden", "true");
+    closeStatusOverlay();
+    requestAnimationFrame(function () {
+      requestAnimationFrame(measureStatusClip);
+    });
   }
 
   function clone(obj) {
@@ -4380,6 +4487,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     }
   });
   document.addEventListener("mousedown", function (ev) {
+    if (isStatusOverlayActive()) {
+      var statusPanel = $("status-overlay");
+      var statusBar = $("status-bar");
+      if (statusPanel && !statusPanel.contains(ev.target) &&
+          !(statusBar && statusBar.contains(ev.target))) {
+        closeStatusOverlay();
+      }
+    }
     if (isDirtyPanelActive()) {
       var dirtyPanel = $("dirty-panel");
       if (dirtyPanel && !dirtyPanel.contains(ev.target)) return;
@@ -4389,6 +4504,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var openBtn = $("btn-open");
     if (panel.contains(ev.target) || (openBtn && openBtn.contains(ev.target))) return;
     closeOpenPanel();
+  });
+
+  $("btn-status-close").addEventListener("click", closeStatusOverlay);
+  $("status").addEventListener("click", function () {
+    if ($("status-bar") && $("status-bar").classList.contains("status-clipped")) {
+      openStatusOverlay();
+    }
+  });
+  $("status-more").addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    openStatusOverlay();
+  });
+  window.addEventListener("resize", function () {
+    if ($("status") && ($("status").textContent || "")) measureStatusClip();
   });
 
   $("btn-dirty-close").addEventListener("click", closeDirtyPanel);
@@ -4544,6 +4673,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   $("raw-editor").addEventListener("blur", function () {
     if (state.rawDirty) applyRaw(true);
   });
+
+  // Capture-phase: status overlay Esc wins over connect/reroute/node-edit handlers.
+  document.addEventListener("keydown", function (ev) {
+    if ((ev.key === "Escape" || ev.key === "Esc") && isStatusOverlayActive()) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeStatusOverlay();
+    }
+  }, true);
 
   document.addEventListener("keydown", function (ev) {
     var tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : "";
