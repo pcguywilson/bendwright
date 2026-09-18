@@ -121,6 +121,10 @@ schema for the full contract.
 
 ![Edit a label](gifs/edit-label.gif)
 
+**Edit an edge label** - double-click the edge (its line, not the floating text) to rename the connection's label.
+
+![Edit an edge label](gifs/edit-edge-label.gif)
+
 **Duplicate and delete** - clone a node, then remove it.
 
 ![Duplicate and delete](gifs/duplicate-delete.gif)
