@@ -1009,19 +1009,26 @@ button.danger { border-color: var(--danger); color: var(--danger); }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 #status {
   font-size: 12px; padding: 6px 16px; border-bottom: 1px solid var(--border);
-  min-height: 28px; color: var(--muted); white-space: pre-wrap;
+  height: 44px; box-sizing: border-box; overflow: hidden;
+  color: var(--muted); white-space: pre-wrap;
 }
 #status.ok { color: var(--ok); }
 #status.err { color: var(--danger); }
 .tabs {
-  display: flex; gap: 2px; padding: 8px 16px 0; background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  display: flex; gap: 2px; align-items: center; padding: 8px 16px 0; background: var(--bg);
+  border-bottom: 1px solid var(--border); min-height: 40px; box-sizing: border-box;
 }
 .tabs button {
   border-radius: 6px 6px 0 0; border-bottom: none;
-  background: var(--tab); padding: 8px 14px;
+  background: var(--tab); padding: 8px 14px; flex-shrink: 0;
 }
 .tabs button.active { background: var(--panel); color: #fff; border-color: var(--border); }
+#layout-hint {
+  flex: 1; min-width: 0; margin-left: auto;
+  font-size: 12px; color: var(--muted);
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 4px 8px; border-radius: 4px; box-sizing: border-box;
+}
 main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 .pane { display: none; flex: 1; overflow: hidden; }
 .pane.active { display: flex; }
@@ -1169,9 +1176,7 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 #layout-hint.layout-hint-active {
   color: var(--accent);
   background: #1a2332;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  padding: 4px 8px;
+  box-shadow: inset 0 0 0 1px var(--accent);
   font-weight: 600;
 }
 .tabs button.hidden { display: none; }
@@ -1266,6 +1271,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   <button type="button" data-tab="edges">Edges</button>
   <button type="button" data-tab="lanes">Lanes</button>
   <button type="button" data-tab="raw">Raw JSON</button>
+  <span id="layout-hint" title="Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use + Connection to add edges.">Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use + Connection to add edges.</span>
 </div>
 <main>
   <div class="pane" id="pane-layout">
@@ -1281,7 +1287,6 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         </div>
         <button type="button" id="btn-add-node" title="Add node at first free cell">+ Node</button>
         <button type="button" id="btn-delete-edge" disabled title="Delete selected edge">Delete edge</button>
-        <span id="layout-hint">Drag a node; drop snaps to nearest lane + column, then saves. Use + Connection to add edges.</span>
         <div id="layout-zoom-controls">
           <button type="button" id="btn-zoom-fit" title="Fit to window">Fit</button>
           <button type="button" id="btn-zoom-out" title="Zoom out">−</button>
@@ -1403,6 +1408,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   function setStatus(msg, kind) {
     var el = $("status");
     el.textContent = msg || "";
+    el.title = msg || "";
     el.className = kind || "";
   }
 
@@ -1923,15 +1929,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   function updateLayoutHint() {
     var hint = $("layout-hint");
     if (!hint) return;
+    var text;
     if (state.layoutMode === "connect") {
       hint.classList.add("layout-hint-active");
-      hint.textContent = state.connectFrom
+      text = state.connectFrom
         ? ("Source " + state.connectFrom + " → click a target to connect. Click an edge to select/delete. Drag endpoints to reroute. Esc cancels.")
         : "Click a source node, then a target to connect. Click an edge to select/delete. Drag endpoints to reroute. Esc cancels.";
     } else {
       hint.classList.remove("layout-hint-active");
-      hint.textContent = "Move mode: drag node; dblclick node/edge/lane-header to edit labels. Click an edge to select. Use + Connection to add edges.";
+      text = "Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use + Connection to add edges.";
     }
+    hint.textContent = text;
+    hint.title = text;
   }
 
   function clearConnectFrom() {
@@ -3675,7 +3684,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     ) {
       stash = stashLayoutViewport();
     }
-    $("layout-hint").textContent = "Loading diagram…";
+    var hintLoading = $("layout-hint");
+    if (hintLoading) {
+      hintLoading.textContent = "Loading diagram…";
+      hintLoading.title = "Loading diagram…";
+    }
     return Promise.all([
       fetch("/api/diagram").then(function (r) {
         if (r.status === 404) return r.json().then(function (j) { throw new Error(j.error || "diagram unavailable"); });
@@ -3718,8 +3731,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         });
       })
       .catch(function (e) {
-        $("layout-hint").textContent = "Layout unavailable: " + e.message;
-        setStatus("Layout unavailable: " + e.message, "err");
+        var hintErr = $("layout-hint");
+        var msg = "Layout unavailable: " + e.message;
+        if (hintErr) {
+          hintErr.textContent = msg;
+          hintErr.title = msg;
+        }
+        setStatus(msg, "err");
       });
   }
 
