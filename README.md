@@ -1,14 +1,26 @@
 # bendwright
 
-A local, offline editor for [Archify](https://github.com/tt-a1i/archify) workflow-diagram IR JSON.
+**The visual JSON editor nobody asked for.**
 
-bendwright edits the JSON that describes a workflow diagram; Archify renders it.
-The JSON is always the source of truth. bendwright never edits rendered HTML or
-SVG, so your diagram stays clean and reproducible.
+bendwright is a local, offline editor for [Archify](https://github.com/tt-a1i/archify)
+workflow-diagram JSON. You bring a workflow JSON that already renders in Archify, and
+bendwright lets you move nodes, rewire connections, and fix labels directly, then hands
+the JSON back for Archify to render. The JSON stays the source of truth. bendwright
+never touches the rendered HTML or SVG.
 
-It is a single Python file with no third-party dependencies. It runs a small
-loopback web server on `127.0.0.1` and opens the editor in your browser. Nothing
-leaves your machine.
+**Bring your own Archify JSON.** This edits Archify's workflow IR, not arbitrary JSON.
+Point it at a `.workflow.json` that already works with Archify, make your edits, and save.
+
+## Why this exists
+
+I kept asking an AI to make small changes to an Archify diagram. Move one node, reroute
+one arrow, fix a label. Every round it regenerated the whole thing and handed back a
+diagram worse than the one I started with. bendwright is the boring fix: open the JSON,
+change exactly what you meant to change, and nothing else.
+
+It is a single Python file with no third-party dependencies. It runs a small loopback
+web server on `127.0.0.1` and opens the editor in your browser. Nothing leaves your
+machine.
 
 ## Features
 
