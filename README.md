@@ -36,6 +36,7 @@ machine.
   **Save**. Undo/redo, **Discard** (reload from disk), and an unsaved-changes
   warning are all included.
 - **Lossless save** - key order, formatting, and trailing newline are preserved.
+- **Export HTML** - one click saves the JSON and writes the rendered `.html` (via Archify) right next to it, always in sync. No CLI needed.
 - **Native file picker** - open a diagram through your OS file dialog.
 - **Auto-shutdown** - close the browser and the server (and its console window)
   shut down on their own a few seconds later.
@@ -91,6 +92,9 @@ python bendwright.py diagram.workflow.json --port 8770 --archify /path/to/archif
 
 A sample diagram, `bendwright.example.workflow.json`, is included, so you can launch
 and click Open to try it right away.
+
+To get the rendered diagram, click **Export HTML** in the toolbar. bendwright saves
+your JSON and writes `<name>.html` next to it, ready to open or share.
 
 ## The IR format
 

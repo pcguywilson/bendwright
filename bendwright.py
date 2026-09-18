@@ -496,6 +496,86 @@ def deliver_preview(archify: str, diagram_type: str, ir_path: Path) -> tuple[byt
             pass
 
 
+def export_html_path(ir_path: Path) -> Path:
+    """Sibling .html path: strip .workflow.json else .json, then + .html."""
+    name = ir_path.name
+    if name.endswith(".workflow.json"):
+        stem = name[: -len(".workflow.json")]
+    elif name.endswith(".json"):
+        stem = name[: -len(".json")]
+    else:
+        stem = ir_path.stem
+    return ir_path.parent / f"{stem}.html"
+
+
+def format_deliver_errors(receipt: dict[str, Any] | None, stderr: str) -> list[str]:
+    """Human-readable errors from a failed deliver --json receipt."""
+    if receipt is None or not isinstance(receipt, dict):
+        tail = (stderr or "").strip()
+        if len(tail) > 800:
+            tail = tail[-800:]
+        msg = "deliver output not JSON"
+        if tail:
+            msg = f"{msg}: {tail}"
+        return [msg]
+    errors: list[str] = []
+    diags = receipt.get("diagnostics")
+    if isinstance(diags, list) and diags:
+        first = diags[0]
+        if isinstance(first, dict):
+            message = first.get("message")
+            if message:
+                errors.append(str(message))
+        errors.append(f"diagnostics: {len(diags)}")
+    err = receipt.get("error")
+    if isinstance(err, str) and err.strip() and not errors:
+        errors.append(err.strip().splitlines()[0])
+    if not errors:
+        errors.append("deliver failed")
+    return errors
+
+
+def deliver_to_path(
+    archify: str, diagram_type: str, ir_path: Path, out_path: Path
+) -> dict[str, Any]:
+    """Deliver IR to out_path via sibling tmp + os.replace. No lock around subprocess.
+
+    On failure leaves any prior out_path untouched. Returns
+    {ok, output, note?} or {ok:false, errors}.
+    """
+    parent = out_path.parent
+    # Archify requires the deliver target to end in .html (rejects bare .tmp).
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{out_path.stem}.", suffix=".html", dir=str(parent)
+    )
+    os.close(fd)
+    try:
+        parsed, _stdout, stderr = run_archify(
+            archify,
+            ["deliver", diagram_type, str(ir_path), tmp_name, "--json"],
+        )
+        if not isinstance(parsed, dict) or not parsed.get("ok", False):
+            return {
+                "ok": False,
+                "errors": format_deliver_errors(
+                    parsed if isinstance(parsed, dict) else None, stderr
+                ),
+            }
+        os.replace(tmp_name, out_path)
+        receipt: dict[str, Any] = {"ok": True, "output": str(out_path)}
+        note = parsed.get("note") if isinstance(parsed, dict) else None
+        if isinstance(note, str) and note.strip():
+            receipt["note"] = note.strip()
+        return receipt
+    except OSError as e:
+        return {"ok": False, "errors": [f"export write failed: {e}"]}
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+
+
 def extract_diagram_html(preview: bytes) -> bytes | None:
     """Build a minimal same-origin diagram doc: page <style> blocks + <svg>, no scripts."""
     svg_m = _SVG_RE.search(preview)
@@ -709,6 +789,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/preview":
                 self._handle_preview()
                 return
+            if path == "/api/export":
+                self._handle_export()
+                return
             if path != "/api/save":
                 self._send_json(404, {"ok": False, "error": "not found"})
                 return
@@ -791,6 +874,71 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, receipt)
         finally:
             _end_request()
+
+    def _handle_export(self) -> None:
+        """Ensure-saved-then-export sibling .html (M19). Lock off archify subprocess."""
+        global _doc
+
+        with _state_lock:
+            if _file_path is None:
+                self._send_json(200, {"ok": False, "errors": ["no file open"]})
+                return
+            if _archify_path is None:
+                self._send_json(
+                    200,
+                    {
+                        "ok": False,
+                        "errors": ["archify not available; cannot render HTML"],
+                    },
+                )
+                return
+            archify = _archify_path
+            trailing = _had_trailing_newline
+            dtype = _diagram_type
+            target = _file_path
+
+        length = int(self.headers.get("Content-Length") or "0")
+        raw = self.rfile.read(length) if length else b""
+        # Dirty path: client sends the IR doc; clean path: empty / {} -> deliver from disk.
+        stripped = raw.strip()
+        if stripped and stripped != b"{}":
+            try:
+                candidate = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                self._send_json(
+                    200, {"ok": False, "errors": [f"invalid JSON body: {e}"]}
+                )
+                return
+            if not isinstance(candidate, dict):
+                self._send_json(
+                    200, {"ok": False, "errors": ["body must be a JSON object"]}
+                )
+                return
+            errors = structural_check(candidate)
+            if errors:
+                self._send_json(200, {"ok": False, "errors": errors})
+                return
+            ok_v, v_errors = validate_candidate(archify, dtype, candidate, trailing)
+            if not ok_v:
+                self._send_json(200, {"ok": False, "errors": v_errors})
+                return
+            with _state_lock:
+                if _file_path is None:
+                    self._send_json(200, {"ok": False, "errors": ["no file open"]})
+                    return
+                try:
+                    atomic_write(target, candidate, trailing)
+                except OSError as e:
+                    self._send_json(
+                        200, {"ok": False, "errors": [f"write failed: {e}"]}
+                    )
+                    return
+                _doc = candidate
+
+        out_path = export_html_path(target)
+        # Lock OFF during deliver (same as save/preview).
+        receipt = deliver_to_path(archify, dtype, target, out_path)
+        self._send_json(200, receipt)
 
     def _handle_preview(self) -> None:
         """Validate + deliver from a temp candidate; never write the real file (M13)."""
@@ -1258,6 +1406,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     <button type="button" id="btn-redo" title="Ctrl+Y">Redo</button>
     <button type="button" id="btn-discard" title="Reload from disk" disabled>Discard</button>
     <button type="button" class="primary" id="btn-save" title="Ctrl+S">Save</button>
+    <button type="button" id="btn-export" title="Export rendered HTML beside the JSON" disabled>Export HTML</button>
   </div>
 </header>
 <div id="open-panel" aria-hidden="true">
@@ -1450,6 +1599,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var meta = $("file-meta");
     var saveBtn = $("btn-save");
     var discardBtn = $("btn-discard");
+    var exportBtn = $("btn-export");
     var addBtn = $("btn-add-node");
     if (!state.file) {
       if (meta) meta.textContent = "No file open";
@@ -1459,6 +1609,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         saveBtn.disabled = true;
       }
       if (discardBtn) discardBtn.disabled = true;
+      if (exportBtn) {
+        exportBtn.disabled = true;
+        exportBtn.title = "open a file first";
+      }
       if (addBtn) addBtn.disabled = true;
       return;
     }
@@ -1474,6 +1628,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       saveBtn.classList.toggle("dirty-emphasis", !!state.dirty);
     }
     if (discardBtn) discardBtn.disabled = !state.dirty || !!state.layoutBusy;
+    if (exportBtn) {
+      if (state.archify) {
+        exportBtn.disabled = false;
+        exportBtn.title = "Export rendered HTML beside the JSON";
+      } else {
+        exportBtn.disabled = true;
+        exportBtn.title = "archify not available; cannot render HTML";
+      }
+    }
     if (addBtn) addBtn.disabled = !state.doc || !!state.layoutBusy;
   }
 
@@ -3894,6 +4057,45 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       });
   }
 
+  function exportHtml() {
+    if (!state.file || !state.doc) {
+      setStatus("Export: open a file first", "err");
+      return Promise.resolve(false);
+    }
+    if (!state.archify) {
+      setStatus("archify not available; cannot render HTML", "err");
+      return Promise.resolve(false);
+    }
+    if (state.tab === "raw" && state.rawDirty) {
+      if (!applyRaw(false)) return Promise.resolve(false);
+    }
+    setStatus("Exporting…", "");
+    var needSave = !!(state.dirty || state.rawDirty);
+    var opts = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: needSave ? JSON.stringify(state.doc) : "{}",
+    };
+    return fetch("/api/export", opts)
+      .then(function (r) { return r.json(); })
+      .then(function (receipt) {
+        if (receipt.ok && receipt.output) {
+          if (needSave) clearDirty();
+          var msg = "Exported " + receipt.output;
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return true;
+        }
+        var errs = receipt.errors || [receipt.error || "export failed"];
+        setStatus(errs.join("\n"), "err");
+        return false;
+      })
+      .catch(function (e) {
+        setStatus("Export request failed: " + e, "err");
+        return false;
+      });
+  }
+
   function loadState() {
     return fetch("/api/state")
       .then(function (r) { return r.json(); })
@@ -4211,6 +4413,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   });
 
   $("btn-save").addEventListener("click", save);
+  $("btn-export").addEventListener("click", function () {
+    if ($("btn-export").disabled) return;
+    exportHtml();
+  });
   $("btn-discard").addEventListener("click", function () {
     if (!state.dirty || state.layoutBusy) return;
     discardChanges();
