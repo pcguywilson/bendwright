@@ -109,7 +109,7 @@ schema for the full contract.
 
 ![Move a node](gifs/move-node.gif)
 
-**Add a connection** - switch to **+ Connection**, click a source node, then a target.
+**Add a connection** - switch to **Connect / Edit**, click a source node, then a target.
 
 ![Add a connection](gifs/add-connection.gif)
 

@@ -1497,7 +1497,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   <button type="button" data-tab="edges">Edges</button>
   <button type="button" data-tab="lanes">Lanes</button>
   <button type="button" data-tab="raw">Raw JSON</button>
-  <span id="layout-hint" title="Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use + Connection to add edges.">Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use + Connection to add edges.</span>
+  <span id="layout-hint" title="Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use Connect / Edit to add or change connections.">Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use Connect / Edit to add or change connections.</span>
 </div>
 <main>
   <div class="pane" id="pane-layout">
@@ -1505,7 +1505,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       <div id="layout-toolbar">
         <div id="layout-mode-toggle">
           <button type="button" id="btn-mode-move" class="mode-active" title="Move nodes / rename">Move</button>
-          <button type="button" id="btn-mode-connect" title="Add an edge: click source node, then target. Drag endpoints to reroute.">+ Connection</button>
+          <button type="button" id="btn-mode-connect" title="Connect / edit: click a source node then a target to add; drag endpoints to reroute; click an edge to select or delete.">Connect / Edit</button>
         </div>
         <div id="layout-quality-toggle" title="meta.quality_profile (Archify default: standard)">
           <button type="button" id="btn-quality-standard" class="mode-active">standard</button>
@@ -2231,7 +2231,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         : "Click a source node, then a target to connect. Click an edge to select/delete. Drag endpoints to reroute. Esc cancels.";
     } else {
       hint.classList.remove("layout-hint-active");
-      text = "Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use + Connection to add edges.";
+      text = "Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use Connect / Edit to add or change connections.";
     }
     hint.textContent = text;
     hint.title = text;
