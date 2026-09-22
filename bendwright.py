@@ -1659,6 +1659,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     selectedEdgeIndex: null,
   };
 
+  // Server preview cache lags the buffer after form/raw edits until a deliver.
+  var previewStale = false;
+
   var MAX_HISTORY = 100;
   var LAYOUT_DRAG_THRESHOLD_PX = 4;
   var LAYOUT_LANE_HIT_H = 26;
@@ -2180,7 +2183,50 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       $("pane-" + panes[j]).classList.toggle("active", panes[j] === tab);
     }
     if (tab === "raw") renderRaw();
-    if (tab === "layout") loadLayoutPane(false);
+    if (tab === "layout") enterLayoutTab();
+  }
+
+  function showPreviewFailedHint() {
+    var hint = $("layout-hint");
+    var text = "Diagram not updated - preview failed; fix the highlighted fields";
+    if (!hint) return;
+    hint.textContent = text;
+    hint.title = text;
+  }
+
+  function enterLayoutTab() {
+    if (!(previewStale && state.archify && state.doc)) {
+      loadLayoutPane(false);
+      return;
+    }
+    // Rapid double-switch must not start a second deliver.
+    if (state.layoutBusy) return;
+    var sent = JSON.stringify(state.doc);
+    setLayoutBusy(true);
+    setStatus("previewing…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          if (sent === JSON.stringify(state.doc)) previewStale = false;
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        setLayoutBusy(false);
+        if (sent === JSON.stringify(state.doc)) previewStale = true;
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Diagram not updated - preview failed:\n- " + errs.join("\n- "), "err");
+        showPreviewFailedHint();
+      })
+      .catch(function (e) {
+        setLayoutBusy(false);
+        if (sent === JSON.stringify(state.doc)) previewStale = true;
+        if (!(e && e.bendwrightOffline)) {
+          setStatus("Preview failed: " + e, "err");
+        }
+        showPreviewFailedHint();
+      });
   }
 
   function clientToSvg(svg, clientX, clientY) {
@@ -2442,11 +2488,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function postPreviewDoc() {
+    var payload = JSON.stringify(state.doc);
     return apiFetch("/api/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state.doc),
-    }).then(function (r) { return r.json(); });
+      body: payload,
+    }).then(function (r) { return r.json(); })
+      .then(function (receipt) {
+        // Only drop the flag when this deliver still matches the buffer.
+        if (receipt && receipt.ok && payload === JSON.stringify(state.doc)) {
+          previewStale = false;
+        }
+        return receipt;
+      });
   }
 
   function revertHistoryPush() {
@@ -4122,6 +4176,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.doc[kind].push(item);
     state.selected[kind] = state.doc[kind].length - 1;
     state.rawDirty = false;
+    previewStale = true;
     markDirty();
     renderAll();
   }
@@ -4133,6 +4188,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.doc[kind].splice(idx, 1);
     state.selected[kind] = Math.min(idx, state.doc[kind].length - 1);
     state.rawDirty = false;
+    previewStale = true;
     markDirty();
     renderAll();
   }
@@ -4159,6 +4215,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       item[field] = val;
     }
     state.rawDirty = false;
+    previewStale = true;
     markDirty();
     renderLists();
     // keep form focus-friendly: re-render list only; refresh raw later
@@ -4182,6 +4239,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       state.doc = parsed;
       ensureArrays();
       state.rawDirty = false;
+      previewStale = true;
       state.selected = { nodes: -1, edges: -1, lanes: -1 };
       syncDirtyFromDoc();
       renderAll();
@@ -4211,6 +4269,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       .then(function (receipt) {
         if (receipt.ok && receipt.saved) {
           clearDirty();
+          // A deliver note means the in-app cache was not replaced.
+          if (!state.archify || receipt.preview) previewStale = false;
           var msg = receipt.preview ? "Saved (validated + preview updated)" : "Saved (structural check passed)";
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
@@ -4254,6 +4314,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       .then(function (receipt) {
         if (receipt.ok && receipt.output) {
           if (needSave) clearDirty();
+          // Export writes the sibling file only; /api/diagram is unchanged.
           var msg = "Exported " + receipt.output;
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
@@ -4388,6 +4449,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.layoutLoaded = false;
     state.layoutZoom = null;
     state.layoutBusy = false;
+    previewStale = false;
     if (state.doc) ensureArrays();
     clearDirty();
     showLayoutTabIfReady();
