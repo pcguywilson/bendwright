@@ -3643,35 +3643,34 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function firstFreeCell() {
+    // Columns are 0..5 per the Archify schema. Return the first free (lane, col)
+    // within that range, or null when every cell is occupied (grid full).
     var lanes = (state.doc && state.doc.lanes) || [];
     var occupied = occupiedCells();
-    var maxCol = 5;
-    var cols = (state.layout && state.layout.columns) || [];
-    if (cols.length) maxCol = Math.max(maxCol, cols.length - 1);
-    var nodes = (state.doc && state.doc.nodes) || [];
-    for (var ni = 0; ni < nodes.length; ni++) {
-      var c = nodes[ni] && nodes[ni].col;
-      if (typeof c === "number" && c > maxCol) maxCol = c;
-    }
     for (var li = 0; li < lanes.length; li++) {
       var lid = lanes[li].id;
       if (lid == null || lid === "") continue;
-      for (var col = 0; col <= maxCol; col++) {
+      for (var col = 0; col <= 5; col++) {
         if (!occupied[String(lid) + "\0" + String(col)]) {
           return { lane: lid, col: col };
         }
       }
     }
-    var lane0 = (lanes[0] && lanes[0].id) || "lane1";
-    return { lane: lane0, col: maxCol + 1 };
+    return null;
   }
 
   function adjacentFreeCell(node) {
     var occupied = occupiedCells();
     var preferLane = node && node.lane != null ? node.lane : ((state.doc.lanes[0] && state.doc.lanes[0].id) || "lane1");
-    var preferCol = (node && typeof node.col === "number" ? node.col : 0) + 1;
-    if (!occupied[String(preferLane) + "\0" + String(preferCol)]) {
-      return { lane: preferLane, col: preferCol };
+    var baseCol = (node && typeof node.col === "number" ? node.col : 0);
+    // Prefer the cell to the right, then the left, staying within columns 0..5.
+    var tryCols = [baseCol + 1, baseCol - 1];
+    for (var i = 0; i < tryCols.length; i++) {
+      var c = tryCols[i];
+      if (c < 0 || c > 5) continue;
+      if (!occupied[String(preferLane) + "\0" + String(c)]) {
+        return { lane: preferLane, col: c };
+      }
     }
     return firstFreeCell();
   }
@@ -3723,6 +3722,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       return;
     }
     var cell = firstFreeCell();
+    if (!cell) {
+      setStatus("No free cell to add a node - columns 0-5 are full in every lane. Delete a node or add a lane, then try again.", "err");
+      return;
+    }
     var id = uniqueNodeId("node");
     var item = {
       id: id,
@@ -3779,6 +3782,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     hideNodeEditor();
     ensureArrays();
     var cell = adjacentFreeCell(source);
+    if (!cell) {
+      setStatus("No free cell for the copy - columns 0-5 are full in every lane. Delete a node or add a lane, then try again.", "err");
+      return;
+    }
     var newId = uniqueCopyId(source.id || "node");
     var cloneNode = clone(source);
     cloneNode.id = newId;
