@@ -93,6 +93,9 @@ python bendwright.py diagram.workflow.json --port 8770 --archify /path/to/archif
 A sample diagram, `bendwright.example.workflow.json`, is included, so you can launch
 and click Open to try it right away.
 
+bendwright shuts its own server down a few seconds after you close the browser. If you
+want it to stay running while you step away for a long time, launch with `--keep-alive`.
+
 To get the rendered diagram, click **Export HTML** in the toolbar. bendwright saves
 your JSON and writes `<name>.html` next to it, ready to open or share.
 

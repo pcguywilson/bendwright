@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -69,34 +70,31 @@ _archify_path: str | None = None
 _preview_html: bytes | None = None
 _diagram_html: bytes | None = None
 
-# M16/M18: idle auto-shutdown (close browser -> heartbeats stop -> server exits)
-IDLE_TIMEOUT = 30.0
-_last_seen: float = time.monotonic()
-_client_seen: bool = False
+# M18: short-request inflight accounting. Not a shutdown signal (M22 uses SSE presence).
 _httpd: ThreadingHTTPServer | None = None
 _inflight: int = 0
 _inflight_lock = threading.Lock()
 
-
-def touch_seen() -> None:
-    """Mark client activity so the idle watchdog does not shut down mid-request."""
-    global _last_seen, _client_seen
-    _last_seen = time.monotonic()
-    _client_seen = True
+# M22: one held /api/alive SSE per tab. Auto-exit only after the last one drops.
+ALIVE_KEEPALIVE_S = 5.0
+ALIVE_GRACE_S = 25.0
+_alive: int = 0
+_alive_lock = threading.Lock()
+_alive_seen: bool = False
+_last_zero_ts: float | None = None
+_auto_exit: bool = True
 
 
 def _begin_request() -> None:
-    """Enter a request: arm inflight + refresh idle (M18)."""
+    """Enter a short request. Inflight does not affect M22 shutdown."""
     global _inflight
     with _inflight_lock:
         _inflight += 1
-    touch_seen()
 
 
 def _end_request() -> None:
-    """Leave a request: refresh idle on completion, then drop inflight (M18)."""
+    """Leave a short request."""
     global _inflight
-    touch_seen()
     with _inflight_lock:
         _inflight -= 1
 
@@ -698,11 +696,58 @@ class Handler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             return None, f"invalid JSON body: {e}"
 
+    def _handle_alive(self) -> None:
+        """SSE presence. Held open while the tab exists; not an inflight request."""
+        global _alive, _alive_seen, _last_zero_ts
+        self.close_connection = True
+        try:
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "close")
+            self.end_headers()
+        except (
+            BrokenPipeError,
+            ConnectionResetError,
+            ConnectionAbortedError,
+            TimeoutError,
+            OSError,
+        ):
+            return
+        with _alive_lock:
+            _alive += 1
+            _alive_seen = True
+        try:
+            # Comment first so EventSource opens before the first sleep. No retry: field.
+            while True:
+                self.wfile.write(b":\n\n")
+                self.wfile.flush()
+                time.sleep(ALIVE_KEEPALIVE_S)
+        except (
+            BrokenPipeError,
+            ConnectionResetError,
+            ConnectionAbortedError,
+            TimeoutError,
+            OSError,
+        ):
+            return
+        finally:
+            with _alive_lock:
+                _alive -= 1
+                if _alive == 0:
+                    _last_zero_ts = time.monotonic()
+
     def do_GET(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path
+        if path == "/api/alive":
+            self._handle_alive()
+            return
         _begin_request()
         try:
-            parsed = urlparse(self.path)
-            path = parsed.path
             if path == "/":
                 html = SPA_HTML.encode("utf-8")
                 self._send(200, html, "text/html; charset=utf-8")
@@ -762,10 +807,6 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     return
                 self._send_json(200, layout)
-                return
-            if path == "/api/heartbeat":
-                # Idle-period keepalive; request enter/leave touches. Arms _client_seen.
-                self._send_json(200, {"ok": True})
                 return
             if path == "/api/state":
                 with _state_lock:
@@ -1676,11 +1717,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     }
   }
 
+  var SERVER_GONE_MSG = "bendwright server stopped responding - relaunch bendwright to continue (your saved file is safe).";
+
   function setStatus(msg, kind) {
+    var text = msg == null ? "" : String(msg);
+    if (/Failed to fetch/i.test(text)) {
+      text = SERVER_GONE_MSG;
+      kind = "err";
+    }
     var el = $("status");
     statusKind = kind || "";
-    el.textContent = msg || "";
-    el.title = msg || "";
+    el.textContent = text || "";
+    el.title = text || "";
     el.className = statusKind;
     var bar = $("status-bar");
     if (bar) bar.classList.remove("status-clipped");
@@ -1689,6 +1737,23 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     closeStatusOverlay();
     requestAnimationFrame(function () {
       requestAnimationFrame(measureStatusClip);
+    });
+  }
+
+  function isServerGoneError(e) {
+    if (!e) return false;
+    if (e.bendwrightOffline) return true;
+    var msg = String(e.message || e);
+    return /Failed to fetch|NetworkError when attempting to fetch|Load failed/i.test(msg);
+  }
+
+  function apiFetch(url, opts) {
+    return window["fetch"](url, opts).catch(function (e) {
+      if (!isServerGoneError(e)) throw e;
+      var gone = new TypeError("Failed to fetch");
+      gone.bendwrightOffline = true;
+      setStatus(SERVER_GONE_MSG, "err");
+      throw gone;
     });
   }
 
@@ -2377,7 +2442,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function postPreviewDoc() {
-    return fetch("/api/preview", {
+    return apiFetch("/api/preview", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state.doc),
@@ -3984,12 +4049,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       hintLoading.title = "Loading diagram…";
     }
     return Promise.all([
-      fetch("/api/diagram").then(function (r) {
+      apiFetch("/api/diagram").then(function (r) {
         if (r.status === 404) return r.json().then(function (j) { throw new Error(j.error || "diagram unavailable"); });
         if (!r.ok) throw new Error("diagram HTTP " + r.status);
         return r.text();
       }),
-      fetch("/api/layout").then(function (r) {
+      apiFetch("/api/layout").then(function (r) {
         return r.json().then(function (j) {
           if (r.status === 404 || j.archify === false) throw new Error("archify unavailable");
           if (j.ok === false) throw new Error(j.error || "layout failed");
@@ -4026,7 +4091,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       })
       .catch(function (e) {
         var hintErr = $("layout-hint");
-        var msg = "Layout unavailable: " + e.message;
+        var offline = !!(e && (e.bendwrightOffline || /Failed to fetch/i.test(String(e.message || e))));
+        var msg = offline ? SERVER_GONE_MSG : ("Layout unavailable: " + e.message);
         if (hintErr) {
           hintErr.textContent = msg;
           hintErr.title = msg;
@@ -4136,7 +4202,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       if (!applyRaw(false)) return Promise.resolve(false);
     }
     setStatus("Saving…", "");
-    return fetch("/api/save", {
+    return apiFetch("/api/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state.doc),
@@ -4183,7 +4249,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       headers: { "Content-Type": "application/json" },
       body: needSave ? JSON.stringify(state.doc) : "{}",
     };
-    return fetch("/api/export", opts)
+    return apiFetch("/api/export", opts)
       .then(function (r) { return r.json(); })
       .then(function (receipt) {
         if (receipt.ok && receipt.output) {
@@ -4204,7 +4270,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function loadState() {
-    return fetch("/api/state")
+    return apiFetch("/api/state")
       .then(function (r) { return r.json(); })
       .then(function (data) {
         state.file = data.file || null;
@@ -4259,7 +4325,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       var browseBtn = $("btn-open-browse");
       if (browseBtn) browseBtn.disabled = true;
       setStatus("Opening file picker…", "");
-      return fetch("/api/pick", {
+      return apiFetch("/api/pick", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
@@ -4371,7 +4437,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       return Promise.resolve(false);
     }
     setStatus("Discarding unsaved changes…", "");
-    return fetch("/api/open", {
+    return apiFetch("/api/open", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: String(state.file) }),
@@ -4404,7 +4470,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var trimmed = String(path).trim();
     var doOpen = function () {
       $("btn-open-go").disabled = true;
-      return fetch("/api/open", {
+      return apiFetch("/api/open", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: trimmed }),
@@ -4560,12 +4626,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     ev.returnValue = "";
   });
 
-  // M16: keep server alive while any tab is open; no unload beacon (multi-tab safe).
-  function pingHeartbeat() {
-    fetch("/api/heartbeat").catch(function () {});
-  }
-  pingHeartbeat();
-  setInterval(pingHeartbeat, 2000);
+  // M22: one presence stream. Stays up while the tab exists (even hidden); auto-reconnects.
+  try {
+    window.__bendwrightAlive = new EventSource("/api/alive");
+  } catch (e) {}
 
   $("btn-mode-move").addEventListener("click", function () {
     setLayoutMode("move");
@@ -4795,19 +4859,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=8770,
         help="loopback port (default 8770)",
     )
+    p.add_argument(
+        "--keep-alive",
+        action="store_true",
+        help="disable auto-exit when the browser disconnects (SSE presence still served)",
+    )
     return p.parse_args(argv)
 
 
-def _idle_watchdog() -> None:
-    """Daemon: shut down server after IDLE_TIMEOUT with no client activity and no in-flight requests."""
+def _presence_watchdog() -> None:
+    """Shut down only after every /api/alive connection has been gone for GRACE.
+
+    Does not arm on GET / and never takes _state_lock. --keep-alive disables this.
+    """
     global _httpd
     while True:
         time.sleep(1.0)
-        if not _client_seen:
+        if not _auto_exit:
             continue
-        with _inflight_lock:
-            inflight = _inflight
-        if inflight == 0 and (time.monotonic() - _last_seen) > IDLE_TIMEOUT:
+        with _alive_lock:
+            seen = _alive_seen
+            active = _alive
+            zero_ts = _last_zero_ts
+        if not seen or active != 0 or zero_ts is None:
+            continue
+        if (time.monotonic() - zero_ts) > ALIVE_GRACE_S:
             httpd = _httpd
             if httpd is not None:
                 httpd.shutdown()
@@ -4815,7 +4891,7 @@ def _idle_watchdog() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    global _file_path, _diagram_type, _doc, _had_trailing_newline, _archify_path, _httpd
+    global _file_path, _diagram_type, _doc, _had_trailing_newline, _archify_path, _httpd, _auto_exit
 
     args = parse_args(argv)
     known = ", ".join(sorted(SUPPORTED_TYPES))
@@ -4911,14 +4987,18 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     url = f"http://127.0.0.1:{args.port}/"
+    _auto_exit = not args.keep_alive
+    if args.keep_alive:
+        print(f"[{APP}] auto-exit off (--keep-alive)", flush=True)
     try:
         webbrowser.open(url)
     except Exception:
         pass
 
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    server.daemon_threads = True
     _httpd = server
-    threading.Thread(target=_idle_watchdog, name="idle-watchdog", daemon=True).start()
+    threading.Thread(target=_presence_watchdog, name="presence-watchdog", daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
