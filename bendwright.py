@@ -1375,6 +1375,8 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   z-index: 30;
   margin: 0;
   min-width: 180px;
+  max-height: 60vh;
+  overflow-y: auto;
   background: var(--panel);
   color: var(--text);
   border: 2px solid var(--accent);
@@ -1392,18 +1394,41 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 #layout-single-editor .bw-ed-field label {
   font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em;
 }
-#layout-single-editor .bw-ed-field input {
+#layout-single-editor .bw-ed-field input,
+#layout-single-editor .bw-ed-field select {
   background: var(--input); color: var(--text); border: 1px solid var(--border);
   border-radius: 4px; padding: 5px 7px; font-size: 13px; font-family: inherit;
 }
-#layout-single-editor .bw-ed-field input:focus {
+#layout-single-editor .bw-ed-field input:focus,
+#layout-single-editor .bw-ed-field select:focus {
   outline: none; border-color: var(--focus);
+}
+#layout-single-editor .bw-ed-field select:disabled {
+  opacity: 0.65; cursor: not-allowed;
 }
 #layout-single-editor .bw-ed-actions {
   display: flex; align-items: center; gap: 10px; margin-top: 4px;
 }
 #layout-single-editor .bw-ed-actions .meta {
   font-size: 11px; color: var(--muted);
+}
+#layout-single-advanced {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+#layout-single-advanced[hidden] { display: none; }
+#layout-single-advanced summary {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+}
+#layout-single-advanced .field { max-width: none; margin-bottom: 8px; }
+#layout-single-advanced .field select:disabled {
+  opacity: 0.65; cursor: not-allowed;
 }
 #layout-toolbar {
   display: flex; gap: 8px; align-items: center; padding: 8px 12px;
@@ -1602,6 +1627,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
           <button type="button" class="primary" id="layout-single-save">Save</button>
           <span class="meta">Enter=save · Esc=cancel</span>
         </div>
+        <details id="layout-single-advanced" hidden>
+          <summary>Advanced</summary>
+          <div id="layout-single-advanced-body"></div>
+        </details>
       </div>
     </div>
   </div>
@@ -1671,6 +1700,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   var endpointDrag = null;
   var nodeEdit = null;
   var singleEdit = null;
+  // Session-only: next edge popup reopens Advanced if it was left open.
+  var edgeAdvancedOpen = false;
+  var suppressScrollCancel = false;
+  var scrollCancelToken = 0;
   var pendingDirtyAction = null;
   var statusKind = "";
 
@@ -2954,7 +2987,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       doc.addEventListener("keydown", onLayoutKeyDown);
       var scroll = doc.getElementById("bw-scroll");
       if (scroll) {
-        scroll.addEventListener("scroll", function () { cancelInlineEditors(); });
+        var baseLeft = scroll.scrollLeft;
+        var baseTop = scroll.scrollTop;
+        // Viewport restore can emit scroll after the edge popup is put back; ignore that.
+        scroll.addEventListener("scroll", function () {
+          if (suppressScrollCancel) {
+            baseLeft = scroll.scrollLeft;
+            baseTop = scroll.scrollTop;
+            return;
+          }
+          if (scroll.scrollLeft === baseLeft && scroll.scrollTop === baseTop) return;
+          baseLeft = scroll.scrollLeft;
+          baseTop = scroll.scrollTop;
+          cancelInlineEditors();
+        });
       }
     }
   }
@@ -3037,8 +3083,74 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var panel = $("layout-single-editor");
     if (!panel) return;
     panel.classList.remove("active");
+    panel.style.maxHeight = "";
     var input = $("layout-single-label");
     if (input) input.value = "";
+    var det = $("layout-single-advanced");
+    // Hide before closing so the toggle handler does not clear edgeAdvancedOpen.
+    if (det) det.hidden = true;
+    if (det) det.open = false;
+    var body = $("layout-single-advanced-body");
+    if (body) body.innerHTML = "";
+    var saveBtn = $("layout-single-save");
+    if (saveBtn) saveBtn.disabled = false;
+  }
+
+  function fillEdgeAdvanced(edge) {
+    var body = $("layout-single-advanced-body");
+    if (!body || !edge) return;
+    body.innerHTML =
+      nodeSelect("from", edge.from) +
+      nodeSelect("to", edge.to) +
+      fieldSelect("role", "edge.role", "role", edge.role) +
+      fieldSelect("variant", "edge.variant", "variant", edge.variant) +
+      fieldSelect("route", "edge.route", "route", edge.route) +
+      fieldSelect("fromSide", "edge.fromSide", "fromSide", edge.fromSide) +
+      fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide);
+    if (state.layoutBusy) setEdgeAdvancedDisabled(true);
+  }
+
+  function setEdgeAdvancedDisabled(disabled) {
+    var body = $("layout-single-advanced-body");
+    if (body) {
+      var sels = body.querySelectorAll("select");
+      for (var i = 0; i < sels.length; i++) sels[i].disabled = !!disabled;
+    }
+    var saveBtn = $("layout-single-save");
+    if (!saveBtn) return;
+    if (singleEdit && singleEdit.kind === "edge") saveBtn.disabled = !!disabled;
+    else if (!disabled) saveBtn.disabled = false;
+  }
+
+  function showEdgeAdvanced(edge) {
+    var det = $("layout-single-advanced");
+    if (!det) return;
+    det.hidden = false;
+    fillEdgeAdvanced(edge);
+    det.open = !!edgeAdvancedOpen;
+  }
+
+  function hideEdgeAdvanced() {
+    var det = $("layout-single-advanced");
+    if (det) {
+      det.hidden = true;
+      det.open = false;
+    }
+    var body = $("layout-single-advanced-body");
+    if (body) body.innerHTML = "";
+  }
+
+  function clampSingleEditorToWrap() {
+    var panel = $("layout-single-editor");
+    var wrap = $("layout-wrap");
+    if (!panel || !wrap || !panel.classList.contains("active")) return;
+    var room = wrap.clientHeight - 16;
+    if (room > 80) {
+      panel.style.maxHeight = Math.min(window.innerHeight * 0.6, room) + "px";
+    }
+    var top = parseFloat(panel.style.top) || 0;
+    var limit = wrap.clientHeight - panel.offsetHeight - 8;
+    if (top > limit) panel.style.top = Math.max(8, limit) + "px";
   }
 
   function cancelNodeEditor() {
@@ -3187,9 +3299,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var caption = $("layout-single-label-caption");
     if (!panel || !input) return;
     if (caption) caption.textContent = "Edge label";
-    panel.setAttribute("aria-label", "Edit edge label");
-    positionEditorPanel(panel, hitEl, 200);
+    panel.setAttribute("aria-label", "Edit edge");
+    positionEditorPanel(panel, hitEl, 260);
     input.value = edge.label != null ? String(edge.label) : "";
+    showEdgeAdvanced(edge);
     singleEdit = {
       kind: "edge",
       edgeIndex: idx,
@@ -3198,9 +3311,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       anchor: hitEl,
     };
     panel.classList.add("active");
+    clampSingleEditorToWrap();
     input.focus();
     input.select();
-    setStatus("Editing edge " + edge.from + " → " + edge.to + " label (empty clears)", "");
+    setStatus("Editing edge " + edge.from + " → " + edge.to + " (label: Enter/Save; Advanced applies immediately)", "");
   }
 
   function openLaneLabelEditor(hitEl) {
@@ -3215,6 +3329,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!panel || !input) return;
     if (caption) caption.textContent = "Lane label";
     panel.setAttribute("aria-label", "Edit lane label");
+    hideEdgeAdvanced();
     positionEditorPanel(panel, hitEl, 200);
     input.value = lane.label != null ? String(lane.label) : "";
     singleEdit = {
@@ -3235,8 +3350,98 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     else delete edge.label;
   }
 
+  function edgeFieldUnchanged(edge, field, next, optional) {
+    var has = Object.prototype.hasOwnProperty.call(edge, field);
+    var cur = edge[field] != null ? String(edge[field]) : "";
+    if (optional) return (!has && !next) || (has && cur === next);
+    return has && cur === next;
+  }
+
+  function applyEdgeField(docIndex, field, val) {
+    if (state.layoutBusy) return;
+    if (!state.doc || !state.doc.edges) return;
+    if (docIndex < 0 || docIndex >= state.doc.edges.length) return;
+    var edge = state.doc.edges[docIndex];
+    if (!edge) return;
+    var optional = field === "role" || field === "variant" || field === "route" ||
+      field === "fromSide" || field === "toSide";
+    if (field !== "from" && field !== "to" && !optional) return;
+    var next = val == null ? "" : String(val);
+    if (edgeFieldUnchanged(edge, field, next, optional)) return;
+    pushHistory();
+    if (optional && !next) delete edge[field];
+    else edge[field] = next;
+    state.rawDirty = false;
+    previewStale = true;
+    markDirty();
+    renderAll();
+    setLayoutBusy(true);
+    var sent = JSON.stringify(state.doc);
+    setStatus("previewing edge " + (edge.from || "?") + " → " + (edge.to || "?") + "…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          var msg = "Updated edge " + (edge.from || "?") + " → " + (edge.to || "?") +
+            " " + field + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { keepSingleEditor: true }).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        if (sent === JSON.stringify(state.doc)) previewStale = true;
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Diagram not updated - preview failed:\n- " + errs.join("\n- "), "err");
+        showPreviewFailedHint();
+      })
+      .catch(function (e) {
+        if (sent === JSON.stringify(state.doc)) previewStale = true;
+        setLayoutBusy(false);
+        if (!(e && e.bendwrightOffline)) {
+          setStatus("Preview failed: " + e, "err");
+        }
+        showPreviewFailedHint();
+      });
+  }
+
+  function restoreEdgePopupAfterRemount() {
+    var edit = singleEdit;
+    var panel = $("layout-single-editor");
+    var input = $("layout-single-label");
+    if (!edit || edit.kind !== "edge" || !panel || !input) return;
+    var edge = state.doc && state.doc.edges && state.doc.edges[edit.edgeIndex];
+    if (!edge) {
+      singleEdit = null;
+      hideSingleEditor();
+      return;
+    }
+    var doc = $("layout-frame").contentDocument;
+    var hit = doc && doc.querySelector(
+      'polyline.bw-edge-hit[data-doc-index="' + edit.edgeIndex + '"]'
+    );
+    if (hit) {
+      edit.anchor = hit;
+      positionEditorPanel(panel, hit, 260);
+    }
+    fillEdgeAdvanced(edge);
+    panel.classList.add("active");
+    clampSingleEditorToWrap();
+    holdScrollCancel();
+  }
+
+  function holdScrollCancel() {
+    scrollCancelToken += 1;
+    var token = scrollCancelToken;
+    suppressScrollCancel = true;
+    setTimeout(function () {
+      if (token === scrollCancelToken) suppressScrollCancel = false;
+    }, 300);
+  }
+
   function commitSingleEditor() {
-    if (!singleEdit) return;
+    if (!singleEdit || state.layoutBusy) return;
     var edit = singleEdit;
     var input = $("layout-single-label");
     var value = String((input && input.value) || "").trim();
@@ -4033,6 +4238,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     applyOverlayInteractionStyles();
     syncQualityToggle();
     updateDirtyUI();
+    setEdgeAdvancedDisabled(busy);
   }
 
   function saveLayoutDrop(drag, snap) {
@@ -4078,7 +4284,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       });
   }
 
-  function loadLayoutPane(force) {
+  function loadLayoutPane(force, opts) {
+    opts = opts || {};
     if (!state.archify) {
       $("tab-layout").classList.add("hidden");
       return Promise.resolve();
@@ -4087,7 +4294,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (state.layoutLoaded && !force && state.tab !== "layout") {
       return Promise.resolve();
     }
-    cancelInlineEditors();
+    // Field preview remounts the iframe. Keep the edge popup across that remount only.
+    var keepEdge = !!(opts.keepSingleEditor && singleEdit && singleEdit.kind === "edge");
+    if (keepEdge) cancelNodeEditor();
+    else cancelInlineEditors();
     var stash = null;
     var iframePre = $("layout-frame");
     if (
@@ -4132,6 +4342,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
               state.selectedEdgeIndex = null;
               state.connectFrom = null;
               mountLayoutOverlays();
+              if (keepEdge) restoreEdgePopupAfterRemount();
               updateModeButtons();
               updateDeleteEdgeButton();
               updateLayoutHint();
@@ -4774,6 +4985,37 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     ev.preventDefault();
     commitSingleEditor();
   });
+  var singleAdvanced = $("layout-single-advanced");
+  if (singleAdvanced) {
+    singleAdvanced.addEventListener("toggle", function () {
+      if (singleEdit && singleEdit.kind === "edge" && !singleAdvanced.hidden) {
+        edgeAdvancedOpen = singleAdvanced.open;
+      }
+      clampSingleEditorToWrap();
+    });
+  }
+  var singleAdvancedBody = $("layout-single-advanced-body");
+  if (singleAdvancedBody) {
+    singleAdvancedBody.addEventListener("change", function (ev) {
+      var el = ev.target;
+      if (!el || !el.getAttribute) return;
+      var field = el.getAttribute("data-field");
+      if (!field || !singleEdit || singleEdit.kind !== "edge") return;
+      applyEdgeField(singleEdit.edgeIndex, field, el.value);
+    });
+  }
+  var singlePanel = $("layout-single-editor");
+  if (singlePanel) {
+    singlePanel.addEventListener("keydown", function (ev) {
+      if (ev.key !== "Escape" && ev.key !== "Esc") return;
+      if (ev.target && ev.target.id === "layout-single-label") return;
+      if (!singleEdit) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancelSingleEditor();
+      setStatus("Label edit cancelled", "");
+    });
+  }
 
   // Outside click cancels; do NOT commit-on-blur (Tab between fields would save early).
   document.addEventListener("mousedown", function (ev) {
