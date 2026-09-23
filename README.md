@@ -8,8 +8,10 @@
 bendwright is a local, offline editor for [Archify](https://github.com/tt-a1i/archify)
 workflow-diagram JSON. You bring a workflow JSON that already renders in Archify, and
 bendwright lets you move nodes, rewire connections, and fix labels directly, then hands
-the JSON back for Archify to render. The JSON stays the source of truth. bendwright
-never touches the rendered HTML or SVG.
+the JSON back for Archify to render. The JSON stays the source of truth. Extras that
+Archify's format has no field for (custom colors, custom types, your own icons) live in
+a small `<name>.bendwright.json` file next to your diagram, so the diagram JSON always
+stays valid Archify.
 
 **Bring your own Archify JSON.** This edits Archify's workflow IR, not arbitrary JSON.
 Point it at a `.workflow.json` that already works with Archify, make your edits, and save.
@@ -29,7 +31,19 @@ machine.
 
 - **Visual layout editing** - drag nodes; they snap to the nearest lane and column.
 - **Nodes** - add, duplicate, and delete nodes. Multi-field editor for type,
-  label, sublabel, tag, and brand.
+  label, sublabel, tag, and color.
+- **New diagram** - start from scratch with **New**. The first **Save** asks where to
+  write it.
+- **Diagram title** - edit the diagram title and subtitle at the top of the Layout tab.
+- **Colors and line styles** - preset colors (blue, green, red, amber, purple, teal,
+  gray) for nodes and edges, plus solid, dashed, or dotted lines. Readable in both the
+  light and dark themes, and they keep working with Archify's data-flow animation.
+- **Custom types** - define your own node types (for example "VM" or "File share") with
+  a name, color, and icon on the **Custom types** tab. The name shows everywhere,
+  including the exported page. Save a type to your library to reuse it in every diagram.
+- **Icons** - pick from Archify's built-in logo catalog, a few extras bendwright ships
+  for common infrastructure (Windows, Linux, Ubuntu, nginx, Apache, AWS, Azure, VM,
+  web server, database), or your own PNGs.
 - **Connections** - add an edge (click a source node, then a target), drag an
   endpoint to reroute, and select or delete edges.
 - **Inline labels** - double-click a node, an edge, or a lane header to rename it.
@@ -88,7 +102,7 @@ it directly.
 **Any platform:**
 
 ```
-python bendwright.py                         # empty start; use Open in the UI
+python bendwright.py                         # starts a new blank diagram
 python bendwright.py path/to/diagram.workflow.json
 python bendwright.py diagram.workflow.json --port 8770 --archify /path/to/archify.mjs
 ```
@@ -101,6 +115,48 @@ want it to stay running while you step away for a long time, launch with `--keep
 
 To get the rendered diagram, click **Export HTML** in the toolbar. bendwright saves
 your JSON and writes `<name>.html` next to it, ready to open or share.
+
+## Custom types, icons, and the Archify patch
+
+**Where things live**
+
+- `<name>.bendwright.json`, next to your diagram: this diagram's colors, custom types,
+  and any of your own icons it uses. Written only when you **Save**. Keep it with the
+  diagram if you move or share the JSON.
+- `~/.bendwright/types.json` (`%USERPROFILE%\.bendwright\types.json` on Windows): your
+  type library, shared across diagrams.
+- `~/.bendwright/icons/`: your own icons. Drop a file in and click **Refresh icons** on
+  the Custom types tab.
+
+**Your own icons**
+
+- PNG only, 64 KB or smaller. 64 to 128 px square with a transparent background works
+  best; the icon is drawn at about 16 px in the node's corner.
+- The file name is the icon name: lowercase letters, numbers, `-`, or `_`
+  (for example `vm-server.png`). Other names are skipped with a note.
+- A name already used by Archify's catalog or bendwright's extras is skipped. Pick a
+  different name.
+- Icons a diagram uses are copied into its `.bendwright.json`, so the diagram still
+  renders on another machine. Exported HTML always has the icons built in.
+
+**The Archify patch**
+
+So that a custom type's name (say "VM") also appears in Archify's click panel, search,
+and in-drawing legend, bendwright applies a small patch to the Archify install it uses.
+It changes three files (`workflow-compiler.mjs`, `cli.mjs`, `template.html`) and keeps a
+backup of each (`*.bendwright-orig`).
+
+- The patch does nothing unless bendwright is the one rendering. Running Archify on its
+  own gives its normal output.
+- bendwright checks the patch at every start and re-applies it after an Archify
+  update. If an update changed Archify too much, it restores the originals, shows a
+  note, and falls back to showing custom names in tooltips and the page legend only.
+  Exports keep working either way.
+- Turn it off: set `ARCHIFY_BENDWRIGHT_PATCH=0`.
+- Undo it: `python bendwright.py --unpatch-archify`.
+
+Exported HTML is always a single self-contained file: colors, icons, and names are
+baked in, and it opens anywhere without bendwright or Archify.
 
 ## The IR format
 
@@ -138,6 +194,18 @@ schema for the full contract.
 **Duplicate and delete** - clone a node, then remove it.
 
 ![Duplicate and delete](gifs/duplicate-delete.gif)
+
+**New diagram** - click **New**, set the diagram title, and edit the starter node.
+
+![New diagram](gifs/new-diagram.gif)
+
+**Colors and line styles** - double-click an edge, open **Advanced**, pick a color and dash style; double-click a node to set its color.
+
+![Colors and line styles](gifs/edge-colors.gif)
+
+**Custom types** - on the **Custom types** tab, create "VM" with a color and icon, assign it to a node, and the name shows in the exported page's click panel and legend.
+
+![Custom types](gifs/custom-types.gif)
 
 **Edit cards** - open the **Cards** tab, select a card, and edit its title, dot color, and items. Switch back to **Layout** and open the full preview to see the cards rendered under the diagram.
 
