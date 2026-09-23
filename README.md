@@ -1,6 +1,9 @@
-# bendwright
-
-**The visual JSON editor nobody asked for.**
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/bendwright-lockup-dark.svg">
+    <img src="docs/img/bendwright-lockup-light.svg" width="320" alt="bendwright - The visual JSON editor nobody asked for.">
+  </picture>
+</p>
 
 bendwright is a local, offline editor for [Archify](https://github.com/tt-a1i/archify)
 workflow-diagram JSON. You bring a workflow JSON that already renders in Archify, and

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="bendwright">
+  <title>bendwright</title>
+  <g fill="#1B2A38" color="#1B2A38">
+  <!-- Z-route: nodes only at ends and the mid bend. Original geometry. -->
+  <path fill="none" stroke="currentColor" stroke-width="56" stroke-linecap="butt" stroke-linejoin="miter"
+        d="M 220 260 H 620 V 764 H 804"/>
+  <circle cx="220" cy="260" r="78"/>
+  <circle cx="620" cy="512" r="78"/>
+  <circle cx="804" cy="764" r="78"/>
+
+  </g>
+</svg>
