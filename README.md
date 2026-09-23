@@ -128,9 +128,17 @@ schema for the full contract.
 
 ![Edit an edge label](gifs/edit-edge-label.gif)
 
+**Advanced edge settings** - double-click an edge, expand **Advanced** in the popup, and set a field like `variant` to `dashed`. The diagram updates live (unsaved until you Save).
+
+![Advanced edge settings](gifs/edit-edge-advanced.gif)
+
 **Duplicate and delete** - clone a node, then remove it.
 
 ![Duplicate and delete](gifs/duplicate-delete.gif)
+
+**Edit cards** - open the **Cards** tab, select a card, and edit its title, dot color, and items. Switch back to **Layout** and open the full preview to see the cards rendered under the diagram.
+
+![Edit cards](gifs/edit-cards.gif)
 
 ## License
 

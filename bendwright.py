@@ -1314,6 +1314,8 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   outline: none; border-color: var(--focus);
 }
 .row-actions { display: flex; gap: 8px; margin-top: 8px; }
+.card-item-row { display: flex; gap: 8px; align-items: center; }
+.card-item-row input { flex: 1; min-width: 0; }
 #raw-wrap { flex: 1; display: flex; flex-direction: column; padding: 12px 16px; gap: 8px; }
 #raw-editor {
   flex: 1; width: 100%; resize: none; background: var(--input); color: var(--text);
@@ -1561,7 +1563,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   <button type="button" data-tab="layout" id="tab-layout" class="hidden">Layout</button>
   <button type="button" class="active" data-tab="nodes">Nodes</button>
   <button type="button" data-tab="edges">Edges</button>
-  <button type="button" data-tab="lanes">Lanes</button>
+  <button type="button" data-tab="lanes" id="tab-lanes">Lanes</button>
+  <button type="button" data-tab="cards" id="tab-cards">Cards</button>
   <button type="button" data-tab="raw">Raw JSON</button>
   <span id="layout-hint" title="Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use Connect / Edit to add or change connections.">Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use Connect / Edit to add or change connections.</span>
 </div>
@@ -1652,6 +1655,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       <div class="form" id="form-lanes"><div class="empty">Select a lane</div></div>
     </div>
   </div>
+  <div class="pane" id="pane-cards">
+    <div class="split">
+      <div class="list" id="list-cards"></div>
+      <div class="form" id="form-cards"><div class="empty">Select a card</div></div>
+    </div>
+  </div>
   <div class="pane" id="pane-raw">
     <div id="raw-wrap">
       <div class="row-actions">
@@ -1672,7 +1681,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     doc: null,
     enums: {},
     archify: null,
-    selected: { nodes: -1, edges: -1, lanes: -1 },
+    selected: { nodes: -1, edges: -1, lanes: -1, cards: -1 },
     tab: "nodes",
     undo: [],
     redo: [],
@@ -1933,6 +1942,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!Array.isArray(state.doc.nodes)) state.doc.nodes = [];
     if (!Array.isArray(state.doc.edges)) state.doc.edges = [];
     if (!Array.isArray(state.doc.lanes)) state.doc.lanes = [];
+    if (!Array.isArray(state.doc.cards)) state.doc.cards = [];
   }
 
   function enumOptions(key, current) {
@@ -2009,7 +2019,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function renderLists() {
     if (!state.doc) {
-      ["nodes", "edges", "lanes"].forEach(function (kind) {
+      ["nodes", "edges", "lanes", "cards"].forEach(function (kind) {
         var el = $("list-" + kind);
         if (el) el.innerHTML = '<div class="empty">Open a diagram to edit</div>';
       });
@@ -2029,6 +2039,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       return '<div><strong>' + esc(l.id || ("#" + i)) + '</strong></div>' +
         '<div class="sub">' + esc(l.label || "") + (l.variant ? " · " + esc(l.variant) : "") + "</div>";
     });
+    renderList("cards", state.doc.cards, function (c) {
+      var title = (c && c.title != null && String(c.title) !== "") ? c.title : "(untitled)";
+      var dot = (c && c.dot != null) ? c.dot : "";
+      return '<div><strong>' + esc(dot) + '</strong> · ' + esc(title) + '</div>';
+    });
   }
 
   function renderList(kind, items, renderer) {
@@ -2042,6 +2057,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     html += '<div class="list-item" data-kind="' + kind + '" data-index="-1" style="color:var(--accent)">+ Add ' +
       kind.slice(0, -1) + "</div>";
     el.innerHTML = html;
+  }
+
+  function cardItemsEditor(card) {
+    var items = (card && Array.isArray(card.items)) ? card.items : [];
+    var html = '<div class="field"><label>items</label>';
+    for (var i = 0; i < items.length; i++) {
+      html += '<div class="card-item-row">' +
+        '<input type="text" data-field="items" data-item-index="' + i + '" value="' +
+        esc(items[i] == null ? "" : items[i]) + '">' +
+        '<button type="button" data-action="remove-item" data-item-index="' + i + '">Remove</button>' +
+        '</div>';
+    }
+    html += '<div class="row-actions"><button type="button" data-action="add-item">Add item</button></div></div>';
+    return html;
   }
 
   function renderForm(kind) {
@@ -2078,10 +2107,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       html += fieldText("id", "id", item.id);
       html += fieldText("label", "label", item.label);
       html += fieldSelect("variant", "lane.variant", "variant", item.variant);
+    } else if (kind === "cards") {
+      html += fieldText("title", "title", item.title);
+      html += fieldSelect("dot", "cards.dot", "dot", item.dot);
+      html += cardItemsEditor(item);
     }
 
+    var removeLabel = kind === "cards" ? "Remove card" : "Remove";
     html += '<div class="row-actions">' +
-      '<button type="button" class="danger" data-action="remove" data-kind="' + kind + '">Remove</button>' +
+      '<button type="button" class="danger" data-action="remove" data-kind="' + kind + '">' +
+      removeLabel + '</button>' +
       "</div>";
     form.innerHTML = html;
   }
@@ -2100,6 +2135,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     renderForm("nodes");
     renderForm("edges");
     renderForm("lanes");
+    renderForm("cards");
     renderRaw();
     updateHistoryButtons();
     syncQualityToggle();
@@ -2211,7 +2247,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     for (var i = 0; i < buttons.length; i++) {
       buttons[i].classList.toggle("active", buttons[i].getAttribute("data-tab") === tab);
     }
-    var panes = ["nodes", "edges", "lanes", "layout", "raw"];
+    var panes = ["nodes", "edges", "lanes", "cards", "layout", "raw"];
     for (var j = 0; j < panes.length; j++) {
       $("pane-" + panes[j]).classList.toggle("active", panes[j] === tab);
     }
@@ -4388,6 +4424,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       var a = (state.doc.nodes[0] && state.doc.nodes[0].id) || "";
       var b = (state.doc.nodes[1] && state.doc.nodes[1].id) || a;
       item = { from: a, to: b, role: "main" };
+    } else if (kind === "cards") {
+      item = { dot: "slate", title: "New card", items: [] };
     } else {
       item = { id: "lane" + (state.doc.lanes.length + 1), label: "New lane" };
     }
@@ -4411,14 +4449,57 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     renderAll();
   }
 
+  function addCardItem() {
+    if (!state.file || !state.doc) return;
+    var idx = state.selected.cards;
+    if (idx < 0 || !state.doc.cards || idx >= state.doc.cards.length) return;
+    var card = state.doc.cards[idx];
+    pushHistory();
+    if (!Array.isArray(card.items)) card.items = [];
+    card.items.push("");
+    state.rawDirty = false;
+    previewStale = true;
+    markDirty();
+    renderAll();
+    var inputs = $("form-cards").querySelectorAll('input[data-field="items"]');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  }
+
+  function removeCardItem(itemIndex) {
+    if (!state.file || !state.doc) return;
+    var idx = state.selected.cards;
+    if (idx < 0 || !state.doc.cards || idx >= state.doc.cards.length) return;
+    var card = state.doc.cards[idx];
+    if (!Array.isArray(card.items) || isNaN(itemIndex) || itemIndex < 0 || itemIndex >= card.items.length) return;
+    pushHistory();
+    card.items.splice(itemIndex, 1);
+    state.rawDirty = false;
+    previewStale = true;
+    markDirty();
+    renderAll();
+  }
+
   function onFieldChange(kind, fieldEl) {
     var idx = state.selected[kind];
     if (idx < 0) return;
     var field = fieldEl.getAttribute("data-field");
     if (!field) return;
-    pushHistory();
     var item = state.doc[kind][idx];
+    if (!item) return;
     var val = fieldEl.value;
+    if (kind === "cards" && field === "items") {
+      var itemIndex = parseInt(fieldEl.getAttribute("data-item-index"), 10);
+      if (!Array.isArray(item.items) || isNaN(itemIndex) || itemIndex < 0 || itemIndex >= item.items.length) return;
+      pushHistory();
+      item.items[itemIndex] = val;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      renderLists();
+      updateDirtyUI();
+      return;
+    }
+    pushHistory();
     if (field === "col") {
       var n = parseInt(val, 10);
       if (isNaN(n)) n = 0;
@@ -4458,7 +4539,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       ensureArrays();
       state.rawDirty = false;
       previewStale = true;
-      state.selected = { nodes: -1, edges: -1, lanes: -1 };
+      state.selected = { nodes: -1, edges: -1, lanes: -1, cards: -1 };
       syncDirtyFromDoc();
       renderAll();
       if (showStatus) setStatus(state.dirty ? "Applied raw JSON (unsaved)" : "Applied raw JSON", "ok");
@@ -4659,7 +4740,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.undo = [];
     state.redo = [];
     state.rawDirty = false;
-    state.selected = { nodes: -1, edges: -1, lanes: -1 };
+    state.selected = { nodes: -1, edges: -1, lanes: -1, cards: -1 };
     state.selectedEdgeIndex = null;
     state.connectFrom = null;
     state.layoutMode = "move";
@@ -4788,7 +4869,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     switchTab(btn.getAttribute("data-tab"));
   });
 
-  ["nodes", "edges", "lanes"].forEach(function (kind) {
+  ["nodes", "edges", "lanes", "cards"].forEach(function (kind) {
     $("list-" + kind).addEventListener("click", function (ev) {
       var item = ev.target.closest(".list-item");
       if (!item) return;
@@ -4807,8 +4888,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       if (el && el.getAttribute("data-field")) onFieldChange(kind, el);
     });
     $("form-" + kind).addEventListener("click", function (ev) {
-      var btn = ev.target.closest("button[data-action='remove']");
-      if (btn) removeSelected(kind);
+      var btn = ev.target.closest("button[data-action]");
+      if (!btn) return;
+      var action = btn.getAttribute("data-action");
+      if (action === "remove") removeSelected(kind);
+      else if (kind === "cards" && action === "add-item") addCardItem();
+      else if (kind === "cards" && action === "remove-item") {
+        removeCardItem(parseInt(btn.getAttribute("data-item-index"), 10));
+      }
     });
   });
 
