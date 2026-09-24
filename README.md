@@ -6,15 +6,16 @@
 </p>
 
 bendwright is a local, offline editor for [Archify](https://github.com/tt-a1i/archify)
-workflow-diagram JSON. You bring a workflow JSON that already renders in Archify, and
-bendwright lets you move nodes, rewire connections, and fix labels directly, then hands
+workflow and architecture diagram JSON. You bring a diagram JSON that already renders in
+Archify, and bendwright lets you move nodes, rewire connections, and fix labels directly, then hands
 the JSON back for Archify to render. The JSON stays the source of truth. Extras that
 Archify's format has no field for (custom colors, custom types, your own icons) live in
 a small `<name>.bendwright.json` file next to your diagram, so the diagram JSON always
 stays valid Archify.
 
-**Bring your own Archify JSON.** This edits Archify's workflow IR, not arbitrary JSON.
-Point it at a `.workflow.json` that already works with Archify, make your edits, and save.
+**Bring your own Archify JSON.** This edits Archify's workflow and architecture IR, not
+arbitrary JSON. Point it at a `.workflow.json` or `.architecture.json` that already works
+with Archify, make your edits, and save.
 
 ## Why this exists
 
@@ -29,7 +30,12 @@ machine.
 
 ## Features
 
-- **Visual layout editing** - drag nodes; they snap to the nearest lane and column.
+- **Workflow and architecture diagrams** - open either kind. The tabs follow the type:
+  Nodes, Edges, and Lanes for a workflow; Components, Connections, and Boundaries for an
+  architecture diagram.
+- **Visual layout editing** - drag nodes; in a workflow they snap to the nearest lane and
+  column, in an architecture diagram they snap to a 10 px grid.
+- **Resize** - in an architecture diagram, select a component and drag the corner grip.
 - **Nodes** - add, duplicate, and delete nodes. Multi-field editor for type,
   label, sublabel, tag, and color.
 - **New diagram** - start from scratch with **New**. The first **Save** asks where to
@@ -41,6 +47,8 @@ machine.
 - **Custom types** - define your own node types (for example "VM" or "File share") with
   a name, color, and icon on the **Custom types** tab. The name shows everywhere,
   including the exported page. Save a type to your library to reuse it in every diagram.
+  Or pick **+ New custom type...** at the bottom of any Type list to make one on the
+  spot and apply it to that node.
 - **Icons** - a searchable picker (by name, alias, or category) with pictures of
   Archify's built-in logo catalog, a few extras bendwright ships for common
   infrastructure (Windows, Linux, Ubuntu, nginx, Apache, AWS, Azure, VM, web server,
@@ -54,7 +62,8 @@ machine.
 - **Explicit save** - edits live in a buffer and never touch disk until you press
   **Save**. Undo/redo, **Discard** (reload from disk), and an unsaved-changes
   warning are all included.
-- **Lossless save** - key order, formatting, and trailing newline are preserved.
+- **Lossless save** - key order, unknown fields, and the trailing newline are preserved.
+  Files are written with 2-space indentation.
 - **Export HTML** - one click saves the JSON and writes the rendered `.html` (via Archify) right next to it, always in sync. No CLI needed.
 - **Native file picker** - open a diagram through your OS file dialog.
 - **Auto-shutdown** - close the browser and the server (and its console window)
@@ -98,8 +107,8 @@ lose live preview and full validation.
 ## Running it
 
 **Windows:** double-click `bendwright.bat`. Your browser opens; click **Open** to
-pick a diagram. You can also drag a `*.workflow.json` file onto the `.bat` to open
-it directly.
+pick a diagram. You can also drag a `*.workflow.json` or `*.architecture.json` file onto
+the `.bat` to open it directly.
 
 **Any platform:**
 
@@ -109,8 +118,9 @@ python bendwright.py path/to/diagram.workflow.json
 python bendwright.py diagram.workflow.json --port 8770 --archify /path/to/archify.mjs
 ```
 
-A sample diagram, `bendwright.example.workflow.json`, is included, so you can launch
-and click Open to try it right away.
+Two sample diagrams, `bendwright.example.workflow.json` and
+`bendwright.example.architecture.json`, are included, so you can launch and click Open to
+try them right away.
 
 bendwright shuts its own server down a few seconds after you close the browser. If you
 want it to stay running while you step away for a long time, launch with `--keep-alive`.
@@ -148,8 +158,8 @@ your JSON and writes `<name>.html` next to it, ready to open or share.
 
 So that a custom type's name (say "VM") also appears in Archify's click panel, search,
 and in-drawing legend, bendwright applies a small patch to the Archify install it uses.
-It changes three files (`workflow-compiler.mjs`, `cli.mjs`, `template.html`) and keeps a
-backup of each (`*.bendwright-orig`).
+It changes four files (`workflow-compiler.mjs`, `render-architecture.mjs`, `cli.mjs`,
+`template.html`) and keeps a backup of each (`*.bendwright-orig`).
 
 - The patch does nothing unless bendwright is the one rendering. Running Archify on its
   own gives its normal output.
@@ -165,10 +175,12 @@ baked in, and it opens anywhere without bendwright or Archify.
 
 ## The IR format
 
-A diagram is a single JSON object: `lanes`, `nodes`, `edges`, and optional
-`meta`, `cards`, `mainPath`, and `semanticChecks`. See
-`bendwright.example.workflow.json` for a complete, valid example, and the Archify
-schema for the full contract.
+A workflow diagram is a single JSON object: `lanes`, `nodes`, `edges`, and optional
+`meta`, `cards`, `mainPath`, and `semanticChecks`. An architecture diagram has
+`components` (with `pos` and `size`), `connections`, and optional `boundaries`, `cards`,
+and `meta`. See `bendwright.example.workflow.json` and
+`bendwright.example.architecture.json` for complete, valid examples, and the Archify
+schemas for the full contract.
 
 ## Demos
 
@@ -215,6 +227,22 @@ schema for the full contract.
 **Custom types** - on the **Custom types** tab, create "VM", pick a color, search the icon picker and choose an icon, assign the type to a node, and the name shows in the exported page's click panel and legend.
 
 ![Custom types](gifs/custom-types.gif)
+
+**Resize a component** - in an architecture diagram, click a component, then drag the
+grip in its bottom-right corner.
+
+![Resize a component](gifs/resize-component.gif)
+
+**New node with your own icon** - click **+ Node**, pick **+ New custom type...** in the
+Type list, name it, choose one of your PNGs from `bendwright-data/icons/`, and click
+**Create & apply**. Leave **Save to library** on to reuse the type in other diagrams.
+
+![New node with your own icon](gifs/new-node-user-icon.gif)
+
+**New node with a catalog logo** - the same flow with a logo from Archify's catalog (here
+OpenAI's).
+
+![New node with a catalog logo](gifs/new-node-gpt-icon.gif)
 
 **Edit cards** - open the **Cards** tab, select a card, and edit its title, dot color, and items. Switch back to **Layout** and open the full preview to see the cards rendered under the diagram.
 

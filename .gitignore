@@ -6,6 +6,8 @@ __pycache__/
 # Local diagrams -- keep only the bundled example
 *.workflow.json
 !bendwright.example.workflow.json
+*.architecture.json
+!bendwright.example.architecture.json
 
 # Rendered Archify output
 *.preview.html

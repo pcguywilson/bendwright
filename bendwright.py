@@ -30,6 +30,10 @@ from urllib.parse import urlparse
 
 APP = "bendwright"
 IR_KEYS = ("nodes", "edges", "lanes")
+ARCHITECTURE_IR_KEYS = ("components", "connections", "boundaries")
+# Forms may insert these as [] so the lists render. If the loaded document
+# did not have the key and it is still empty, do not write it.
+OPTIONAL_EMPTY_KEYS = ("cards", "connections", "boundaries")
 
 ID_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_-]*$")
 _STYLE_BLOCK_RE = re.compile(rb"<style\b[^>]*>.*?</style>", re.IGNORECASE | re.DOTALL)
@@ -60,6 +64,8 @@ STATIC_ENUMS: dict[str, list[str]] = {
     ],
     "edge.fromSide": ["left", "right", "top", "bottom"],
     "edge.toSide": ["left", "right", "top", "bottom"],
+    "connection.route": ["auto", "straight", "orthogonal-h", "orthogonal-v"],
+    "boundary.kind": ["region", "security-group"],
     "meta.quality_profile": ["standard", "showcase"],
     "cards.dot": ["cyan", "emerald", "violet", "amber", "rose", "orange", "slate"],
 }
@@ -861,11 +867,10 @@ def _icon_rename_note(parts: list[str]) -> str | None:
 
 def _dropped_brand_offer_note(doc: dict[str, Any]) -> str | None:
     """Count loopback brands for a dropped icon. Does not change the doc or dirty it."""
-    nodes = doc.get("nodes") if isinstance(doc, dict) else None
-    if not isinstance(nodes, list):
+    if not isinstance(doc, dict):
         return None
     count = 0
-    for node in nodes:
+    for node in _element_list(doc):
         if not isinstance(node, dict):
             continue
         brand = node.get("brand")
@@ -880,7 +885,7 @@ def _dropped_brand_offer_note(doc: dict[str, Any]) -> str | None:
     if not count:
         return None
     return (
-        f"{count} node brand(s) still use a removed icon URL; "
+        f"{count} brand(s) still use a removed icon URL; "
         "re-apply the type to store the catalog id"
     )
 
@@ -904,6 +909,52 @@ def blank_workflow() -> dict[str, Any]:
         "edges": [],
         "cards": [],
     }
+
+
+def blank_architecture() -> dict[str, Any]:
+    """Smallest architecture IR. No layout key. One free-positioned component."""
+    return {
+        "schema_version": 1,
+        "diagram_type": "architecture",
+        "meta": {"title": "Untitled diagram"},
+        "components": [
+            {
+                "id": "component1",
+                "type": "backend",
+                "label": "New component",
+                "pos": [40, 80],
+                "size": [120, 60],
+            }
+        ],
+    }
+
+
+def blank_diagram(diagram_type: str) -> dict[str, Any]:
+    if diagram_type == "architecture":
+        return blank_architecture()
+    return blank_workflow()
+
+
+def ir_collection_keys(diagram_type: str) -> tuple[str, ...]:
+    if diagram_type == "architecture":
+        return ARCHITECTURE_IR_KEYS
+    return IR_KEYS
+
+
+def save_name_suffix(diagram_type: str) -> str:
+    if diagram_type == "architecture":
+        return ".architecture.json"
+    return ".workflow.json"
+
+
+def resolve_diagram_type(doc: dict[str, Any] | None, fallback: str) -> str:
+    """Supported type on the document, else the session type, else workflow."""
+    inferred = doc.get("diagram_type") if isinstance(doc, dict) else None
+    if isinstance(inferred, str) and inferred in ("workflow", "architecture"):
+        return inferred
+    if fallback in ("workflow", "architecture"):
+        return fallback
+    return "workflow"
 
 
 def current_listen_port() -> int:
@@ -959,11 +1010,11 @@ def _rewrite_brands_for_archify(
     Catalog string brands are left alone. The caller's doc is not mutated.
     """
     out = copy.deepcopy(doc)
-    nodes = out.get("nodes")
-    if not isinstance(nodes, list):
+    elements = _element_list(out)
+    if not elements:
         return out
     port = current_listen_port()
-    for node in nodes:
+    for node in elements:
         if not isinstance(node, dict):
             continue
         brand = node.get("brand")
@@ -1033,6 +1084,8 @@ _state_lock = threading.Lock()
 _file_path: Path | None = None
 _diagram_type: str = "workflow"
 _doc: dict[str, Any] = {}
+# Optional collection keys missing on the document that was opened or seeded.
+_absent_empty_keys: set[str] = set()
 _had_trailing_newline: bool = True
 _archify_path: str | None = None
 _preview_html: bytes | None = None
@@ -1131,10 +1184,11 @@ def load_doc(path: Path) -> tuple[dict[str, Any], bool]:
     return doc, trailing
 
 
-def _workflow_save_path(raw: Any) -> tuple[Path | None, str | None]:
-    """First-save path. Must already end in .workflow.json. Not renamed."""
+def _diagram_save_path(raw: Any, diagram_type: str) -> tuple[Path | None, str | None]:
+    """First-save path. Must already end in the type suffix. Not renamed."""
     if not isinstance(raw, str) or not raw.strip():
         return None, "path is required"
+    suffix = save_name_suffix(diagram_type)
     try:
         target = Path(raw.strip()).expanduser()
         if not target.is_absolute():
@@ -1142,14 +1196,18 @@ def _workflow_save_path(raw: Any) -> tuple[Path | None, str | None]:
         target = target.resolve()
     except (OSError, RuntimeError) as e:
         return None, f"bad path: {e}"
-    if not target.name.endswith(".workflow.json"):
-        return None, "name must end in .workflow.json"
+    if not target.name.endswith(suffix):
+        return None, f"name must end in {suffix}"
     return target, None
 
 
-def native_save_path(initial_dir: str) -> dict[str, Any]:
+def native_save_path(initial_dir: str, diagram_type: str = "workflow") -> dict[str, Any]:
     """Native Save dialog. Sibling of native_pick_path. Cancel leaves the buffer unsaved."""
+    suffix = save_name_suffix(diagram_type)
     init_literal = json.dumps(initial_dir)
+    file_literal = json.dumps(f"untitled{suffix}")
+    suffix_literal = json.dumps(suffix)
+    pattern_literal = json.dumps(f"*{suffix}")
     script = (
         "import sys\n"
         "try:\n"
@@ -1164,10 +1222,10 @@ def native_save_path(initial_dir: str) -> dict[str, Any]:
         "    pass\n"
         "path = filedialog.asksaveasfilename(\n"
         f"    initialdir={init_literal},\n"
-        '    initialfile="untitled.workflow.json",\n'
+        f"    initialfile={file_literal},\n"
         '    title="Save diagram",\n'
-        '    defaultextension=".workflow.json",\n'
-        '    filetypes=[("Archify diagrams", "*.workflow.json"), ("All files", "*.*")],\n'
+        f"    defaultextension={suffix_literal},\n"
+        f'    filetypes=[("Archify diagrams", {pattern_literal}), ("All files", "*.*")],\n'
         ")\n"
         'print(path if path else "", end="")\n'
     )
@@ -1240,9 +1298,9 @@ def state_payload() -> dict[str, Any]:
         "diagram_type": _diagram_type,
         "doc": _doc if has_doc else None,
         "ir": (
-            {k: list(_doc.get(k) or []) for k in IR_KEYS}
+            {k: list(_doc.get(k) or []) for k in ir_collection_keys(_diagram_type)}
             if has_doc
-            else {k: [] for k in IR_KEYS}
+            else {k: [] for k in ir_collection_keys(_diagram_type)}
         ),
         "enums": merge_enums(_doc if has_doc else {}),
         "archify": _archify_path,
@@ -1281,6 +1339,10 @@ def merge_enums(doc: dict[str, Any]) -> dict[str, list[str]]:
         if isinstance(node, dict) and isinstance(node.get("type"), str):
             collected["node.type"].add(node["type"])
 
+    for comp in doc.get("components") or []:
+        if isinstance(comp, dict) and isinstance(comp.get("type"), str):
+            collected["node.type"].add(comp["type"])
+
     for lane in doc.get("lanes") or []:
         if isinstance(lane, dict) and isinstance(lane.get("variant"), str):
             collected["lane.variant"].add(lane["variant"])
@@ -1298,6 +1360,23 @@ def merge_enums(doc: dict[str, Any]) -> dict[str, list[str]]:
             v = edge.get(key)
             if isinstance(v, str):
                 collected[enum_key].add(v)
+
+    for conn in doc.get("connections") or []:
+        if not isinstance(conn, dict):
+            continue
+        for key, enum_key in (
+            ("variant", "edge.variant"),
+            ("route", "connection.route"),
+            ("fromSide", "edge.fromSide"),
+            ("toSide", "edge.toSide"),
+        ):
+            v = conn.get(key)
+            if isinstance(v, str):
+                collected[enum_key].add(v)
+
+    for boundary in doc.get("boundaries") or []:
+        if isinstance(boundary, dict) and isinstance(boundary.get("kind"), str):
+            collected["boundary.kind"].add(boundary["kind"])
 
     meta = doc.get("meta")
     if isinstance(meta, dict):
@@ -1327,7 +1406,39 @@ def merge_enums(doc: dict[str, Any]) -> dict[str, list[str]]:
     return out
 
 
-def structural_check(doc: dict[str, Any]) -> list[str]:
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_point(value: Any) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and _is_number(value[0])
+        and _is_number(value[1])
+    )
+
+
+def _diagram_kind(doc: dict[str, Any]) -> str:
+    dtype = doc.get("diagram_type") if isinstance(doc, dict) else None
+    if dtype == "architecture":
+        return "architecture"
+    return "workflow"
+
+
+def _element_list(doc: dict[str, Any]) -> list[Any]:
+    key = "components" if _diagram_kind(doc) == "architecture" else "nodes"
+    items = doc.get(key)
+    return items if isinstance(items, list) else []
+
+
+def _relation_list(doc: dict[str, Any]) -> list[Any]:
+    key = "connections" if _diagram_kind(doc) == "architecture" else "edges"
+    items = doc.get(key)
+    return items if isinstance(items, list) else []
+
+
+def _structural_workflow(doc: dict[str, Any]) -> list[str]:
     errors: list[str] = []
 
     meta = doc.get("meta")
@@ -1412,6 +1523,155 @@ def structural_check(doc: dict[str, Any]) -> list[str]:
             errors.append(f"edges[{i}].to references missing node: {to!r}")
 
     return errors
+
+
+def _structural_architecture(doc: dict[str, Any]) -> list[str]:
+    """Required shape only. Archify reports measure and schema details."""
+    errors: list[str] = []
+    if doc.get("schema_version") != 1:
+        errors.append("schema_version must be 1")
+
+    meta = doc.get("meta")
+    if not isinstance(meta, dict):
+        errors.append("meta must be an object")
+    elif not isinstance(meta.get("title"), str) or not str(meta.get("title")).strip():
+        errors.append("meta.title is required")
+
+    components = doc.get("components")
+    if not isinstance(components, list):
+        errors.append("components must be an array")
+        components = []
+    elif len(components) < 1:
+        errors.append("components must contain at least 1")
+
+    comp_ids: list[str] = []
+    for i, comp in enumerate(components):
+        if not isinstance(comp, dict):
+            errors.append(f"components[{i}] must be an object")
+            continue
+        for req in ("id", "type", "label"):
+            if req not in comp:
+                errors.append(f"components[{i}].{req} is required")
+        cid = comp.get("id")
+        if isinstance(cid, str):
+            if not ID_RE.match(cid):
+                errors.append(f"components[{i}].id invalid: {cid!r}")
+            comp_ids.append(cid)
+        elif "id" in comp:
+            errors.append(f"components[{i}].id must be a string")
+        if "pos" in comp and not _is_point(comp.get("pos")):
+            errors.append(f"components[{i}].pos must be [x, y]")
+        size = comp.get("size")
+        if "size" in comp and not (
+            _is_point(size) and size[0] > 0 and size[1] > 0
+        ):
+            errors.append(f"components[{i}].size must be [w, h] with positive numbers")
+        for key in ("row", "col"):
+            val = comp.get(key)
+            if key in comp and (isinstance(val, bool) or not isinstance(val, int) or val < 0):
+                errors.append(f"components[{i}].{key} must be an integer >= 0")
+
+    if len(comp_ids) != len(set(comp_ids)):
+        errors.append("component ids must be unique")
+    comp_set = set(comp_ids)
+
+    if "connections" in doc and not isinstance(doc.get("connections"), list):
+        errors.append("connections must be an array")
+    connections = doc.get("connections") if isinstance(doc.get("connections"), list) else []
+    for i, conn in enumerate(connections):
+        if not isinstance(conn, dict):
+            errors.append(f"connections[{i}] must be an object")
+            continue
+        for req in ("from", "to"):
+            if req not in conn:
+                errors.append(f"connections[{i}].{req} is required")
+        fr = conn.get("from")
+        to = conn.get("to")
+        if isinstance(fr, str) and fr not in comp_set:
+            errors.append(f"connections[{i}].from references missing component: {fr!r}")
+        if isinstance(to, str) and to not in comp_set:
+            errors.append(f"connections[{i}].to references missing component: {to!r}")
+        eid = conn.get("id")
+        if "id" in conn and not isinstance(eid, str):
+            errors.append(f"connections[{i}].id must be a string")
+        elif isinstance(eid, str) and eid and not ID_RE.match(eid):
+            errors.append(f"connections[{i}].id invalid: {eid!r}")
+
+    if "boundaries" in doc and not isinstance(doc.get("boundaries"), list):
+        errors.append("boundaries must be an array")
+    boundaries = doc.get("boundaries") if isinstance(doc.get("boundaries"), list) else []
+    for i, boundary in enumerate(boundaries):
+        if not isinstance(boundary, dict):
+            errors.append(f"boundaries[{i}] must be an object")
+            continue
+        for req in ("kind", "label", "wraps"):
+            if req not in boundary:
+                errors.append(f"boundaries[{i}].{req} is required")
+        kind = boundary.get("kind")
+        if "kind" in boundary and kind not in ("region", "security-group"):
+            errors.append(f"boundaries[{i}].kind must be region or security-group")
+        wraps = boundary.get("wraps")
+        if "wraps" in boundary and (
+            not isinstance(wraps, list) or len(wraps) < 1
+        ):
+            errors.append(f"boundaries[{i}].wraps must list at least one component")
+        elif isinstance(wraps, list):
+            for wid in wraps:
+                if not isinstance(wid, str) or wid not in comp_set:
+                    errors.append(
+                        f"boundaries[{i}].wraps references missing component: {wid!r}"
+                    )
+        pad = boundary.get("pad")
+        if "pad" in boundary and (not _is_number(pad) or pad < 0):
+            errors.append(f"boundaries[{i}].pad must be a number >= 0")
+
+    return errors
+
+
+def _remember_absent_empty_keys(doc: dict[str, Any] | None) -> None:
+    """Record optional collections the loaded document did not contain.
+
+    Caller holds _state_lock, or no request threads exist yet.
+    """
+    global _absent_empty_keys
+    if not isinstance(doc, dict):
+        _absent_empty_keys = set()
+        return
+    _absent_empty_keys = {key for key in OPTIONAL_EMPTY_KEYS if key not in doc}
+
+
+def _copy_absent_empty_keys() -> set[str]:
+    with _state_lock:
+        return set(_absent_empty_keys)
+
+
+def _strip_absent_empty_collections(doc: dict[str, Any], absent: set[str]) -> None:
+    """Drop empty optional collections that were not in the loaded document.
+
+    The SPA keeps [] in memory so the forms still render. Write only.
+    """
+    for key in absent:
+        value = doc.get(key)
+        if isinstance(value, list) and len(value) == 0:
+            doc.pop(key, None)
+
+
+def _prepare_write_doc(doc: dict[str, Any]) -> None:
+    _strip_absent_empty_collections(doc, _copy_absent_empty_keys())
+
+
+def structural_check(doc: dict[str, Any]) -> list[str]:
+    if not isinstance(doc, dict):
+        return ["IR root must be an object"]
+    dtype = doc.get("diagram_type")
+    if dtype == "architecture":
+        return _structural_architecture(doc)
+    if isinstance(dtype, str) and dtype not in ("workflow",):
+        shown = dtype if dtype.strip() else "(empty)"
+        return [
+            f"{shown} diagrams are not supported yet - workflow or architecture only"
+        ]
+    return _structural_workflow(doc)
 
 
 def atomic_write(path: Path, doc: dict[str, Any], trailing_newline: bool) -> None:
@@ -1526,12 +1786,12 @@ def _brand_miss_note(count: int) -> str:
 def _our_branded_nodes(
     doc: dict[str, Any], sidecar: dict[str, Any] | None = None
 ) -> list[dict[str, str]]:
-    """Nodes whose brand URL is a gap, user, or sidecar /brand/<name>.png icon."""
-    nodes = doc.get("nodes")
-    if not isinstance(nodes, list):
+    """Nodes or components whose brand URL is a gap, user, or sidecar icon."""
+    elements = _element_list(doc)
+    if not elements:
         return []
     found: list[dict[str, str]] = []
-    for node in nodes:
+    for node in elements:
         if not isinstance(node, dict):
             continue
         brand = node.get("brand")
@@ -1980,12 +2240,12 @@ def save_type_in_library(raw: dict[str, Any]) -> tuple[dict[str, Any] | None, st
 def sidecar_path_for(ir_path: Path) -> Path:
     """Sibling sidecar. Same stem rule as export_html_path."""
     name = ir_path.name
-    if name.endswith(".workflow.json"):
-        stem = name[: -len(".workflow.json")]
-    elif name.endswith(".json"):
-        stem = name[: -len(".json")]
-    else:
-        stem = ir_path.stem
+    stem = _diagram_stem(name)
+    if stem is None:
+        if name.endswith(".json"):
+            stem = name[: -len(".json")]
+        else:
+            stem = ir_path.stem
     return ir_path.parent / f"{stem}.bendwright.json"
 
 
@@ -2021,9 +2281,8 @@ def _edge_occurrence(edges: list[Any], index: int) -> int:
 
 
 def iter_edge_style_keys(doc: dict[str, Any]) -> list[tuple[int, dict[str, Any], str]]:
-    edges = doc.get("edges")
-    if not isinstance(edges, list):
-        return []
+    """Workflow edges, or architecture connections. Same sidecar key rule."""
+    edges = _relation_list(doc)
     found: list[tuple[int, dict[str, Any], str]] = []
     for i, edge in enumerate(edges):
         if not isinstance(edge, dict):
@@ -2033,11 +2292,8 @@ def iter_edge_style_keys(doc: dict[str, Any]) -> list[tuple[int, dict[str, Any],
 
 
 def _node_id_set(doc: dict[str, Any]) -> set[str]:
-    nodes = doc.get("nodes")
-    if not isinstance(nodes, list):
-        return set()
     ids: set[str] = set()
-    for node in nodes:
+    for node in _element_list(doc):
         if isinstance(node, dict) and isinstance(node.get("id"), str):
             ids.add(node["id"])
     return ids
@@ -2294,8 +2550,7 @@ def _edge_label_text(edge: dict[str, Any]) -> str | None:
 def _idless_label_buckets(doc: dict[str, Any]) -> dict[tuple[str, str, str | None], list[int]]:
     """IR indexes of id-less edges grouped by from, to, and label. IR order."""
     buckets: dict[tuple[str, str, str | None], list[int]] = {}
-    edges = doc.get("edges")
-    if not isinstance(edges, list):
+    if not _relation_list(doc):
         return buckets
     for index, edge, _key in iter_edge_style_keys(doc):
         if _edge_id_value(edge):
@@ -2486,8 +2741,8 @@ def _collect_style_targets(
             )
     nodes_out: list[dict[str, Any]] = []
     node_map = sidecar.get("nodes") if isinstance(sidecar, dict) else None
-    nodes = doc.get("nodes")
-    if isinstance(nodes, list):
+    nodes = _element_list(doc)
+    if nodes:
         for node in nodes:
             if not isinstance(node, dict) or not isinstance(node.get("id"), str):
                 continue
@@ -2512,13 +2767,13 @@ def _collect_style_targets(
 def _collect_kind_targets(
     doc: dict[str, Any], sidecar: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    """Custom-typed nodes to label. Sidecar only; the user library is not read."""
+    """Custom-typed nodes or components to label. Sidecar only; the library is not read."""
     found: list[dict[str, Any]] = []
-    nodes = doc.get("nodes")
+    elements = _element_list(doc)
     assignments = sidecar.get("assignments") if isinstance(sidecar, dict) else None
-    if not isinstance(nodes, list) or not isinstance(assignments, dict):
+    if not elements or not isinstance(assignments, dict):
         return found
-    for node in nodes:
+    for node in elements:
         if not isinstance(node, dict) or not isinstance(node.get("id"), str):
             continue
         node_id = node["id"]
@@ -3106,11 +3361,48 @@ def _compiler_kind_note(stderr: str, html: bytes | None = None) -> str | None:
     return " ".join(lines) if lines else None
 
 
+def _git_toplevel(start: Path) -> str | None:
+    """Git top-level of start, or None. Never raises."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    line = (proc.stdout or "").strip()
+    return line or None
+
+
+def _evidence_repo_root(
+    doc: dict[str, Any] | None, search_dir: Path | None
+) -> str | None:
+    """Pass --repo-root only when an architecture doc sets meta.repository.
+
+    The directory is the open file's folder, walked to the git top-level.
+    Anything else is omitted so archify can report the missing checkout.
+    """
+    if not isinstance(doc, dict) or doc.get("diagram_type") != "architecture":
+        return None
+    meta = doc.get("meta")
+    if not isinstance(meta, dict) or not isinstance(meta.get("repository"), dict):
+        return None
+    if search_dir is None:
+        return None
+    return _git_toplevel(search_dir)
+
+
 def run_archify(
     archify: str,
     argv: list[str],
     timeout: float = 120.0,
     kind_map: dict[str, Any] | None = None,
+    repo_root: str | None = None,
 ) -> tuple[Any, str, str]:
     """Run `node <archify> ...`. Returns (parsed_stdout_json_or_None, stdout, stderr).
 
@@ -3120,6 +3412,8 @@ def run_archify(
     removed before return. os.environ is not modified.
     """
     cmd = ["node", archify, *argv]
+    if repo_root:
+        cmd.extend(["--repo-root", repo_root])
     kind_path: str | None = None
     extra: dict[str, str] = {"ARCHIFY_BRAND_ALLOW_PRIVATE": "1"}
     try:
@@ -3200,15 +3494,19 @@ def deliver_preview(
     diagram_type: str,
     ir_path: Path,
     sidecar: dict[str, Any] | None = None,
+    evidence_dir: Path | None = None,
 ) -> tuple[bytes | None, str | None]:
     """Deliver IR to system-temp HTML; return (html_bytes_or_None, note_or_None)."""
     fd, html_tmp = tempfile.mkstemp(prefix=f"{APP}-prev-", suffix=".html")
     os.close(fd)
+    loaded = _read_saved_doc(ir_path)
+    repo_root = _evidence_repo_root(loaded[0] if loaded else None, evidence_dir)
     try:
         parsed, _stdout, stderr = run_archify(
             archify,
             ["deliver", diagram_type, str(ir_path), html_tmp, "--json"],
             kind_map=_kind_env_map_for_path(ir_path, sidecar),
+            repo_root=repo_root,
         )
         note: str | None = None
         if not isinstance(parsed, dict) or not parsed.get("ok", False):
@@ -3239,15 +3537,23 @@ def deliver_preview(
             pass
 
 
+def _diagram_stem(name: str) -> str | None:
+    """Strip a known diagram suffix. None when name is not one of those."""
+    for suffix in (".workflow.json", ".architecture.json"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return None
+
+
 def export_html_path(ir_path: Path) -> Path:
-    """Sibling .html path: strip .workflow.json else .json, then + .html."""
+    """Sibling .html path: strip .workflow.json / .architecture.json else .json."""
     name = ir_path.name
-    if name.endswith(".workflow.json"):
-        stem = name[: -len(".workflow.json")]
-    elif name.endswith(".json"):
-        stem = name[: -len(".json")]
-    else:
-        stem = ir_path.stem
+    stem = _diagram_stem(name)
+    if stem is None:
+        if name.endswith(".json"):
+            stem = name[: -len(".json")]
+        else:
+            stem = ir_path.stem
     return ir_path.parent / f"{stem}.html"
 
 
@@ -3284,6 +3590,7 @@ def deliver_to_path(
     ir_path: Path,
     out_path: Path,
     sidecar: dict[str, Any] | None = None,
+    evidence_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Deliver IR to out_path via sibling tmp + os.replace. No lock around subprocess.
 
@@ -3297,10 +3604,13 @@ def deliver_to_path(
     )
     os.close(fd)
     try:
+        loaded = _read_saved_doc(ir_path)
+        repo_root = _evidence_repo_root(loaded[0] if loaded else None, evidence_dir)
         parsed, _stdout, stderr = run_archify(
             archify,
             ["deliver", diagram_type, str(ir_path), tmp_name, "--json"],
             kind_map=_kind_env_map_for_path(ir_path, sidecar),
+            repo_root=repo_root,
         )
         if not isinstance(parsed, dict) or not parsed.get("ok", False):
             return {
@@ -3365,15 +3675,22 @@ def fetch_layout(
     diagram_type: str,
     ir_path: Path,
     sidecar: dict[str, Any] | None = None,
+    evidence_dir: Path | None = None,
 ) -> tuple[dict[str, Any] | None, str]:
     """Run validate --layout-json; parse stdout JSON only (stderr tail on failure)."""
+    loaded = _read_saved_doc(ir_path)
+    repo_root = _evidence_repo_root(loaded[0] if loaded else None, evidence_dir)
     parsed, stdout, stderr = run_archify(
         archify,
         ["validate", diagram_type, str(ir_path), "--layout-json"],
         kind_map=_kind_env_map_for_path(ir_path, sidecar),
+        repo_root=repo_root,
     )
     if isinstance(parsed, dict) and (
-        "columns" in parsed or "viewBox" in parsed or "nodes" in parsed
+        "columns" in parsed
+        or "viewBox" in parsed
+        or "nodes" in parsed
+        or "components" in parsed
     ):
         return parsed, ""
     tail = (stderr or stdout or "").strip()
@@ -3383,23 +3700,33 @@ def fetch_layout(
 
 
 def validate_candidate(
-    archify: str, diagram_type: str, doc: dict[str, Any], trailing_newline: bool
+    archify: str,
+    diagram_type: str,
+    doc: dict[str, Any],
+    trailing_newline: bool,
+    evidence_dir: Path | None = None,
 ) -> tuple[bool, list[str]]:
     """Write candidate to system temp, run validate --json (no --quality)."""
     tmp_name = _archify_temp_json(doc, trailing_newline)
     try:
-        return _validate_temp_path(archify, diagram_type, tmp_name)
+        return _validate_temp_path(archify, diagram_type, tmp_name, evidence_dir)
     finally:
         _unlink_quiet(tmp_name)
 
 
 def _validate_temp_path(
-    archify: str, diagram_type: str, tmp_name: str
+    archify: str,
+    diagram_type: str,
+    tmp_name: str,
+    evidence_dir: Path | None = None,
 ) -> tuple[bool, list[str]]:
     """Run validate --json against an existing temp IR path."""
+    loaded = _read_saved_doc(Path(tmp_name))
+    repo_root = _evidence_repo_root(loaded[0] if loaded else None, evidence_dir)
     parsed, _stdout, stderr = run_archify(
         archify,
         ["validate", diagram_type, tmp_name, "--json"],
+        repo_root=repo_root,
     )
     if not isinstance(parsed, dict):
         return False, format_validate_errors(None, stderr)
@@ -3414,6 +3741,7 @@ def preview_candidate(
     doc: dict[str, Any],
     trailing_newline: bool,
     sidecar: dict[str, Any] | None = None,
+    evidence_dir: Path | None = None,
 ) -> tuple[bool, list[str], bytes | None, str | None, dict[str, Any] | None]:
     """Validate + deliver + layout-json from a temp candidate (never touches the real file).
 
@@ -3421,12 +3749,16 @@ def preview_candidate(
     """
     tmp_name = _archify_temp_json(doc, trailing_newline, sidecar)
     try:
-        ok_v, v_errors = _validate_temp_path(archify, diagram_type, tmp_name)
+        ok_v, v_errors = _validate_temp_path(
+            archify, diagram_type, tmp_name, evidence_dir
+        )
         if not ok_v:
             return False, v_errors, None, None, None
-        html, note = deliver_preview(archify, diagram_type, Path(tmp_name), sidecar)
+        html, note = deliver_preview(
+            archify, diagram_type, Path(tmp_name), sidecar, evidence_dir
+        )
         layout, layout_err = fetch_layout(
-            archify, diagram_type, Path(tmp_name), sidecar
+            archify, diagram_type, Path(tmp_name), sidecar, evidence_dir
         )
         if layout is None:
             note = _join_notes(note, layout_err or "layout-json failed")
@@ -3441,11 +3773,14 @@ def deliver_preview_doc(
     doc: dict[str, Any],
     trailing_newline: bool,
     sidecar: dict[str, Any] | None = None,
+    evidence_dir: Path | None = None,
 ) -> tuple[bytes | None, str | None]:
     """Deliver a rewritten temp copy. Does not read or write the real IR file."""
     tmp_name = _archify_temp_json(doc, trailing_newline, sidecar)
     try:
-        return deliver_preview(archify, diagram_type, Path(tmp_name), sidecar)
+        return deliver_preview(
+            archify, diagram_type, Path(tmp_name), sidecar, evidence_dir
+        )
     finally:
         _unlink_quiet(tmp_name)
 
@@ -3467,11 +3802,16 @@ def deliver_saved_file(
             return None, "could not read saved diagram for preview"
         return {"ok": False, "errors": ["could not read saved diagram for export"]}
     doc, trailing = loaded
+    evidence_dir = ir_path.parent
     tmp_name = _archify_temp_json(doc, trailing, sidecar)
     try:
         if out_path is None:
-            return deliver_preview(archify, diagram_type, Path(tmp_name), sidecar)
-        return deliver_to_path(archify, diagram_type, Path(tmp_name), out_path, sidecar)
+            return deliver_preview(
+                archify, diagram_type, Path(tmp_name), sidecar, evidence_dir
+            )
+        return deliver_to_path(
+            archify, diagram_type, Path(tmp_name), out_path, sidecar, evidence_dir
+        )
     finally:
         _unlink_quiet(tmp_name)
 
@@ -3602,12 +3942,16 @@ class Handler(BaseHTTPRequestHandler):
                     doc = _doc
                     trailing = _had_trailing_newline
                     sidecar = copy.deepcopy(_sidecar)
+                    evidence_dir = _file_path.parent if _file_path is not None else None
                 if archify is None or not isinstance(doc, dict) or not doc:
                     self._send_json(404, {"archify": False})
                     return
+                dtype = resolve_diagram_type(doc, dtype)
                 tmp_name = _archify_temp_json(doc, trailing, sidecar)
                 try:
-                    layout, err = fetch_layout(archify, dtype, Path(tmp_name), sidecar)
+                    layout, err = fetch_layout(
+                        archify, dtype, Path(tmp_name), sidecar, evidence_dir
+                    )
                 finally:
                     _unlink_quiet(tmp_name)
                 if layout is None:
@@ -3700,6 +4044,7 @@ class Handler(BaseHTTPRequestHandler):
                     200, {"ok": False, "saved": False, "errors": [split_err]}
                 )
                 return
+            _prepare_write_doc(candidate)
 
             errors = structural_check(candidate)
             if errors:
@@ -3709,12 +4054,12 @@ class Handler(BaseHTTPRequestHandler):
             with _state_lock:
                 archify = _archify_path
                 trailing = _had_trailing_newline
-                dtype = _diagram_type
+                dtype = resolve_diagram_type(candidate, _diagram_type)
                 target = _file_path
 
             adopting = False
             if target is None:
-                chosen, path_err = _workflow_save_path(body.get("path"))
+                chosen, path_err = _diagram_save_path(body.get("path"), dtype)
                 if chosen is None:
                     self._send_json(
                         200,
@@ -3730,10 +4075,13 @@ class Handler(BaseHTTPRequestHandler):
                 trailing = True
                 inferred = candidate.get("diagram_type")
                 if isinstance(inferred, str) and inferred.strip():
-                    dtype = inferred.strip()
+                    dtype = resolve_diagram_type(candidate, dtype)
 
+            evidence_dir = target.parent
             if archify:
-                ok_v, v_errors = validate_candidate(archify, dtype, candidate, trailing)
+                ok_v, v_errors = validate_candidate(
+                    archify, dtype, candidate, trailing, evidence_dir
+                )
                 if not ok_v:
                     self._send_json(200, {"ok": False, "saved": False, "errors": v_errors})
                     return
@@ -3759,9 +4107,9 @@ class Handler(BaseHTTPRequestHandler):
                         return
                 if adopting:
                     _file_path = target
-                    _diagram_type = dtype
                     _had_trailing_newline = True
                     _sidecar_unreadable = False
+                _diagram_type = dtype
                 _doc = candidate
                 if sidecar_in is not None:
                     sc = copy.deepcopy(sidecar_in)
@@ -3809,7 +4157,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_export(self) -> None:
         """Ensure-saved-then-export sibling .html (M19). Lock off archify subprocess."""
-        global _doc
+        global _doc, _diagram_type
 
         with _state_lock:
             if _file_path is None:
@@ -3828,6 +4176,7 @@ class Handler(BaseHTTPRequestHandler):
             trailing = _had_trailing_newline
             dtype = _diagram_type
             target = _file_path
+            evidence_dir = target.parent
 
         length = int(self.headers.get("Content-Length") or "0")
         raw = self.rfile.read(length) if length else b""
@@ -3851,11 +4200,15 @@ class Handler(BaseHTTPRequestHandler):
             if split_err:
                 self._send_json(200, {"ok": False, "errors": [split_err]})
                 return
+            _prepare_write_doc(candidate)
             errors = structural_check(candidate)
             if errors:
                 self._send_json(200, {"ok": False, "errors": errors})
                 return
-            ok_v, v_errors = validate_candidate(archify, dtype, candidate, trailing)
+            dtype = resolve_diagram_type(candidate, dtype)
+            ok_v, v_errors = validate_candidate(
+                archify, dtype, candidate, trailing, evidence_dir
+            )
             if not ok_v:
                 self._send_json(200, {"ok": False, "errors": v_errors})
                 return
@@ -3873,6 +4226,7 @@ class Handler(BaseHTTPRequestHandler):
                             200, {"ok": False, "errors": [f"write failed: {e}"]}
                         )
                         return
+                _diagram_type = dtype
                 _doc = candidate
                 if sidecar_in is not None:
                     sc = copy.deepcopy(sidecar_in)
@@ -3910,7 +4264,7 @@ class Handler(BaseHTTPRequestHandler):
 
         An unsaved new diagram has no path. The in-memory doc is enough.
         """
-        global _doc
+        global _doc, _diagram_type
 
         body, err = self._read_json_body()
         if err is not None:
@@ -3950,7 +4304,8 @@ class Handler(BaseHTTPRequestHandler):
         with _state_lock:
             archify = _archify_path
             trailing = _had_trailing_newline
-            dtype = _diagram_type
+            dtype = resolve_diagram_type(candidate, _diagram_type)
+            evidence_dir = _file_path.parent if _file_path is not None else None
             if sidecar_in is not None:
                 sc = copy.deepcopy(sidecar_in)
             else:
@@ -3958,6 +4313,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if not archify:
             with _state_lock:
+                _diagram_type = dtype
                 _doc = candidate
                 _remember_sidecar(candidate, sc)
             self._send_json(
@@ -3972,7 +4328,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         ok_p, v_errors, html, note, layout = preview_candidate(
-            archify, dtype, candidate, trailing, sc
+            archify, dtype, candidate, trailing, sc, evidence_dir
         )
         if not ok_p:
             self._send_json(
@@ -3987,6 +4343,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         with _state_lock:
+            _diagram_type = dtype
             _doc = candidate
             _remember_sidecar(candidate, sc)
             if html is not None:
@@ -4029,20 +4386,27 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_pick(self) -> None:
         """Native OS dialog via tkinter subprocess (M12). mode=save asks where to write."""
         mode = "open"
+        save_type = ""
         length = int(self.headers.get("Content-Length") or "0")
         if length:
             body, err = self._read_json_body()
-            if err is None and isinstance(body, dict) and body.get("mode") == "save":
-                mode = "save"
+            if err is None and isinstance(body, dict):
+                if body.get("mode") == "save":
+                    mode = "save"
+                asked = body.get("diagram_type")
+                if isinstance(asked, str):
+                    save_type = asked
         with _state_lock:
             current = _file_path
+            if save_type not in ("workflow", "architecture"):
+                save_type = _diagram_type
         if current is not None:
             initial_dir = str(current.parent)
         else:
             initial_dir = str(Path.cwd())
         try:
             if mode == "save":
-                result = native_save_path(initial_dir)
+                result = native_save_path(initial_dir, save_type)
             else:
                 result = native_pick_path(initial_dir)
         except Exception:
@@ -4050,15 +4414,24 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, result)
 
     def _handle_new(self) -> None:
-        """Replace the session with blank_workflow. No path. Does not write a file."""
+        """Replace the session with a blank seed. No path. Does not write a file."""
         global _file_path, _diagram_type, _doc, _had_trailing_newline
         global _sidecar, _sidecar_note, _sidecar_unreadable
-        doc = blank_workflow()
+        dtype = "workflow"
+        length = int(self.headers.get("Content-Length") or "0")
+        if length:
+            body, err = self._read_json_body()
+            if err is None and isinstance(body, dict):
+                asked = body.get("diagram_type")
+                if isinstance(asked, str) and asked in ("workflow", "architecture"):
+                    dtype = asked
+        doc = blank_diagram(dtype)
         sc = empty_sidecar()
         with _state_lock:
             _file_path = None
-            _diagram_type = "workflow"
+            _diagram_type = dtype
             _doc = doc
+            _remember_absent_empty_keys(doc)
             _had_trailing_newline = True
             _sidecar = sc
             _sidecar_note = None
@@ -4066,7 +4439,7 @@ class Handler(BaseHTTPRequestHandler):
             archify = _archify_path
             set_preview_html(None)
         if archify:
-            rendered = deliver_preview_doc(archify, "workflow", doc, True, sc)
+            rendered = deliver_preview_doc(archify, dtype, doc, True, sc)
             html, note = rendered if isinstance(rendered, tuple) else (None, "preview failed")
             with _state_lock:
                 if isinstance(note, str) and note.strip():
@@ -4140,12 +4513,15 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(dtype, str) or not dtype.strip():
             self._send_json(400, {"ok": False, "error": "missing diagram_type"})
             return
-        if dtype != "workflow":
+        if dtype not in ("workflow", "architecture"):
             self._send_json(
                 400,
                 {
                     "ok": False,
-                    "error": f"{dtype} diagrams are not supported yet - workflow only",
+                    "error": (
+                        f"{dtype} diagrams are not supported yet - "
+                        "workflow or architecture only"
+                    ),
                 },
             )
             return
@@ -4156,6 +4532,7 @@ class Handler(BaseHTTPRequestHandler):
             _file_path = target
             _diagram_type = dtype
             _doc = doc
+            _remember_absent_empty_keys(doc)
             _had_trailing_newline = trailing
             _sidecar = sc
             _sidecar_note = sc_note
@@ -4362,13 +4739,13 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 .field { display: flex; flex-direction: column; gap: 4px; max-width: 420px; }
 .field[hidden] { display: none; }
 .icon-picker { position: relative; max-width: 420px; }
-#type-mgr-icon-btn {
+#type-mgr-icon-btn, #qtype-icon-btn {
   display: flex; align-items: center; gap: 8px; width: 100%; min-width: 180px;
   background: var(--input); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 9px; font-size: 13px; text-align: left;
 }
-#type-mgr-icon-btn:focus { outline: none; border-color: var(--focus); }
-#type-mgr-icon-btn:disabled { opacity: 0.55; }
+#type-mgr-icon-btn:focus, #qtype-icon-btn:focus { outline: none; border-color: var(--focus); }
+#type-mgr-icon-btn:disabled, #qtype-icon-btn:disabled { opacity: 0.55; }
 .icon-art {
   width: 18px; height: 18px; flex: 0 0 18px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -4489,6 +4866,53 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 }
 #layout-node-editor .bw-ed-actions .meta {
   font-size: 11px; color: var(--muted);
+}
+#quick-type-modal {
+  display: none;
+  position: fixed;
+  z-index: 55;
+  top: 72px;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: min(320px, calc(100vw - 24px));
+  max-height: 80vh;
+  overflow: auto;
+  background: var(--panel);
+  color: var(--text);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  box-sizing: border-box;
+}
+#quick-type-modal.active { display: block; }
+#quick-type-modal .bw-ed-field {
+  display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px;
+}
+#quick-type-modal .bw-ed-field label {
+  font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em;
+}
+#quick-type-modal .bw-ed-field input,
+#quick-type-modal .bw-ed-field select {
+  background: var(--input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 5px 7px; font-size: 13px; font-family: inherit;
+}
+#quick-type-modal .bw-ed-field input:focus,
+#quick-type-modal .bw-ed-field select:focus {
+  outline: none; border-color: var(--focus);
+}
+#quick-type-modal .qtype-lib {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--text); font-weight: 500;
+  margin: 2px 0 8px;
+}
+#quick-type-modal .bw-ed-hint { font-size: 11px; color: var(--muted); margin: 0 0 8px; }
+#quick-type-modal .bw-ed-hint.err { color: var(--danger); }
+#quick-type-modal .bw-ed-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: 4px;
 }
 #layout-single-editor {
   display: none;
@@ -4638,12 +5062,26 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   box-shadow: 0 12px 36px rgba(0,0,0,0.55);
   padding: 12px 14px;
 }
-#dirty-panel.active { display: block; }
-#dirty-panel .open-head {
+#dirty-panel.active, #new-panel.active { display: block; }
+#dirty-panel .open-head, #new-panel .open-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 8px; font-size: 13px; font-weight: 600;
 }
-#dirty-panel .dirty-msg { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+#dirty-panel .dirty-msg, #new-panel .dirty-msg { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+#new-panel {
+  display: none;
+  position: fixed;
+  z-index: 60;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 24px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55);
+  padding: 12px 14px;
+}
 button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 </style>
 </head>
@@ -4689,6 +5127,54 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     <button type="button" id="btn-dirty-cancel">Cancel</button>
   </div>
 </div>
+<div id="new-panel" aria-hidden="true">
+  <div class="open-head">
+    <span>New diagram</span>
+    <button type="button" id="btn-new-close" title="Cancel">Close</button>
+  </div>
+  <div class="dirty-msg">Workflow or architecture?</div>
+  <div class="row-actions">
+    <button type="button" class="primary" id="btn-new-workflow">Workflow</button>
+    <button type="button" id="btn-new-architecture">Architecture</button>
+  </div>
+</div>
+<div id="quick-type-modal" role="dialog" aria-label="New custom type">
+  <div class="bw-ed-field">
+    <label for="qtype-label">Label</label>
+    <input type="text" id="qtype-label" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="bw-ed-field">
+    <label for="qtype-id">id</label>
+    <input type="text" id="qtype-id" autocomplete="off" spellcheck="false">
+  </div>
+  <div class="bw-ed-field">
+    <label for="qtype-base">Base</label>
+    <select id="qtype-base"></select>
+  </div>
+  <div class="bw-ed-field">
+    <label for="qtype-color">Color</label>
+    <select id="qtype-color"></select>
+  </div>
+  <div class="bw-ed-field">
+    <label for="qtype-icon-btn">Icon</label>
+    <input type="hidden" id="qtype-icon" value="none">
+    <div class="icon-picker">
+      <button type="button" id="qtype-icon-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="qtype-icon-list">
+        <span class="icon-art" aria-hidden="true"></span><span class="icon-picker-name">none</span>
+      </button>
+    </div>
+  </div>
+  <label class="qtype-lib" for="qtype-save-lib"><input type="checkbox" id="qtype-save-lib" checked> Save to library</label>
+  <div id="qtype-error" class="bw-ed-hint" hidden></div>
+  <div class="bw-ed-actions">
+    <button type="button" class="primary" id="qtype-create">Create &amp; apply</button>
+    <button type="button" id="qtype-cancel">Cancel</button>
+  </div>
+</div>
+<div id="qtype-icon-pop" class="icon-picker-pop" hidden>
+  <input type="search" id="qtype-icon-search" aria-label="Search icons" aria-autocomplete="list" aria-controls="qtype-icon-list" autocomplete="off" spellcheck="false">
+  <div id="qtype-icon-list" role="listbox" aria-label="Icons"></div>
+</div>
 <div id="status-overlay" role="dialog" aria-label="Full status message" aria-hidden="true">
   <div class="open-head">
     <span>Status</span>
@@ -4702,9 +5188,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 </div>
 <div class="tabs" role="tablist">
   <button type="button" data-tab="layout" id="tab-layout" class="hidden">Layout</button>
-  <button type="button" class="active" data-tab="nodes">Nodes</button>
-  <button type="button" data-tab="edges">Edges</button>
+  <button type="button" class="active" data-tab="nodes" id="tab-nodes">Nodes</button>
+  <button type="button" data-tab="edges" id="tab-edges">Edges</button>
   <button type="button" data-tab="lanes" id="tab-lanes">Lanes</button>
+  <button type="button" data-tab="components" id="tab-components" class="hidden">Components</button>
+  <button type="button" data-tab="connections" id="tab-connections" class="hidden">Connections</button>
+  <button type="button" data-tab="boundaries" id="tab-boundaries" class="hidden">Boundaries</button>
   <button type="button" data-tab="cards" id="tab-cards">Cards</button>
   <button type="button" data-tab="types" id="tab-types">Custom types</button>
   <button type="button" data-tab="raw">Raw JSON</button>
@@ -4845,6 +5334,24 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       <div class="form" id="form-cards"><div class="empty">Select a card</div></div>
     </div>
   </div>
+  <div class="pane" id="pane-components">
+    <div class="split">
+      <div class="list" id="list-components"></div>
+      <div class="form" id="form-components"><div class="empty">Select a component</div></div>
+    </div>
+  </div>
+  <div class="pane" id="pane-connections">
+    <div class="split">
+      <div class="list" id="list-connections"></div>
+      <div class="form" id="form-connections"><div class="empty">Select a connection</div></div>
+    </div>
+  </div>
+  <div class="pane" id="pane-boundaries">
+    <div class="split">
+      <div class="list" id="list-boundaries"></div>
+      <div class="form" id="form-boundaries"><div class="empty">Select a boundary</div></div>
+    </div>
+  </div>
   <div class="pane" id="pane-raw">
     <div id="raw-wrap">
       <div class="row-actions">
@@ -4865,7 +5372,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     doc: null,
     enums: {},
     archify: null,
-    selected: { nodes: -1, edges: -1, lanes: -1, cards: -1 },
+    selected: { nodes: -1, edges: -1, lanes: -1, cards: -1, components: -1, connections: -1, boundaries: -1 },
     tab: "nodes",
     undo: [],
     redo: [],
@@ -4879,6 +5386,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     layoutMode: "move",
     connectFrom: null,
     selectedEdgeIndex: null,
+    selectedComponentId: null,
     brands: [],
     sidecar: null,
     lastSavedSidecar: null,
@@ -4901,6 +5409,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   var LAYOUT_ENDPOINT_R = 7;
   var layoutDrag = null;
   var endpointDrag = null;
+  var resizeDrag = null;
   var nodeEdit = null;
   var singleEdit = null;
   var typeMgrId = "";
@@ -5026,11 +5535,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         exportBtn.title = "open a file first";
       }
       if (addBtn) addBtn.disabled = true;
+      syncArchitectureChrome();
       return;
     }
-    var counts = " · nodes " + ((state.doc.nodes) || []).length +
-      " / edges " + ((state.doc.edges) || []).length +
-      " / lanes " + ((state.doc.lanes) || []).length;
+    var counts = isArchitecture()
+      ? (" · components " + ((state.doc.components) || []).length +
+        " / connections " + ((state.doc.connections) || []).length +
+        " / boundaries " + ((state.doc.boundaries) || []).length)
+      : (" · nodes " + ((state.doc.nodes) || []).length +
+        " / edges " + ((state.doc.edges) || []).length +
+        " / lanes " + ((state.doc.lanes) || []).length);
     var base = state.file
       ? (state.file + " · " + state.diagram_type + counts)
       : ("Unsaved new diagram · " + state.diagram_type + counts);
@@ -5055,6 +5569,87 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       }
     }
     if (addBtn) addBtn.disabled = !state.doc || !!state.layoutBusy;
+    syncArchitectureChrome();
+  }
+
+  function isArchitecture() {
+    return state.diagram_type === "architecture";
+  }
+
+  function emptySelection() {
+    return {
+      nodes: -1, edges: -1, lanes: -1, cards: -1,
+      components: -1, connections: -1, boundaries: -1
+    };
+  }
+
+  function elementRecords() {
+    if (!state.doc) return [];
+    return isArchitecture() ? (state.doc.components || []) : (state.doc.nodes || []);
+  }
+
+  function syncDiagramTabs() {
+    var arch = isArchitecture();
+    function show(id, on) {
+      var el = $(id);
+      if (el) el.classList.toggle("hidden", !on);
+    }
+    show("tab-nodes", !arch);
+    show("tab-edges", !arch);
+    show("tab-lanes", !arch);
+    show("tab-components", arch);
+    show("tab-connections", arch);
+    show("tab-boundaries", arch);
+    var current = document.querySelector('.tabs button[data-tab="' + state.tab + '"]');
+    if (current && current.classList.contains("hidden")) {
+      var all = document.querySelectorAll(".tabs button");
+      for (var b = 0; b < all.length; b++) {
+        if (!all[b].classList.contains("hidden")) {
+          state.tab = all[b].getAttribute("data-tab");
+          break;
+        }
+      }
+    }
+    var buttons = document.querySelectorAll(".tabs button");
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].classList.toggle("active", buttons[i].getAttribute("data-tab") === state.tab);
+    }
+    var panes = ["nodes", "edges", "lanes", "cards", "components", "connections", "boundaries", "types", "layout", "raw"];
+    for (var j = 0; j < panes.length; j++) {
+      var pane = $("pane-" + panes[j]);
+      if (pane) pane.classList.toggle("active", panes[j] === state.tab);
+    }
+  }
+
+  function syncArchitectureChrome() {
+    var arch = isArchitecture();
+    var mode = $("layout-mode-toggle");
+    if (mode) mode.hidden = false;
+    var moveBtn = $("btn-mode-move");
+    var connBtn = $("btn-mode-connect");
+    var addBtn = $("btn-add-node");
+    var delBtn = $("btn-delete-edge");
+    if (moveBtn) {
+      moveBtn.disabled = !state.doc || !!state.layoutBusy;
+      moveBtn.title = arch ? "Move / resize components" : "Move nodes / rename";
+    }
+    if (connBtn) {
+      connBtn.disabled = !state.doc || !!state.layoutBusy;
+      connBtn.title = arch
+        ? "Connect / edit: click a source component then a target to add; drag endpoints to reroute; click a connection to select or delete."
+        : "Connect / edit: click a source node then a target to add; drag endpoints to reroute; click an edge to select or delete.";
+    }
+    if (addBtn) {
+      addBtn.textContent = arch ? "+ Component" : "+ Node";
+      addBtn.title = arch
+        ? "Add a component to the right of the rightmost"
+        : "Add node at first free cell";
+      addBtn.disabled = !state.doc || !!state.layoutBusy;
+    }
+    if (delBtn) {
+      delBtn.title = arch ? "Delete selected connection" : "Delete selected edge";
+      delBtn.disabled = state.selectedEdgeIndex == null || !!state.layoutBusy;
+    }
   }
 
   function markDirty() {
@@ -5086,6 +5681,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   // Friendly names are local. They are not archify's in-SVG legend strings.
+  var QUICK_TYPE_SENTINEL = "__bw_new_type__";
+  // Last checkbox choice this session. Default on, per M34.
+  var quickTypeSaveLib = true;
+  var quickType = null;
+  var quickTypeIdManual = false;
+
   var BUILTIN_TYPE_LABELS = [
     ["frontend", "Frontend"],
     ["backend", "Backend"],
@@ -5221,9 +5822,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     }
     opts.custom.forEach(add);
     opts.builtin.forEach(add);
-    if (selected && !seen[String(selected)]) {
+    if (selected && String(selected) !== QUICK_TYPE_SENTINEL && !seen[String(selected)]) {
       html = '<option value="' + esc(selected) + '" selected>' + esc(selected) + "</option>" + html;
     }
+    html += '<option value="' + QUICK_TYPE_SENTINEL + '">+ New custom type...</option>';
     return html;
   }
 
@@ -5359,7 +5961,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   function nodesUsingType(typeId) {
     ensureSidecar();
     var names = [];
-    var nodes = (state.doc && state.doc.nodes) || [];
+    var nodes = elementRecords();
     for (var i = 0; i < nodes.length; i++) {
       var node = nodes[i];
       if (node && state.sidecar.assignments[node.id] === typeId) names.push(String(node.id));
@@ -5455,11 +6057,24 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       esc(label) + "</div>" + options + "</div>";
   }
 
-  function renderIconPickerList() {
-    var list = $("type-mgr-icon-list");
+  function iconPickerEls(root) {
+    root = root || "type-mgr";
+    return {
+      root: root,
+      list: $(root + "-icon-list"),
+      search: $(root + "-icon-search"),
+      hidden: $(root + "-icon"),
+      btn: $(root + "-icon-btn"),
+      pop: $(root + "-icon-pop"),
+    };
+  }
+
+  function renderIconPickerList(root) {
+    var els = iconPickerEls(root);
+    var list = els.list;
     if (!list) return;
-    var query = String(($("type-mgr-icon-search") && $("type-mgr-icon-search").value) || "");
-    var current = String(($("type-mgr-icon") && $("type-mgr-icon").value) || "none");
+    var query = String((els.search && els.search.value) || "");
+    var current = String((els.hidden && els.hidden.value) || "none");
     var html = "";
     if (iconSearchHit(query, ["none"])) html += iconOptionHtml("none", blankIconHtml(), "none", "");
     var taken = { none: true };
@@ -5510,23 +6125,24 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var opts = list.querySelectorAll('[role="option"]');
     var picked = -1;
     for (var n = 0; n < opts.length; n++) {
-      opts[n].id = "type-mgr-icon-opt-" + n;
+      opts[n].id = els.root + "-icon-opt-" + n;
       if (opts[n].getAttribute("data-value") === current) picked = n;
     }
     if (picked < 0 && opts.length) picked = 0;
     for (var s = 0; s < opts.length; s++) {
       opts[s].setAttribute("aria-selected", s === picked ? "true" : "false");
     }
-    var search = $("type-mgr-icon-search");
+    var search = els.search;
     if (search) {
       if (picked >= 0) search.setAttribute("aria-activedescendant", opts[picked].id);
       else search.removeAttribute("aria-activedescendant");
     }
   }
 
-  function syncIconPickerButton() {
-    var btn = $("type-mgr-icon-btn");
-    var hidden = $("type-mgr-icon");
+  function syncIconPickerButton(root) {
+    var els = iconPickerEls(root);
+    var btn = els.btn;
+    var hidden = els.hidden;
     if (!btn || !hidden) return;
     var value = String(hidden.value || "none");
     var art = blankIconHtml();
@@ -5558,9 +6174,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     btn.innerHTML = art + '<span class="icon-picker-name">' + esc(label) + "</span>";
   }
 
-  function placeIconPicker() {
-    var btn = $("type-mgr-icon-btn");
-    var pop = $("type-mgr-icon-pop");
+  function placeIconPicker(root) {
+    var els = iconPickerEls(root);
+    var btn = els.btn;
+    var pop = els.pop;
     if (!btn || !pop || pop.hidden) return;
     var rect = btn.getBoundingClientRect();
     var width = Math.min(360, Math.max(180, window.innerWidth - 16));
@@ -5574,38 +6191,41 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     pop.style.maxHeight = maxH + "px";
   }
 
-  function closeIconPicker(focusBtn) {
-    var pop = $("type-mgr-icon-pop");
-    var btn = $("type-mgr-icon-btn");
+  function closeIconPicker(focusBtn, root) {
+    var els = iconPickerEls(root);
+    var pop = els.pop;
+    var btn = els.btn;
     if (pop) pop.hidden = true;
     if (btn) btn.setAttribute("aria-expanded", "false");
-    var search = $("type-mgr-icon-search");
-    if (search) search.removeAttribute("aria-activedescendant");
+    if (els.search) els.search.removeAttribute("aria-activedescendant");
     if (focusBtn && btn) btn.focus();
   }
 
-  function openIconPicker() {
-    var btn = $("type-mgr-icon-btn");
-    var pop = $("type-mgr-icon-pop");
+  function openIconPicker(root) {
+    var els = iconPickerEls(root);
+    var btn = els.btn;
+    var pop = els.pop;
     if (!btn || !pop || btn.disabled) return;
-    var search = $("type-mgr-icon-search");
+    var other = (root || "type-mgr") === "qtype" ? "type-mgr" : "qtype";
+    closeIconPicker(false, other);
+    var search = els.search;
     if (search) search.value = "";
     pop.hidden = false;
     btn.setAttribute("aria-expanded", "true");
-    renderIconPickerList();
-    placeIconPicker();
+    renderIconPickerList(root);
+    placeIconPicker(root);
     if (search) search.focus();
   }
 
-  function chooseIconValue(value) {
-    var hidden = $("type-mgr-icon");
+  function chooseIconValue(value, root) {
+    var hidden = iconPickerEls(root).hidden;
     if (hidden) hidden.value = value || "none";
-    syncIconPickerButton();
-    closeIconPicker(true);
+    syncIconPickerButton(root);
+    closeIconPicker(true, root);
   }
 
-  function moveIconPicker(delta) {
-    var list = $("type-mgr-icon-list");
+  function moveIconPicker(delta, root) {
+    var list = iconPickerEls(root).list;
     if (!list) return;
     var opts = list.querySelectorAll('[role="option"]');
     if (!opts.length) return;
@@ -5617,17 +6237,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (next < 0) next = 0;
     if (next >= opts.length) next = opts.length - 1;
     for (var j = 0; j < opts.length; j++) opts[j].setAttribute("aria-selected", j === next ? "true" : "false");
-    var search = $("type-mgr-icon-search");
+    var search = iconPickerEls(root).search;
     if (search) search.setAttribute("aria-activedescendant", opts[next].id);
     if (opts[next].scrollIntoView) opts[next].scrollIntoView({ block: "nearest" });
   }
 
-  function pickSelectedIcon() {
-    var list = $("type-mgr-icon-list");
+  function pickSelectedIcon(root) {
+    var list = iconPickerEls(root).list;
     if (!list) return;
     var selected = list.querySelector('[role="option"][aria-selected="true"]');
     if (!selected) return;
-    chooseIconValue(selected.getAttribute("data-value") || "none");
+    chooseIconValue(selected.getAttribute("data-value") || "none", root);
   }
 
   function readTypeForm() {
@@ -5658,6 +6278,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     syncIconPickerButton();
     var pop = $("type-mgr-icon-pop");
     if (pop && !pop.hidden) renderIconPickerList();
+    var qpop = $("qtype-icon-pop");
+    if (qpop && !qpop.hidden) {
+      renderIconPickerList("qtype");
+      syncIconPickerButton("qtype");
+    }
   }
 
   function loadTypeManagerForm(id) {
@@ -5714,7 +6339,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       }
     }
     var noDoc = !state.doc;
-    if (noDoc || state.layoutBusy) closeIconPicker(false);
+    if (noDoc || state.layoutBusy) {
+      closeIconPicker(false);
+      closeIconPicker(false, "qtype");
+    }
+    if (noDoc && quickType) closeQuickType(true);
     ["type-mgr-id", "type-mgr-label", "type-mgr-base", "type-mgr-color", "type-mgr-icon", "type-mgr-icon-btn",
       "type-mgr-catalog",
       "btn-type-new", "btn-type-save", "btn-type-remove", "btn-type-to-lib", "btn-type-from-lib",
@@ -5761,7 +6390,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var unknown = [];
     var workflow = false;
     if (sourceId && (baseChanged || iconChanged)) {
-      var nodes = (state.doc && state.doc.nodes) || [];
+      var nodes = elementRecords();
       for (var i = 0; i < nodes.length; i++) {
         var node = nodes[i];
         if (!node || state.sidecar.assignments[node.id] !== fields.id) continue;
@@ -5872,6 +6501,201 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       });
   }
 
+  function slugTypeId(label) {
+    return String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+
+  function quickTypeFields() {
+    return {
+      id: String(($("qtype-id") && $("qtype-id").value) || "").trim(),
+      label: String(($("qtype-label") && $("qtype-label").value) || "").trim(),
+      base: String(($("qtype-base") && $("qtype-base").value) || "").trim(),
+      color: String(($("qtype-color") && $("qtype-color").value) || "") || "none",
+      icon: String(($("qtype-icon") && $("qtype-icon").value) || "") || "none",
+    };
+  }
+
+  function quickTypeErrorText(fields) {
+    var err = validateTypeForm(fields, "");
+    if (err) return err;
+    if (libraryType(fields.id)) return "Type id already exists: " + fields.id;
+    return "";
+  }
+
+  function showQuickTypeError(msg) {
+    var el = $("qtype-error");
+    if (!el) return;
+    el.textContent = msg || "";
+    el.hidden = !msg;
+    el.classList.toggle("err", !!msg);
+  }
+
+  function hideQuickTypeModal() {
+    var modal = $("quick-type-modal");
+    if (modal) modal.classList.remove("active");
+    closeIconPicker(false, "qtype");
+    showQuickTypeError("");
+  }
+
+  function closeQuickType(restore) {
+    var target = quickType;
+    quickType = null;
+    quickTypeIdManual = false;
+    hideQuickTypeModal();
+    if (!restore || !target || !target.selectEl) return;
+    var prev = target.prev;
+    if (prev == null || prev === QUICK_TYPE_SENTINEL) prev = "";
+    if (target.selectEl.value !== prev) target.selectEl.value = prev;
+    if (target.selectEl.id === "layout-edit-type") target.selectEl.dataset.prev = prev;
+  }
+
+  function fillQuickTypeBase(selected) {
+    var baseEl = $("qtype-base");
+    if (!baseEl) return;
+    var html = "";
+    BUILTIN_TYPE_LABELS.forEach(function (pair) {
+      html += '<option value="' + esc(pair[0]) + '">' + esc(pair[1]) + "</option>";
+    });
+    baseEl.innerHTML = html;
+    baseEl.value = isBuiltinType(selected) ? selected : "backend";
+  }
+
+  function openQuickType(target) {
+    if (!state.doc || state.layoutBusy || !target || !target.nodeId) return;
+    var node = findDocNode(target.nodeId);
+    if (!node || !node.id) return;
+    if (quickType) closeQuickType(true);
+    var sel = target.selectEl || null;
+    var prev = sel ? String(sel.value || "") : nodeChooserValue(node);
+    if (!prev || prev === QUICK_TYPE_SENTINEL) prev = nodeChooserValue(node);
+    if (sel) {
+      sel.value = prev;
+      if (sel.id === "layout-edit-type") sel.dataset.prev = prev;
+    }
+    quickType = {
+      kind: target.kind,
+      nodeId: String(node.id),
+      selectEl: sel,
+      prev: prev,
+    };
+    quickTypeIdManual = false;
+    var labelEl = $("qtype-label");
+    var idEl = $("qtype-id");
+    var iconEl = $("qtype-icon");
+    var saveEl = $("qtype-save-lib");
+    if (labelEl) labelEl.value = "";
+    if (idEl) idEl.value = "";
+    fillQuickTypeBase(node.type);
+    fillStyleSelect($("qtype-color"), "color", "");
+    if (iconEl) iconEl.value = "none";
+    syncIconPickerButton("qtype");
+    if (saveEl) saveEl.checked = !!quickTypeSaveLib;
+    showQuickTypeError("");
+    var modal = $("quick-type-modal");
+    if (modal) modal.classList.add("active");
+    if (labelEl) labelEl.focus();
+  }
+
+  function refreshQuickTypeChooser(node, typeId) {
+    if (nodeEdit && String(nodeEdit.nodeId) === String(node.id)) {
+      nodeEdit.snap = snapNodeTextFields(node);
+      nodeEdit.colorTouched = false;
+      fillNodeTypeSelect(typeId);
+      var colorEl = $("layout-edit-color");
+      var body = sidecarType(typeId);
+      if (colorEl) fillStyleSelect(colorEl, "color", body ? typeColorOf(body) : "");
+    }
+  }
+
+  function paintQuickTypeApply(fromLayout) {
+    state.rawDirty = false;
+    previewStale = true;
+    markDirty();
+    if (fromLayout && nodeEdit) {
+      renderLists();
+      renderForm("nodes");
+      renderForm("components");
+      renderRaw();
+      renderTypesManager();
+      updateDirtyUI();
+      return;
+    }
+    renderAll();
+  }
+
+  function postQuickTypeLibrary(id) {
+    var body = sidecarType(id);
+    if (!body) return;
+    var payload = clone(body);
+    payload.id = id;
+    apiFetch("/api/type-library", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: payload }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || data.ok === false) {
+          setStatus(((data && data.error) || "type library write failed") +
+            " (type " + id + " still applied on this diagram, unsaved)", "err");
+          return;
+        }
+        state.typeLibrary = data.library || state.typeLibrary;
+        if (nodeEdit) renderTypesManager();
+        else renderAll();
+        var msg = "Saved type " + id + " to the library";
+        if (data.note) msg += "\n" + data.note;
+        setStatus(msg + "\nApplied on this diagram (unsaved)", "ok");
+      })
+      .catch(function (e) {
+        setStatus("Type library write failed: " + e +
+          " (type " + id + " still applied on this diagram, unsaved)", "err");
+      });
+  }
+
+  function createQuickType() {
+    if (!quickType || !state.doc || state.layoutBusy) return;
+    var saveEl = $("qtype-save-lib");
+    if (saveEl) quickTypeSaveLib = !!saveEl.checked;
+    var fields = quickTypeFields();
+    var err = quickTypeErrorText(fields);
+    if (err) {
+      showQuickTypeError(err);
+      return;
+    }
+    var target = quickType;
+    var node = findDocNode(target.nodeId);
+    if (!node || !node.id) {
+      showQuickTypeError("Node has no id");
+      return;
+    }
+    var fromLayout = target.kind === "layout" && !!nodeEdit;
+    var typeSnap = snapshotBuffer();
+    pushHistory();
+    applyTypeRecord("", fields);
+    var applied = applyTypeChoice(node, fields.id);
+    if (applied.ok && node.brand != null) ensureBrandWidth(node);
+    if (!applied.ok) {
+      state.doc = typeSnap.doc;
+      state.sidecar = typeSnap.sidecar;
+      revertHistoryPush();
+      showQuickTypeError(applied.error || "Type not applied");
+      return;
+    }
+    quickType = null;
+    quickTypeIdManual = false;
+    hideQuickTypeModal();
+    refreshQuickTypeChooser(node, fields.id);
+    paintQuickTypeApply(fromLayout);
+    var msg = "Saved type " + fields.id + " and applied it (unsaved)";
+    if (applied.locked) msg += " (object brand left locked)";
+    else if (applied.kept) msg += " (brand left unchanged)";
+    else if (applied.unknown) msg += " (unknown icon " + applied.unknown + " stored as a catalog id)";
+    if (quickTypeSaveLib) msg += "\nSaving type to library…";
+    setStatus(msg, "");
+    if (quickTypeSaveLib) postQuickTypeLibrary(fields.id);
+  }
+
   function updateDiagramFromLibrary() {
     if (!state.doc || state.layoutBusy) return;
     setStatus("Reading type library…", "");
@@ -5905,7 +6729,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
           }
           count += 1;
         });
-        var nodes = state.doc.nodes || [];
+        var nodes = elementRecords();
         for (var i = 0; i < nodes.length; i++) {
           var node = nodes[i];
           var tid = node && state.sidecar.assignments[node.id];
@@ -6058,6 +6882,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function ensureArrays() {
     if (!state.doc) return;
+    if (isArchitecture()) {
+      // Optional collections stay absent until the user adds one.
+      if (!Array.isArray(state.doc.components)) state.doc.components = [];
+      return;
+    }
     if (!Array.isArray(state.doc.nodes)) state.doc.nodes = [];
     if (!Array.isArray(state.doc.edges)) state.doc.edges = [];
     if (!Array.isArray(state.doc.lanes)) state.doc.lanes = [];
@@ -6131,14 +6960,34 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function ensureBrandWidth(node) {
-    // archify brandTopRailProblem: width - 48 must fit textUnits(label) * 9 * 0.6.
-    // Absent width renders as 92. Never shrink, never move col, never change height.
+    // archify brandTopRailProblem: available text width is box width - 48.
+    // Workflow: absent width renders as 92, legible minimum 9. Writes width.
+    // Architecture: absent size renders as 120x60, legible minimum 8.
+    // Writes size[0] only when size is already set or that default is too
+    // narrow. Never shrink. Does not change size[1] when size is already set.
+    // Ceil and add 1px so 48 + units*em*0.6 cannot land a float hair under
+    // the width archify measures. Written widths are integers.
     if (!node) return;
     var label = node.label != null ? String(node.label) : "";
+    if (isArchitecture()) {
+      var required = textUnits(label) * 8 * 0.6;
+      var size = node.size;
+      var hasSize = Array.isArray(size) && size.length >= 2 &&
+        typeof size[0] === "number" && isFinite(size[0]);
+      var current = hasSize ? size[0] : 120;
+      var next = Math.ceil(48 + required) + 1;
+      if (current >= next) return;
+      var height = 60;
+      if (hasSize && typeof size[1] === "number" && isFinite(size[1]) && size[1] > 0) {
+        height = size[1];
+      }
+      node.size = [Math.max(current, next), height];
+      return;
+    }
     var required = textUnits(label) * 9 * 0.6;
     var hasWidth = typeof node.width === "number" && isFinite(node.width);
-    var current = hasWidth ? node.width : 92;
-    var next = Math.max(current, 48 + required);
+    var currentW = hasWidth ? node.width : 92;
+    var next = Math.max(currentW, Math.ceil(48 + required) + 1);
     if (!hasWidth || node.width < next) node.width = next;
   }
 
@@ -6275,8 +7124,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     return edge.id;
   }
 
+  function relationRecords() {
+    if (!state.doc) return [];
+    return isArchitecture() ? (state.doc.connections || []) : (state.doc.edges || []);
+  }
+
   function edgeStyleKeyAt(docIndex) {
-    var edges = (state.doc && state.doc.edges) || [];
+    var edges = relationRecords();
     var edge = edges[docIndex];
     if (!edge) return "";
     var eid = edgeIdOf(edge);
@@ -6364,7 +7218,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function captureEdgeStyleKeys() {
-    var edges = (state.doc && state.doc.edges) || [];
+    var edges = relationRecords();
     var rows = [];
     for (var i = 0; i < edges.length; i++) rows.push({ edge: edges[i], key: edgeStyleKeyAt(i) });
     return rows;
@@ -6374,7 +7228,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     ensureSidecar();
     var map = state.sidecar.edges;
     if (!map || typeof map !== "object" || Array.isArray(map) || !captured) return;
-    var edges = state.doc.edges || [];
+    var edges = relationRecords();
     var snapshot = clone(map);
     var assigned = {};
     var movedFrom = {};
@@ -6439,15 +7293,99 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     return '<div class="field"><label>' + esc(field) + '</label>' + html + "</div>";
   }
 
+  function usesGridPlacement(item) {
+    if (!item || !isArchitecture()) return false;
+    if (Array.isArray(item.pos) && item.pos.length >= 2) return false;
+    return item.row != null || item.col != null;
+  }
+
+  function pairNumber(item, key, index, fallback) {
+    var pair = item && item[key];
+    if (!Array.isArray(pair) || pair.length <= index || pair[index] == null || pair[index] === "") {
+      return fallback;
+    }
+    return pair[index];
+  }
+
+  function fieldPlainNumber(label, name, value) {
+    var shown = (value == null || value === "") ? "" : value;
+    return '<div class="field"><label>' + esc(label) + '</label>' +
+      '<input type="number" data-field="' + name + '" value="' + esc(shown) + '" step="any"></div>';
+  }
+
+  function componentSelect(field, value) {
+    var items = (state.doc && state.doc.components) || [];
+    var html = '<select data-field="' + field + '">';
+    html += '<option value="">—</option>';
+    for (var i = 0; i < items.length; i++) {
+      var id = items[i].id || "";
+      var sel = (String(value) === String(id)) ? " selected" : "";
+      html += '<option value="' + esc(id) + '"' + sel + ">" + esc(id) +
+        (items[i].label ? " — " + esc(items[i].label) : "") + "</option>";
+    }
+    html += "</select>";
+    return '<div class="field"><label>' + esc(field) + '</label>' + html + "</div>";
+  }
+
+  function wrapsField(item) {
+    var comps = (state.doc && state.doc.components) || [];
+    var wraps = (item && Array.isArray(item.wraps)) ? item.wraps : [];
+    var selected = {};
+    for (var s = 0; s < wraps.length; s++) selected[String(wraps[s])] = true;
+    var html = '<div class="field"><label>wraps</label><select data-field="wraps" multiple size="' +
+      Math.min(8, Math.max(3, comps.length || 3)) + '">';
+    var seen = {};
+    for (var i = 0; i < comps.length; i++) {
+      var id = comps[i].id || "";
+      seen[String(id)] = true;
+      var sel = selected[String(id)] ? " selected" : "";
+      html += '<option value="' + esc(id) + '"' + sel + ">" + esc(id) +
+        (comps[i].label ? " — " + esc(comps[i].label) : "") + "</option>";
+    }
+    for (var w = 0; w < wraps.length; w++) {
+      var wid = String(wraps[w]);
+      if (seen[wid]) continue;
+      html += '<option value="' + esc(wid) + '" selected>' + esc(wid) + " (missing)</option>";
+    }
+    html += "</select></div>";
+    return html;
+  }
+
   function renderLists() {
     if (!state.doc) {
-      ["nodes", "edges", "lanes", "cards"].forEach(function (kind) {
+      ["nodes", "edges", "lanes", "cards", "components", "connections", "boundaries"].forEach(function (kind) {
         var el = $("list-" + kind);
         if (el) el.innerHTML = '<div class="empty">Open a diagram to edit</div>';
       });
       return;
     }
     ensureArrays();
+    if (isArchitecture()) {
+      renderList("components", state.doc.components || [], function (n, i) {
+        var place = usesGridPlacement(n)
+          ? ("row " + esc(n.row == null ? "" : n.row) + " · col " + esc(n.col == null ? "" : n.col))
+          : ("pos " + esc(pairNumber(n, "pos", 0, "")) + "," + esc(pairNumber(n, "pos", 1, "")));
+        return '<div><strong>' + esc(n.id || ("#" + i)) + '</strong></div>' +
+          '<div class="sub">' + esc(n.label || "") + " · " + nodeTypeListHtml(n) +
+          " · " + place + "</div>";
+      });
+      renderList("connections", state.doc.connections || [], function (e) {
+        return '<div><strong>' + esc(e.from || "?") + " → " + esc(e.to || "?") + "</strong></div>" +
+          '<div class="sub">' + esc(e.label || "") + (e.variant ? " · " + esc(e.variant) : "") +
+          (e.route ? " · " + esc(e.route) : "") + "</div>";
+      });
+      renderList("boundaries", state.doc.boundaries || [], function (b, i) {
+        var wraps = Array.isArray(b.wraps) ? b.wraps.join(", ") : "";
+        return '<div><strong>' + esc(b.label || ("#" + i)) + '</strong></div>' +
+          '<div class="sub">' + esc(b.kind || "") + (wraps ? " · " + esc(wraps) : "") + "</div>";
+      });
+      renderList("cards", state.doc.cards || [], function (c) {
+        var title = (c && c.title != null && String(c.title) !== "") ? c.title : "(untitled)";
+        var dot = (c && c.dot != null) ? c.dot : "";
+        return '<div><strong>' + esc(dot) + '</strong> · ' + esc(title) + '</div>';
+      });
+      return;
+    }
     renderList("nodes", state.doc.nodes, function (n, i) {
       return '<div><strong>' + esc(n.id || ("#" + i)) + '</strong></div>' +
         '<div class="sub">' + esc(n.label || "") + " · " + nodeTypeListHtml(n) +
@@ -6504,6 +7442,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     }
     var idx = state.selected[kind];
     var items = state.doc[kind];
+    if (!Array.isArray(items)) {
+      form.innerHTML = '<div class="empty">Select a ' + kind.slice(0, -1) + "</div>";
+      return;
+    }
     if (idx < 0 || idx >= items.length) {
       form.innerHTML = '<div class="empty">Select a ' + kind.slice(0, -1) + "</div>";
       return;
@@ -6544,11 +7486,47 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       html += fieldText("title", "title", item.title);
       html += fieldSelect("dot", "cards.dot", "dot", item.dot);
       html += cardItemsEditor(item);
+    } else if (kind === "components") {
+      html += fieldText("id", "id", item.id);
+      html += typeFieldHtml(item);
+      html += fieldText("label", "label", item.label);
+      html += fieldText("sublabel", "sublabel", item.sublabel);
+      html += fieldText("tag", "tag", item.tag);
+      html += styleSelect("Color", "bwColor", displayedNodeColor(item.id), "color");
+      html += '<div class="bw-brand-hint">A per-component color overrides the type color.</div>';
+      if (usesGridPlacement(item)) {
+        html += fieldNumber("row", "row", item.row, 0, 1000000);
+        html += fieldNumber("col", "col", item.col, 0, 1000000);
+      } else {
+        html += fieldPlainNumber("pos x", "posX", pairNumber(item, "pos", 0, 40));
+        html += fieldPlainNumber("pos y", "posY", pairNumber(item, "pos", 1, 80));
+        html += fieldPlainNumber("size w", "sizeW", pairNumber(item, "size", 0, 120));
+        html += fieldPlainNumber("size h", "sizeH", pairNumber(item, "size", 1, 60));
+      }
+    } else if (kind === "connections") {
+      html += componentSelect("from", item.from);
+      html += componentSelect("to", item.to);
+      html += fieldText("label", "label", item.label);
+      html += fieldSelect("variant", "edge.variant", "variant", item.variant);
+      var connStyle = edgeStyleEntry(idx);
+      html += styleSelect("Color", "bwColor", storedColor(connStyle && connStyle.entry), "color");
+      html += styleSelect("Dash", "bwDash", storedDash(connStyle && connStyle.entry), "dash");
+      html += fieldSelect("route", "connection.route", "route", item.route);
+      html += fieldSelect("fromSide", "edge.fromSide", "fromSide", item.fromSide);
+      html += fieldSelect("toSide", "edge.toSide", "toSide", item.toSide);
+    } else if (kind === "boundaries") {
+      html += fieldSelect("kind", "boundary.kind", "kind", item.kind);
+      html += fieldText("label", "label", item.label);
+      html += wrapsField(item);
+      html += fieldPlainNumber("pad", "pad", item.pad == null ? "" : item.pad);
     }
 
     var removeLabel = kind === "cards" ? "Remove card" : "Remove";
-    html += '<div class="row-actions">' +
-      '<button type="button" class="danger" data-action="remove" data-kind="' + kind + '">' +
+    html += '<div class="row-actions">';
+    if (kind === "components") {
+      html += '<button type="button" data-action="duplicate" data-kind="components">Duplicate</button>';
+    }
+    html += '<button type="button" class="danger" data-action="remove" data-kind="' + kind + '">' +
       removeLabel + '</button>' +
       "</div>";
     form.innerHTML = html;
@@ -6564,11 +7542,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function renderAll() {
+    syncDiagramTabs();
+    if (!state.layoutBusy) updateLayoutHint();
     renderLists();
     renderForm("nodes");
     renderForm("edges");
     renderForm("lanes");
     renderForm("cards");
+    renderForm("components");
+    renderForm("connections");
+    renderForm("boundaries");
     renderRaw();
     renderTypesManager();
     syncDiagramStrip();
@@ -6751,7 +7734,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function preferLayoutTab() {
     if (state.doc && state.archify) switchTab("layout");
-    else switchTab("nodes");
+    else switchTab(isArchitecture() ? "components" : "nodes");
   }
 
   function currentQualityProfile() {
@@ -6847,7 +7830,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     for (var i = 0; i < buttons.length; i++) {
       buttons[i].classList.toggle("active", buttons[i].getAttribute("data-tab") === tab);
     }
-    var panes = ["nodes", "edges", "lanes", "cards", "types", "layout", "raw"];
+    var panes = ["nodes", "edges", "lanes", "cards", "components", "connections", "boundaries", "types", "layout", "raw"];
     for (var j = 0; j < panes.length; j++) {
       $("pane-" + panes[j]).classList.toggle("active", panes[j] === tab);
     }
@@ -6974,17 +7957,36 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function findDocNode(id) {
-    var nodes = state.doc.nodes || [];
+    var nodes = isArchitecture() ? ((state.doc && state.doc.components) || []) : ((state.doc && state.doc.nodes) || []);
     for (var i = 0; i < nodes.length; i++) {
       if (nodes[i].id === id) return nodes[i];
     }
     return null;
   }
 
+  function layoutNodeRecords() {
+    if (!state.layout) return [];
+    return isArchitecture() ? (state.layout.components || []) : (state.layout.nodes || []);
+  }
+
+  function layoutEdgeRecords() {
+    if (!state.layout) return [];
+    return isArchitecture() ? (state.layout.connections || []) : (state.layout.edges || []);
+  }
+
+  var ARCH_SNAP = 10;
+  var ARCH_MIN_W = 120;
+  var ARCH_MIN_H = 60;
+  var ARCH_RESIZE = 14;
+
+  function snap10(n) {
+    return Math.round(Number(n) / ARCH_SNAP) * ARCH_SNAP;
+  }
+
   function clearLayoutOverlays(svg) {
     if (!svg) return;
     var old = svg.querySelectorAll(
-      "rect.bw-handle, polyline.bw-edge-hit, rect.bw-lane-hit, circle.bw-endpoint"
+      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, circle.bw-endpoint"
     );
     for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
   }
@@ -7006,6 +8008,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var hint = $("layout-hint");
     if (!hint) return;
     var text;
+    if (isArchitecture()) {
+      if (state.layoutMode === "connect") {
+        hint.classList.add("layout-hint-active");
+        text = state.connectFrom
+          ? ("Source " + state.connectFrom + " → click a target component to connect. Click a connection to select/delete. Drag endpoints to reroute. Esc cancels.")
+          : "Click a source component, then a target to connect. Click a connection to select/delete. Drag endpoints to reroute. Esc cancels.";
+      } else {
+        hint.classList.remove("layout-hint-active");
+        text = "Drag a component; drop snaps to 10px and writes pos (unsaved until Save). A row/col component converts to pos on the first drag. Drag the corner handle to resize (floor 120×60).";
+      }
+      hint.textContent = text;
+      hint.title = text;
+      return;
+    }
     if (state.layoutMode === "connect") {
       hint.classList.add("layout-hint-active");
       text = state.connectFrom
@@ -7041,6 +8057,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       layoutDrag = null;
     }
     endpointDrag = null;
+    if (resizeDrag) unbindArchResizeWindow();
+    resizeDrag = null;
     state.layoutMode = mode;
     state.connectFrom = null;
     state.selectedEdgeIndex = null;
@@ -7057,7 +8075,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function findNthDocEdgeIndex(from, to, nth) {
-    var edges = state.doc.edges || [];
+    var edges = relationRecords();
     var seen = 0;
     for (var i = 0; i < edges.length; i++) {
       if (String(edges[i].from) === String(from) && String(edges[i].to) === String(to)) {
@@ -7073,7 +8091,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function edgePairExistsExcluding(from, to, skipIdx) {
-    var edges = state.doc.edges || [];
+    var edges = relationRecords();
     for (var i = 0; i < edges.length; i++) {
       if (i === skipIdx) continue;
       if (String(edges[i].from) === String(from) && String(edges[i].to) === String(to)) return true;
@@ -7133,6 +8151,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       endpoints[e].style.pointerEvents = state.layoutBusy ? "none" : "all";
       endpoints[e].style.cursor = state.layoutBusy ? "wait" : "grab";
     }
+    var resizers = doc.querySelectorAll("rect.bw-resize");
+    for (var r = 0; r < resizers.length; r++) {
+      resizers[r].style.pointerEvents = state.layoutBusy ? "none" : "all";
+      resizers[r].style.cursor = state.layoutBusy ? "wait" : "nwse-resize";
+    }
     updateConnectHighlight();
     refreshEdgeSelectionStyles();
     updateDeleteEdgeButton();
@@ -7140,15 +8163,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function selectLayoutEdge(docIdx) {
     if (docIdx == null || isNaN(docIdx) || docIdx < 0) return;
-    if (!(state.doc.edges && state.doc.edges[docIdx])) return;
+    var edges = relationRecords();
+    if (!edges[docIdx]) return;
     state.connectFrom = null;
     state.selectedEdgeIndex = docIdx;
-    var e = state.doc.edges[docIdx];
+    var e = edges[docIdx];
     updateConnectHighlight();
     refreshEdgeSelectionStyles();
     updateDeleteEdgeButton();
     updateLayoutHint();
-    setStatus("Selected edge " + e.from + " → " + e.to + " (Delete to remove)", "");
+    var noun = isArchitecture() ? "connection" : "edge";
+    setStatus("Selected " + noun + " " + e.from + " → " + e.to + " (Delete to remove)", "");
   }
 
   function isRoleRequiredError(errors) {
@@ -7202,7 +8227,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       setStatus("Self-loop refused (from === to)", "err");
       return;
     }
-    if (edgePairExists(state.connectFrom, nodeId)) {
+    if (!isArchitecture() && edgePairExists(state.connectFrom, nodeId)) {
       setStatus("Duplicate edge refused: " + state.connectFrom + " → " + nodeId, "err");
       return;
     }
@@ -7211,7 +8236,160 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.connectFrom = null;
     updateConnectHighlight();
     updateLayoutHint();
-    addEdgeAndSave(from, to, false);
+    if (isArchitecture()) addConnectionAndSave(from, to);
+    else addEdgeAndSave(from, to, false);
+  }
+
+  function componentCenter(id) {
+    var laid = layoutNodeRecords();
+    var i, n, w, h;
+    for (i = 0; i < laid.length; i++) {
+      n = laid[i];
+      if (!n || String(n.id) !== String(id)) continue;
+      w = Number(n.width);
+      h = Number(n.height);
+      if (!(w > 0)) w = ARCH_MIN_W;
+      if (!(h > 0)) h = ARCH_MIN_H;
+      return { x: Number(n.x) + w / 2, y: Number(n.y) + h / 2 };
+    }
+    var node = findDocNode(id);
+    if (!node || !Array.isArray(node.pos) || node.pos.length < 2) return null;
+    var size = Array.isArray(node.size) ? node.size : [ARCH_MIN_W, ARCH_MIN_H];
+    w = Number(size[0]);
+    h = Number(size[1]);
+    if (!(w > 0)) w = ARCH_MIN_W;
+    if (!(h > 0)) h = ARCH_MIN_H;
+    return { x: Number(node.pos[0]) + w / 2, y: Number(node.pos[1]) + h / 2 };
+  }
+
+  function archSidePair(dx, dy, horizontal) {
+    if (horizontal) {
+      if (dx >= 0) return { fromSide: "right", toSide: "left" };
+      return { fromSide: "left", toSide: "right" };
+    }
+    if (dy >= 0) return { fromSide: "bottom", toSide: "top" };
+    return { fromSide: "top", toSide: "bottom" };
+  }
+
+  // Dominant axis of target center minus source center, then the other axis,
+  // then orthogonal-h / orthogonal-v with the dominant sides. Null when the
+  // two components have no geometry (caller delivers the connection unchanged).
+  function archRoutingPlans(fromId, toId) {
+    var src = componentCenter(fromId);
+    var dst = componentCenter(toId);
+    if (!src || !dst) return null;
+    var dx = dst.x - src.x;
+    var dy = dst.y - src.y;
+    var horizontal = Math.abs(dx) >= Math.abs(dy);
+    var dominant = archSidePair(dx, dy, horizontal);
+    var other = archSidePair(dx, dy, !horizontal);
+    var plans = [dominant];
+    if (other.fromSide !== dominant.fromSide || other.toSide !== dominant.toSide) {
+      plans.push(other);
+    }
+    plans.push({ fromSide: dominant.fromSide, toSide: dominant.toSide, route: "orthogonal-h" });
+    plans.push({ fromSide: dominant.fromSide, toSide: dominant.toSide, route: "orthogonal-v" });
+    return plans;
+  }
+
+  function routingChoiceNote(edge) {
+    if (!edge) return "";
+    var note = "fromSide " + edge.fromSide + " toSide " + edge.toSide;
+    if (edge.route) note += " route " + edge.route;
+    return note;
+  }
+
+  function connRoutingSnapshot(edge) {
+    return {
+      hadFromSide: Object.prototype.hasOwnProperty.call(edge, "fromSide"),
+      fromSide: edge.fromSide,
+      hadToSide: Object.prototype.hasOwnProperty.call(edge, "toSide"),
+      toSide: edge.toSide,
+      hadRoute: Object.prototype.hasOwnProperty.call(edge, "route"),
+      route: edge.route,
+    };
+  }
+
+  function restoreConnRouting(edge, snap) {
+    if (!edge || !snap) return;
+    if (snap.hadFromSide) edge.fromSide = snap.fromSide;
+    else delete edge.fromSide;
+    if (snap.hadToSide) edge.toSide = snap.toSide;
+    else delete edge.toSide;
+    if (snap.hadRoute) edge.route = snap.route;
+    else delete edge.route;
+  }
+
+  function applyConnRouting(edge, plan, snap) {
+    edge.fromSide = plan.fromSide;
+    edge.toSide = plan.toSide;
+    if (plan.route) edge.route = plan.route;
+    else if (snap && snap.hadRoute) edge.route = snap.route;
+    else delete edge.route;
+  }
+
+  function previewRoutingPlans(edge, plans, snap) {
+    var last = null;
+    function tryAt(i) {
+      if (i >= plans.length) return Promise.resolve({ ok: false, receipt: last });
+      applyConnRouting(edge, plans[i], snap);
+      return postPreviewDoc().then(function (receipt) {
+        last = receipt;
+        if (receipt && receipt.ok) return { ok: true, plan: plans[i], receipt: receipt };
+        return tryAt(i + 1);
+      });
+    }
+    return tryAt(0);
+  }
+
+  function addConnectionAndSave(from, to) {
+    pushHistory();
+    var created = !Array.isArray(state.doc.connections);
+    if (created) state.doc.connections = [];
+    var conn = { from: from, to: to };
+    state.doc.connections.push(conn);
+    state.rawDirty = false;
+    renderLists();
+    setLayoutBusy(true);
+    var plans = archRoutingPlans(from, to);
+    var routingBefore = connRoutingSnapshot(conn);
+    setStatus("previewing connection " + from + " → " + to + "…", "");
+    var pending = plans
+      ? previewRoutingPlans(conn, plans, routingBefore)
+      : postPreviewDoc().then(function (receipt) {
+          return { ok: !!(receipt && receipt.ok), plan: null, receipt: receipt };
+        });
+    pending
+      .then(function (result) {
+        var receipt = result.receipt || {};
+        if (result.ok) {
+          markDirty();
+          var msg = "Added connection " + from + " → " + to;
+          if (result.plan) msg += " (" + routingChoiceNote(conn) + ")";
+          msg += " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        state.doc.connections.pop();
+        if (created) delete state.doc.connections;
+        revertHistoryPush();
+        setLayoutBusy(false);
+        var errs = receipt.errors || [receipt.error || "preview failed"];
+        setStatus("Connection not added (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+      })
+      .catch(function (e) {
+        if (Array.isArray(state.doc.connections)) state.doc.connections.pop();
+        if (created) delete state.doc.connections;
+        revertHistoryPush();
+        setLayoutBusy(false);
+        setStatus("Connection preview failed (reverted): " + e, "err");
+        renderLists();
+      });
   }
 
   function addEdgeAndSave(from, to, withRole) {
@@ -7281,25 +8459,40 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   function deleteSelectedEdge() {
     var idx = state.selectedEdgeIndex;
     if (idx == null || idx < 0) return;
-    if (!(state.doc.edges && state.doc.edges[idx])) return;
+    var edges = relationRecords();
+    if (!edges[idx]) return;
     if (state.layoutBusy) return;
-    var removed = state.doc.edges[idx];
+    var removed = edges[idx];
     var captured = captureEdgeStyleKeys();
     var sideBefore = clone(state.sidecar);
     pushHistory();
-    state.doc.edges.splice(idx, 1);
+    edges.splice(idx, 1);
+    if (isArchitecture() && !edges.length) delete state.doc.connections;
     rekeyEdgeStyles(captured);
+    if (isArchitecture() && captured && state.sidecar.edges) {
+      var liveAfterDelete = state.doc.connections || [];
+      for (var dk = 0; dk < captured.length; dk++) {
+        if (liveAfterDelete.indexOf(captured[dk].edge) >= 0) continue;
+        var oldKey = captured[dk].key;
+        if (!oldKey) continue;
+        var stillUsed = false;
+        for (var ek = 0; ek < liveAfterDelete.length; ek++) {
+          if (edgeStyleKeyAt(ek) === oldKey) { stillUsed = true; break; }
+        }
+        if (!stillUsed) delete state.sidecar.edges[oldKey];
+      }
+    }
     state.selectedEdgeIndex = null;
     state.rawDirty = false;
     updateDeleteEdgeButton();
     renderLists();
     setLayoutBusy(true);
-    setStatus("previewing delete edge " + removed.from + " → " + removed.to + "…", "");
+    setStatus("previewing delete " + (isArchitecture() ? "connection " : "edge ") + removed.from + " → " + removed.to + "…", "");
     postPreviewDoc()
       .then(function (receipt) {
         if (receipt.ok) {
           markDirty();
-          var msg = "Deleted edge " + removed.from + " → " + removed.to + " (unsaved)";
+          var msg = "Deleted " + (isArchitecture() ? "connection " : "edge ") + removed.from + " → " + removed.to + " (unsaved)";
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
           return loadLayoutPane(true).then(function () {
@@ -7307,7 +8500,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
             renderAll();
           });
         }
-        state.doc.edges.splice(idx, 0, removed);
+        if (isArchitecture() && !Array.isArray(state.doc.connections)) state.doc.connections = [];
+        relationRecords().splice(idx, 0, removed);
         state.sidecar = sideBefore;
         revertHistoryPush();
         state.selectedEdgeIndex = idx;
@@ -7315,18 +8509,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         updateDeleteEdgeButton();
         refreshEdgeSelectionStyles();
         var errs = receipt.errors || [receipt.error || "preview failed"];
-        setStatus("Edge not deleted (reverted):\n- " + errs.join("\n- "), "err");
+        setStatus((isArchitecture() ? "Connection" : "Edge") + " not deleted (reverted):\n- " + errs.join("\n- "), "err");
         renderLists();
       })
       .catch(function (e) {
-        state.doc.edges.splice(idx, 0, removed);
+        if (isArchitecture() && !Array.isArray(state.doc.connections)) state.doc.connections = [];
+        relationRecords().splice(idx, 0, removed);
         state.sidecar = sideBefore;
         revertHistoryPush();
         state.selectedEdgeIndex = idx;
         setLayoutBusy(false);
         updateDeleteEdgeButton();
         refreshEdgeSelectionStyles();
-        setStatus("Edge delete preview failed (reverted): " + e, "err");
+        setStatus((isArchitecture() ? "Connection" : "Edge") + " delete preview failed (reverted): " + e, "err");
         renderLists();
       });
   }
@@ -7345,6 +8540,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (vb && vb.width > 0 && vb.height > 0) return { w: vb.width, h: vb.height };
     if (state.layout && state.layout.viewBox) {
       var raw = state.layout.viewBox;
+      if (Array.isArray(raw) && raw.length >= 2) {
+        var aw = Number(raw[0]), ah = Number(raw[1]);
+        if (aw > 0 && ah > 0) return { w: aw, h: ah };
+      }
       if (typeof raw === "string") {
         var parts = raw.trim().split(/[\s,]+/);
         if (parts.length >= 4) {
@@ -7371,6 +8570,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       /* Original diagram content must not steal hits from overlays (edge labels, paths). */
       "svg *{pointer-events:none}" +
       "svg .bw-handle{pointer-events:all}" +
+      "svg .bw-resize{pointer-events:all}" +
       "svg .bw-edge-hit{pointer-events:stroke}" +
       "svg .bw-lane-hit{pointer-events:all}" +
       "svg .bw-endpoint{pointer-events:all}";
@@ -7422,7 +8622,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var vb = getSvgViewBoxSize(svg);
     var paneW = iframe.clientWidth || 1;
     var paneH = iframe.clientHeight || 1;
-    return clampLayoutZoom(Math.min(paneW / vb.w, paneH / vb.h));
+    var fit = Math.min(paneW / vb.w, paneH / vb.h);
+    // Never zoom in past 100% on first mount or Fit. +/- and 100% still use clampLayoutZoom.
+    return clampLayoutZoom(Math.min(fit, 1));
   }
 
   function stashLayoutViewport() {
@@ -7539,11 +8741,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!svg || !state.layout) return;
     clearLayoutOverlays(svg);
 
-    // Lane header strips (under edges/nodes so node handles win on overlap).
-    mountLaneHitOverlays(doc, svg);
+    // Lane header strips (workflow only; architecture boundaries are not draggable).
+    if (!isArchitecture()) mountLaneHitOverlays(doc, svg);
 
     // Edge hit-lines next; node handles stay on top for connect/move.
-    var layoutEdges = state.layout.edges || [];
+    var layoutEdges = layoutEdgeRecords();
     var pairSeen = {};
     for (var ei = 0; ei < layoutEdges.length; ei++) {
       var le = layoutEdges[ei];
@@ -7573,7 +8775,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       svg.appendChild(poly);
     }
 
-    var nodes = state.layout.nodes || [];
+    var nodes = layoutNodeRecords();
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i];
       if (!n || !n.id) continue;
@@ -7586,6 +8788,39 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       rect.setAttribute("height", String(n.height));
       rect.setAttribute("vector-effect", "non-scaling-stroke");
       svg.appendChild(rect);
+    }
+
+    // Corner resize on the selected architecture component (Move mode only).
+    if (isArchitecture() && state.layoutMode === "move" && nodes.length) {
+      var selOk = false;
+      if (state.selectedComponentId) {
+        for (var si = 0; si < nodes.length; si++) {
+          if (nodes[si] && String(nodes[si].id) === String(state.selectedComponentId)) selOk = true;
+        }
+      }
+      if (!selOk) state.selectedComponentId = String(nodes[0].id);
+    }
+    if (isArchitecture() && state.layoutMode === "move" && state.selectedComponentId) {
+      for (var ri = 0; ri < nodes.length; ri++) {
+        var rn = nodes[ri];
+        if (!rn || String(rn.id) !== String(state.selectedComponentId)) continue;
+        var rw = Number(rn.width);
+        var rh = Number(rn.height);
+        if (!(rw > 0) || !(rh > 0)) break;
+        var grip = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
+        grip.setAttribute("class", "bw-resize");
+        grip.setAttribute("data-node-id", String(rn.id));
+        grip.setAttribute("x", String(Number(rn.x) + rw - ARCH_RESIZE));
+        grip.setAttribute("y", String(Number(rn.y) + rh - ARCH_RESIZE));
+        grip.setAttribute("width", String(ARCH_RESIZE));
+        grip.setAttribute("height", String(ARCH_RESIZE));
+        grip.setAttribute("fill", "rgba(255,170,50,0.95)");
+        grip.setAttribute("stroke", "rgba(255,255,255,0.95)");
+        grip.setAttribute("stroke-width", "1");
+        grip.setAttribute("vector-effect", "non-scaling-stroke");
+        svg.appendChild(grip);
+        break;
+      }
     }
 
     // Connect-only endpoint handles ABOVE node/edge overlays (pointer precedence).
@@ -7722,6 +8957,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var sel = $("layout-edit-type");
     if (!sel) return;
     sel.innerHTML = typeSelectInnerHtml(current);
+    sel.dataset.prev = String(current || "");
+    if (String(sel.value || "") === QUICK_TYPE_SENTINEL) sel.value = sel.dataset.prev;
   }
 
   function hideSingleEditor() {
@@ -7744,19 +8981,31 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   function fillEdgeAdvanced(edge) {
     var body = $("layout-single-advanced-body");
     if (!body || !edge) return;
-    var idx = (state.doc.edges || []).indexOf(edge);
+    var idx = relationRecords().indexOf(edge);
     var styled = idx >= 0 ? edgeStyleEntry(idx) : null;
     var entry = styled && styled.entry;
-    body.innerHTML =
-      nodeSelect("from", edge.from) +
-      nodeSelect("to", edge.to) +
-      fieldSelect("role", "edge.role", "role", edge.role) +
-      fieldSelect("variant", "edge.variant", "variant", edge.variant) +
-      styleSelect("Color", "bwColor", storedColor(entry), "color") +
-      styleSelect("Dash", "bwDash", storedDash(entry), "dash") +
-      fieldSelect("route", "edge.route", "route", edge.route) +
-      fieldSelect("fromSide", "edge.fromSide", "fromSide", edge.fromSide) +
-      fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide);
+    if (isArchitecture()) {
+      body.innerHTML =
+        componentSelect("from", edge.from) +
+        componentSelect("to", edge.to) +
+        fieldSelect("variant", "edge.variant", "variant", edge.variant) +
+        styleSelect("Color", "bwColor", storedColor(entry), "color") +
+        styleSelect("Dash", "bwDash", storedDash(entry), "dash") +
+        fieldSelect("route", "connection.route", "route", edge.route) +
+        fieldSelect("fromSide", "edge.fromSide", "fromSide", edge.fromSide) +
+        fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide);
+    } else {
+      body.innerHTML =
+        nodeSelect("from", edge.from) +
+        nodeSelect("to", edge.to) +
+        fieldSelect("role", "edge.role", "role", edge.role) +
+        fieldSelect("variant", "edge.variant", "variant", edge.variant) +
+        styleSelect("Color", "bwColor", storedColor(entry), "color") +
+        styleSelect("Dash", "bwDash", storedDash(entry), "dash") +
+        fieldSelect("route", "edge.route", "route", edge.route) +
+        fieldSelect("fromSide", "edge.fromSide", "fromSide", edge.fromSide) +
+        fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide);
+    }
     if (state.layoutBusy) setEdgeAdvancedDisabled(true);
   }
 
@@ -7816,6 +9065,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function cancelInlineEditors() {
+    if (quickType) closeQuickType(true);
     cancelNodeEditor();
     cancelSingleEditor();
   }
@@ -7854,6 +9104,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       styleEntry: nodeStyleEntry(node.id) ? clone(nodeStyleEntry(node.id)) : null,
       chooser: nodeChooserValue(node),
       displayedColor: displayedNodeColor(node.id),
+      hasSize: Array.isArray(node.size) && node.size.length >= 2,
+      size: (Array.isArray(node.size) && node.size.length >= 2) ? node.size.slice() : null,
       types: clone(state.sidecar.types || {}),
       assignments: clone(state.sidecar.assignments || {}),
     };
@@ -7872,6 +9124,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     else delete node.brand;
     if (snap.hasWidth) node.width = snap.width;
     else delete node.width;
+    if (Object.prototype.hasOwnProperty.call(snap, "hasSize")) {
+      if (snap.hasSize && Array.isArray(snap.size)) node.size = snap.size.slice();
+      else delete node.size;
+    }
     if (node.id) {
       ensureSidecar();
       if (!state.sidecar.nodes || typeof state.sidecar.nodes !== "object") return;
@@ -7924,33 +9180,44 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       handle: handle,
     };
     var dupBtn = $("layout-edit-duplicate");
-    if (dupBtn) dupBtn.disabled = false;
+    if (dupBtn) {
+      dupBtn.disabled = false;
+      dupBtn.title = isArchitecture() ? "Clone component beside this one" : "Clone node to a free cell";
+    }
     var delBtn = $("layout-edit-delete");
     if (delBtn) {
-      var nodeCount = (state.doc.nodes || []).length;
-      delBtn.disabled = nodeCount <= 1;
-      delBtn.title = nodeCount <= 1
-        ? "Cannot delete the last node"
-        : "Delete node and its edges";
+      if (isArchitecture()) {
+        delBtn.disabled = false;
+        delBtn.title = "Delete component and its connections";
+      } else {
+        var nodeCount = (state.doc.nodes || []).length;
+        delBtn.disabled = nodeCount <= 1;
+        delBtn.title = nodeCount <= 1
+          ? "Cannot delete the last node"
+          : "Delete node and its edges";
+      }
     }
     panel.classList.add("active");
     labelEl.focus();
     labelEl.select();
-    setStatus("Editing " + id + " (Enter=save, Esc=cancel)", "");
+    setStatus(isArchitecture()
+      ? ("Editing component " + id + " (Enter=save, Esc=cancel)")
+      : ("Editing " + id + " (Enter=save, Esc=cancel)"), "");
   }
 
   function openEdgeLabelEditor(hitEl) {
     cancelInlineEditors();
     if (state.layoutBusy || !hitEl) return;
     var idx = parseInt(hitEl.getAttribute("data-doc-index"), 10);
-    if (isNaN(idx) || idx < 0 || !(state.doc.edges && state.doc.edges[idx])) return;
-    var edge = state.doc.edges[idx];
+    var edges = relationRecords();
+    if (isNaN(idx) || idx < 0 || !edges[idx]) return;
+    var edge = edges[idx];
     var panel = $("layout-single-editor");
     var input = $("layout-single-label");
     var caption = $("layout-single-label-caption");
     if (!panel || !input) return;
-    if (caption) caption.textContent = "Edge label";
-    panel.setAttribute("aria-label", "Edit edge");
+    if (caption) caption.textContent = isArchitecture() ? "Connection label" : "Edge label";
+    panel.setAttribute("aria-label", isArchitecture() ? "Edit connection" : "Edit edge");
     positionEditorPanel(panel, hitEl, 260);
     input.value = edge.label != null ? String(edge.label) : "";
     showEdgeAdvanced(edge);
@@ -7965,7 +9232,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     clampSingleEditorToWrap();
     input.focus();
     input.select();
-    setStatus("Editing edge " + edge.from + " → " + edge.to + " (label: Enter/Save; Advanced applies immediately)", "");
+    setStatus("Editing " + (isArchitecture() ? "connection " : "edge ") + edge.from + " → " + edge.to + " (label: Enter/Save; Advanced applies immediately)", "");
   }
 
   function openLaneLabelEditor(hitEl) {
@@ -8010,7 +9277,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function applyEdgeStyleLive(docIndex, field, val) {
     if (state.layoutBusy) return;
-    if (!state.doc || !state.doc.edges || !state.doc.edges[docIndex]) return;
+    var liveEdges = relationRecords();
+    if (!state.doc || !liveEdges[docIndex]) return;
     var found = edgeStyleEntry(docIndex);
     if (!found) {
       setStatus("sidecar edges is not an object; style not stored", "err");
@@ -8027,8 +9295,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     renderAll();
     setLayoutBusy(true);
     var sent = bufferToken();
-    var edge = state.doc.edges[docIndex];
-    setStatus("previewing edge style " + (edge.from || "?") + " → " + (edge.to || "?") + "…", "");
+    var edge = liveEdges[docIndex];
+    setStatus("previewing " + (isArchitecture() ? "connection" : "edge") + " style " + (edge.from || "?") + " → " + (edge.to || "?") + "…", "");
     postPreviewDoc()
       .then(function (receipt) {
         if (receipt && receipt.ok) {
@@ -8045,9 +9313,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         syncDirtyFromDoc();
         if (sent === bufferToken()) previewStale = true;
         setLayoutBusy(false);
-        if (state.doc.edges[docIndex]) fillEdgeAdvanced(state.doc.edges[docIndex]);
+        if (relationRecords()[docIndex]) fillEdgeAdvanced(relationRecords()[docIndex]);
         var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
-        setStatus("Edge style not updated (reverted):\n- " + errs.join("\n- "), "err");
+        setStatus((isArchitecture() ? "Connection" : "Edge") + " style not updated (reverted):\n- " + errs.join("\n- "), "err");
         renderAll();
       })
       .catch(function (e) {
@@ -8056,17 +9324,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         syncDirtyFromDoc();
         if (sent === bufferToken()) previewStale = true;
         setLayoutBusy(false);
-        if (state.doc.edges[docIndex]) fillEdgeAdvanced(state.doc.edges[docIndex]);
-        setStatus("Edge style preview failed (reverted): " + e, "err");
+        if (relationRecords()[docIndex]) fillEdgeAdvanced(relationRecords()[docIndex]);
+        setStatus((isArchitecture() ? "Connection" : "Edge") + " style preview failed (reverted): " + e, "err");
         renderAll();
       });
   }
 
   function applyEdgeField(docIndex, field, val) {
     if (state.layoutBusy) return;
-    if (!state.doc || !state.doc.edges) return;
-    if (docIndex < 0 || docIndex >= state.doc.edges.length) return;
-    var edge = state.doc.edges[docIndex];
+    var fieldEdges = relationRecords();
+    if (!state.doc || docIndex < 0 || docIndex >= fieldEdges.length) return;
+    var edge = fieldEdges[docIndex];
     if (!edge) return;
     var optional = field === "role" || field === "variant" || field === "route" ||
       field === "fromSide" || field === "toSide";
@@ -8118,7 +9386,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var panel = $("layout-single-editor");
     var input = $("layout-single-label");
     if (!edit || edit.kind !== "edge" || !panel || !input) return;
-    var edge = state.doc && state.doc.edges && state.doc.edges[edit.edgeIndex];
+    var edge = relationRecords()[edit.edgeIndex];
     if (!edge) {
       singleEdit = null;
       hideSingleEditor();
@@ -8156,7 +9424,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     hideSingleEditor();
 
     if (edit.kind === "edge") {
-      var edge = state.doc.edges && state.doc.edges[edit.edgeIndex];
+      var edge = relationRecords()[edit.edgeIndex];
       if (!edge) return;
       var cur = edge.label != null ? String(edge.label) : "";
       var next = value;
@@ -8270,6 +9538,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function applyNodeEditorValues(node, values, edit) {
+    if (values.type === QUICK_TYPE_SENTINEL) return { ok: false, error: "Choose a type" };
     var choiceChanged = nodeChooserValue(node) !== values.type;
     var applied = { ok: true };
     if (choiceChanged) {
@@ -8296,6 +9565,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!nodeEdit) return;
     var edit = nodeEdit;
     var values = readNodeEditorValues();
+    if (values.type === QUICK_TYPE_SENTINEL) {
+      openQuickType({ kind: "layout", nodeId: edit.nodeId, selectEl: $("layout-edit-type") });
+      return;
+    }
     // Clear session before hide so outside-click cannot re-enter.
     nodeEdit = null;
     hideNodeEditor();
@@ -8440,7 +9713,119 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (handle) openNodeEditor(handle);
   }
 
+  function componentBoxes() {
+    var laid = layoutNodeRecords();
+    if (laid.length) {
+      return laid.map(function (n) {
+        return {
+          id: n.id,
+          x: Number(n.x),
+          y: Number(n.y),
+          w: Number(n.width) || ARCH_MIN_W,
+          h: Number(n.height) || ARCH_MIN_H,
+        };
+      });
+    }
+    var comps = (state.doc && state.doc.components) || [];
+    return comps.map(function (c) {
+      var pos = Array.isArray(c.pos) ? c.pos : [40, 80];
+      var size = Array.isArray(c.size) ? c.size : [ARCH_MIN_W, ARCH_MIN_H];
+      return { id: c.id, x: Number(pos[0]), y: Number(pos[1]), w: Number(size[0]) || ARCH_MIN_W, h: Number(size[1]) || ARCH_MIN_H };
+    });
+  }
+
+  function boxesOverlap(a, b, gap) {
+    return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x &&
+      a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;
+  }
+
+  function placeClearOf(boxes, x, y, w, h) {
+    var box = { x: snap10(x), y: snap10(y), w: w, h: h };
+    if (box.x < 0) box.x = 0;
+    if (box.y < 0) box.y = 0;
+    var guard = 0;
+    while (guard < 60) {
+      var hit = false;
+      for (var i = 0; i < boxes.length; i++) {
+        if (boxesOverlap(box, boxes[i], 8)) { hit = true; break; }
+      }
+      if (!hit) return [box.x, box.y];
+      box.x += ARCH_SNAP;
+      guard += 1;
+    }
+    return [box.x, box.y];
+  }
+
+  function placeRightOfRightmost() {
+    var boxes = componentBoxes();
+    var right = 30;
+    var y = 80;
+    for (var i = 0; i < boxes.length; i++) {
+      var edge = boxes[i].x + boxes[i].w;
+      if (edge >= right) {
+        right = edge;
+        y = boxes[i].y;
+      }
+    }
+    return placeClearOf(boxes, right + ARCH_SNAP, y, ARCH_MIN_W, ARCH_MIN_H);
+  }
+
+  function addLayoutComponent() {
+    if (!state.doc || state.layoutBusy) return;
+    ensureArrays();
+    if (!Array.isArray(state.doc.components)) state.doc.components = [];
+    var id = uniqueItemId("component", state.doc.components);
+    var pos = placeRightOfRightmost();
+    var item = {
+      id: id,
+      type: "backend",
+      label: "New component",
+      pos: pos,
+      size: [ARCH_MIN_W, ARCH_MIN_H],
+    };
+    pushHistory();
+    state.doc.components.push(item);
+    state.selectedComponentId = id;
+    state.rawDirty = false;
+    renderLists();
+    setLayoutBusy(true);
+    setStatus("previewing new component…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt.ok) {
+          markDirty();
+          var msg = "Added " + id + " at pos [" + pos[0] + ", " + pos[1] + "] (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+            openNodeEditorById(id);
+          });
+        }
+        state.doc.components.pop();
+        revertHistoryPush();
+        state.selectedComponentId = null;
+        setLayoutBusy(false);
+        var errs = receipt.errors || [receipt.error || "preview failed"];
+        setStatus("Add component failed (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+      })
+      .catch(function (e) {
+        if (Array.isArray(state.doc.components)) state.doc.components.pop();
+        revertHistoryPush();
+        state.selectedComponentId = null;
+        setLayoutBusy(false);
+        setStatus("Add component preview failed (reverted): " + e, "err");
+        renderLists();
+      });
+  }
+
   function addLayoutNode() {
+    if (isArchitecture()) {
+      addLayoutComponent();
+      return;
+    }
     if (!state.doc || state.layoutBusy) return;
     ensureArrays();
     if (!(state.doc.lanes && state.doc.lanes.length)) {
@@ -8500,7 +9885,104 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       });
   }
 
+  function uniqueComponentCopyId(baseId) {
+    var used = {};
+    var items = (state.doc && state.doc.components) || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i] && items[i].id) used[String(items[i].id)] = true;
+    }
+    var root = String(baseId || "component");
+    var cand = root + "-copy";
+    if (!used[cand]) return cand;
+    var n = 2;
+    while (used[root + "-copy" + n]) n += 1;
+    return root + "-copy" + n;
+  }
+
+  function duplicateLayoutComponent() {
+    if (!nodeEdit || !state.doc || state.layoutBusy) return;
+    var sourceId = nodeEdit.nodeId;
+    var source = findDocNode(sourceId);
+    if (!source) {
+      setStatus("Duplicate: source component not found", "err");
+      return;
+    }
+    nodeEdit = null;
+    hideNodeEditor();
+    ensureArrays();
+    if (!Array.isArray(state.doc.components)) state.doc.components = [];
+    var boxes = componentBoxes();
+    var srcBox = null;
+    for (var i = 0; i < boxes.length; i++) {
+      if (String(boxes[i].id) === String(sourceId)) srcBox = boxes[i];
+    }
+    var w = srcBox ? srcBox.w : (Array.isArray(source.size) ? Number(source.size[0]) : ARCH_MIN_W);
+    var h = srcBox ? srcBox.h : (Array.isArray(source.size) ? Number(source.size[1]) : ARCH_MIN_H);
+    if (!(w >= ARCH_MIN_W)) w = ARCH_MIN_W;
+    if (!(h >= ARCH_MIN_H)) h = ARCH_MIN_H;
+    var startX = srcBox ? srcBox.x + srcBox.w + ARCH_SNAP : 80;
+    var startY = srcBox ? srcBox.y : 80;
+    var pos = placeClearOf(boxes, startX, startY, w, h);
+    var newId = uniqueComponentCopyId(source.id);
+    var cloneNode = clone(source);
+    cloneNode.id = newId;
+    delete cloneNode.row;
+    delete cloneNode.col;
+    cloneNode.pos = pos;
+    if (!Array.isArray(cloneNode.size)) cloneNode.size = [w, h];
+    pushHistory();
+    state.doc.components.push(cloneNode);
+    ensureSidecar();
+    var copied = nodeStyleEntry(String(source.id || ""));
+    if (copied) state.sidecar.nodes[newId] = clone(copied);
+    var copiedType = assignmentOf(String(source.id || ""));
+    if (copiedType) state.sidecar.assignments[newId] = copiedType;
+    state.selectedComponentId = newId;
+    state.rawDirty = false;
+    renderLists();
+    setLayoutBusy(true);
+    setStatus("previewing duplicate…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt.ok) {
+          markDirty();
+          var msg = "Duplicated " + sourceId + " → " + newId + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+            openNodeEditorById(newId);
+          });
+        }
+        state.doc.components.pop();
+        if (copied) delete state.sidecar.nodes[newId];
+        if (copiedType) delete state.sidecar.assignments[newId];
+        revertHistoryPush();
+        setLayoutBusy(false);
+        var errs = receipt.errors || [receipt.error || "preview failed"];
+        setStatus("Duplicate failed (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+      })
+      .catch(function (e) {
+        if (Array.isArray(state.doc.components) && state.doc.components.length) {
+          var last = state.doc.components[state.doc.components.length - 1];
+          if (last && last.id === newId) state.doc.components.pop();
+        }
+        if (copied) delete state.sidecar.nodes[newId];
+        if (copiedType) delete state.sidecar.assignments[newId];
+        revertHistoryPush();
+        setLayoutBusy(false);
+        setStatus("Duplicate preview failed (reverted): " + e, "err");
+        renderLists();
+      });
+  }
+
   function duplicateLayoutNode() {
+    if (isArchitecture()) {
+      duplicateLayoutComponent();
+      return;
+    }
     if (!nodeEdit || !state.doc || state.layoutBusy) return;
     var sourceId = nodeEdit.nodeId;
     var source = findDocNode(sourceId);
@@ -8593,7 +10075,84 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     }
   }
 
+  function deleteLayoutComponent() {
+    if (!nodeEdit || !state.doc || state.layoutBusy) return;
+    var comps = state.doc.components || [];
+    var nodeId = nodeEdit.nodeId;
+    var nodeIdx = -1;
+    for (var i = 0; i < comps.length; i++) {
+      if (comps[i] && comps[i].id === nodeId) { nodeIdx = i; break; }
+    }
+    if (nodeIdx < 0) {
+      setStatus("Delete: component not found", "err");
+      return;
+    }
+    nodeEdit = null;
+    hideNodeEditor();
+    pushHistory();
+    var result = cascadeRemoveComponent(nodeIdx);
+    if (!result) {
+      revertHistoryPush();
+      return;
+    }
+    state.selected.components = Math.min(nodeIdx, result.left - 1);
+    if (state.connectFrom && String(state.connectFrom) === String(nodeId)) state.connectFrom = null;
+    state.selectedEdgeIndex = null;
+    state.selectedComponentId = null;
+    state.rawDirty = false;
+    updateDeleteEdgeButton();
+    renderLists();
+    setLayoutBusy(true);
+    setStatus("previewing delete " + nodeId + "…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt.ok) {
+          markDirty();
+          var msg = result.note + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        if (state.undo.length) {
+          var prevDel = state.undo.pop();
+          if (prevDel && prevDel.doc) {
+            state.doc = prevDel.doc;
+            state.sidecar = prevDel.sidecar;
+            ensureSidecar();
+          }
+          updateHistoryButtons();
+        }
+        setLayoutBusy(false);
+        var errs = receipt.errors || [receipt.error || "preview failed"];
+        setStatus("Delete component failed (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+        return loadLayoutPane(true).then(function () { renderAll(); });
+      })
+      .catch(function (e) {
+        if (state.undo.length) {
+          var prevDelErr = state.undo.pop();
+          if (prevDelErr && prevDelErr.doc) {
+            state.doc = prevDelErr.doc;
+            state.sidecar = prevDelErr.sidecar;
+            ensureSidecar();
+          }
+          updateHistoryButtons();
+        }
+        setLayoutBusy(false);
+        setStatus("Delete component preview failed (reverted): " + e, "err");
+        renderLists();
+        return loadLayoutPane(true).then(function () { renderAll(); });
+      });
+  }
+
   function deleteLayoutNode() {
+    if (isArchitecture()) {
+      deleteLayoutComponent();
+      return;
+    }
     if (!nodeEdit || !state.doc || state.layoutBusy) return;
     ensureArrays();
     var nodes = state.doc.nodes || [];
@@ -8712,7 +10271,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function endpointSnapThreshold() {
-    var nodes = (state.layout && state.layout.nodes) || [];
+    var nodes = layoutNodeRecords();
     var mins = [];
     for (var i = 0; i < nodes.length; i++) {
       var n = nodes[i];
@@ -8727,7 +10286,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function findDropNodeAt(x, y) {
-    var nodes = (state.layout && state.layout.nodes) || [];
+    var nodes = layoutNodeRecords();
     var i, n, nx, ny, nw, nh;
     for (i = 0; i < nodes.length; i++) {
       n = nodes[i];
@@ -8753,7 +10312,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function rerouteEdgeEnd(docIdx, end, newNodeId) {
-    if (!state.doc.edges || !state.doc.edges[docIdx]) {
+    var routeEdges = relationRecords();
+    if (!routeEdges[docIdx]) {
       mountLayoutOverlays();
       return;
     }
@@ -8761,7 +10321,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       mountLayoutOverlays();
       return;
     }
-    var edge = state.doc.edges[docIdx];
+    var edge = routeEdges[docIdx];
     var prev = edge[end];
     if (String(prev) === String(newNodeId)) {
       mountLayoutOverlays();
@@ -8775,13 +10335,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       setStatus("Self-loop refused (from === to)", "err");
       return;
     }
-    if (edgePairExistsExcluding(newFrom, newTo, docIdx)) {
+    if (!isArchitecture() && edgePairExistsExcluding(newFrom, newTo, docIdx)) {
       mountLayoutOverlays();
       setStatus("Duplicate edge refused: " + newFrom + " → " + newTo, "err");
       return;
     }
     var captured = captureEdgeStyleKeys();
     var sideBefore = clone(state.sidecar);
+    // Sides/route on this connection only. Other connections are not in the snapshot.
+    var routingBefore = isArchitecture() ? connRoutingSnapshot(edge) : null;
     pushHistory();
     edge[end] = newNodeId;
     rekeyEdgeStyles(captured);
@@ -8791,11 +10353,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     renderLists();
     setLayoutBusy(true);
     setStatus("previewing reroute → " + newFrom + " → " + newTo + "…", "");
-    postPreviewDoc()
-      .then(function (receipt) {
-        if (receipt.ok) {
+    var plans = isArchitecture() ? archRoutingPlans(newFrom, newTo) : null;
+    var pending = plans
+      ? previewRoutingPlans(edge, plans, routingBefore)
+      : postPreviewDoc().then(function (receipt) {
+          return { ok: !!(receipt && receipt.ok), plan: null, receipt: receipt };
+        });
+    pending
+      .then(function (result) {
+        var receipt = result.receipt || {};
+        if (result.ok) {
           markDirty();
-          var msg = "Rerouted edge " + newFrom + " → " + newTo + " (" + end + ") (unsaved)";
+          var msg = "Rerouted edge " + newFrom + " → " + newTo + " (" + end + ")";
+          if (result.plan) msg += " (" + routingChoiceNote(edge) + ")";
+          msg += " (unsaved)";
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
           return loadLayoutPane(true).then(function () {
@@ -8804,6 +10375,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
           });
         }
         edge[end] = prev;
+        if (routingBefore) restoreConnRouting(edge, routingBefore);
         state.sidecar = sideBefore;
         revertHistoryPush();
         setLayoutBusy(false);
@@ -8814,6 +10386,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       })
       .catch(function (e) {
         edge[end] = prev;
+        if (routingBefore) restoreConnRouting(edge, routingBefore);
         state.sidecar = sideBefore;
         revertHistoryPush();
         setLayoutBusy(false);
@@ -8821,6 +10394,118 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         setStatus("Reroute preview failed (reverted): " + e, "err");
         renderLists();
       });
+  }
+
+  // Doc size wins when the author has one. Otherwise the latest layout-json
+  // box (remounted on each preview). Never reuse the size from the first mount.
+  function architectureResizeBase(node, box) {
+    var layoutW = Number(box.getAttribute("width"));
+    var layoutH = Number(box.getAttribute("height"));
+    var w = null;
+    var h = null;
+    if (node && Array.isArray(node.size) && node.size.length >= 2) {
+      var sw = Number(node.size[0]);
+      var sh = Number(node.size[1]);
+      if (isFinite(sw) && sw > 0 && isFinite(sh) && sh > 0) {
+        w = sw;
+        h = sh;
+      }
+    }
+    if (w == null) {
+      var laid = layoutNodeRecords();
+      var id = node && node.id;
+      for (var i = 0; i < laid.length; i++) {
+        var n = laid[i];
+        if (!n || String(n.id) !== String(id)) continue;
+        var lw = Number(n.width);
+        var lh = Number(n.height);
+        if (isFinite(lw) && lw > 0 && isFinite(lh) && lh > 0) {
+          w = lw;
+          h = lh;
+        }
+        break;
+      }
+    }
+    if (!(w > 0)) w = (layoutW > 0) ? layoutW : ARCH_MIN_W;
+    if (!(h > 0)) h = (layoutH > 0) ? layoutH : ARCH_MIN_H;
+    return {
+      x: Number(box.getAttribute("x")),
+      y: Number(box.getAttribute("y")),
+      w: w,
+      h: h,
+      layoutW: layoutW,
+      layoutH: layoutH,
+    };
+  }
+
+  function resizePointerSvg(drag, clientX, clientY) {
+    var svg = drag && drag.svg;
+    if (!svg || !svg.createSVGPoint) return null;
+    var pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    var ctm = null;
+    try { ctm = svg.getScreenCTM(); } catch (eCtm) { ctm = null; }
+    if (!ctm) return null;
+    var p = pt.matrixTransform(ctm.inverse());
+    if (!p || !isFinite(p.x) || !isFinite(p.y)) return null;
+    return { x: p.x, y: p.y };
+  }
+
+  function paintResizeBox(drag, w, h) {
+    drag.box.setAttribute("x", String(drag.baseX));
+    drag.box.setAttribute("y", String(drag.baseY));
+    drag.box.setAttribute("width", String(w));
+    drag.box.setAttribute("height", String(h));
+    drag.handle.setAttribute("x", String(drag.baseX + w - ARCH_RESIZE));
+    drag.handle.setAttribute("y", String(drag.baseY + h - ARCH_RESIZE));
+  }
+
+  function restoreResizeBox(drag) {
+    paintResizeBox(drag, drag.layoutW, drag.layoutH);
+  }
+
+  function onArchResizeWindowEvent(ev) {
+    if (!resizeDrag) return;
+    // Capture inside the iframe does not deliver the release once the pointer
+    // leaves the frame. Drop it so this parent-window listener owns the rest.
+    try {
+      if (resizeDrag.handle && resizeDrag.pointerId != null) {
+        resizeDrag.handle.releasePointerCapture(resizeDrag.pointerId);
+      }
+    } catch (eRel) {}
+    if (ev.type === "pointermove") onLayoutPointerMove(ev);
+    else onLayoutPointerUp(ev);
+  }
+
+  function onArchResizeBlur() {
+    if (!resizeDrag) return;
+    var rz = resizeDrag;
+    resizeDrag = null;
+    unbindArchResizeWindow();
+    if (!rz.moved) {
+      restoreResizeBox(rz);
+      return;
+    }
+    finishArchitectureResize(rz);
+  }
+
+  function bindArchResizeWindow() {
+    if (window._bwResizeBound) return;
+    window._bwResizeBound = true;
+    window.addEventListener("pointermove", onArchResizeWindowEvent, true);
+    window.addEventListener("pointerup", onArchResizeWindowEvent, true);
+    window.addEventListener("pointercancel", onArchResizeWindowEvent, true);
+    window.addEventListener("blur", onArchResizeBlur);
+  }
+
+  function unbindArchResizeWindow() {
+    if (!window._bwResizeBound) return;
+    window._bwResizeBound = false;
+    window.removeEventListener("pointermove", onArchResizeWindowEvent, true);
+    window.removeEventListener("pointerup", onArchResizeWindowEvent, true);
+    window.removeEventListener("pointercancel", onArchResizeWindowEvent, true);
+    window.removeEventListener("blur", onArchResizeBlur);
   }
 
   function onLayoutPointerDown(ev) {
@@ -8838,7 +10523,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       var docIdxEp = parseInt(t.getAttribute("data-doc-index"), 10);
       var endEp = t.getAttribute("data-end");
       if (isNaN(docIdxEp) || (endEp !== "from" && endEp !== "to")) return;
-      if (!(state.doc.edges && state.doc.edges[docIdxEp])) return;
+      if (!relationRecords()[docIdxEp]) return;
       try { t.setPointerCapture(ev.pointerId); } catch (eEp) {}
       var ptEp = clientToSvg(svgEp, ev.clientX, ev.clientY);
       endpointDrag = {
@@ -8854,6 +10539,47 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         startClientY: ev.clientY,
         moved: false,
       };
+      return;
+    }
+
+    if (t && t.classList && t.classList.contains("bw-resize")) {
+      ev.preventDefault();
+      if (!isArchitecture() || state.layoutMode !== "move") return;
+      var iframeRz = $("layout-frame");
+      var svgRz = iframeRz.contentDocument && iframeRz.contentDocument.querySelector("svg");
+      if (!svgRz) return;
+      var rid = t.getAttribute("data-node-id");
+      var box = svgRz.querySelector('rect.bw-handle[data-node-id="' + rid + '"]');
+      var nodeRz = findDocNode(rid);
+      if (!box || !nodeRz) return;
+      var baseRz = architectureResizeBase(nodeRz, box);
+      var startRz = resizePointerSvg({ svg: svgRz }, ev.clientX, ev.clientY);
+      if (!startRz) return;
+      try { t.setPointerCapture(ev.pointerId); } catch (eRz) {}
+      resizeDrag = {
+        id: rid,
+        handle: t,
+        box: box,
+        svg: svgRz,
+        baseX: baseRz.x,
+        baseY: baseRz.y,
+        baseW: baseRz.w,
+        baseH: baseRz.h,
+        layoutW: baseRz.layoutW,
+        layoutH: baseRz.layoutH,
+        startSvgX: startRz.x,
+        startSvgY: startRz.y,
+        lastW: baseRz.w,
+        lastH: baseRz.h,
+        startClientX: ev.clientX,
+        startClientY: ev.clientY,
+        pointerId: ev.pointerId,
+        moved: false,
+      };
+      if (Math.round(baseRz.w) !== Math.round(baseRz.layoutW) || Math.round(baseRz.h) !== Math.round(baseRz.layoutH)) {
+        paintResizeBox(resizeDrag, baseRz.w, baseRz.h);
+      }
+      bindArchResizeWindow();
       return;
     }
 
@@ -8914,6 +10640,24 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function onLayoutPointerMove(ev) {
+    if (resizeDrag) {
+      var rdx = ev.clientX - resizeDrag.startClientX;
+      var rdy = ev.clientY - resizeDrag.startClientY;
+      if (!resizeDrag.moved) {
+        if ((rdx * rdx + rdy * rdy) < (LAYOUT_DRAG_THRESHOLD_PX * LAYOUT_DRAG_THRESHOLD_PX)) return;
+        resizeDrag.moved = true;
+        ev.preventDefault();
+        setStatus("Resizing " + resizeDrag.id + "…", "");
+      }
+      var rpt = resizePointerSvg(resizeDrag, ev.clientX, ev.clientY);
+      if (!rpt) return;
+      var rw = Math.max(ARCH_MIN_W, Math.round(resizeDrag.baseW + (rpt.x - resizeDrag.startSvgX)));
+      var rh = Math.max(ARCH_MIN_H, Math.round(resizeDrag.baseH + (rpt.y - resizeDrag.startSvgY)));
+      resizeDrag.lastW = rw;
+      resizeDrag.lastH = rh;
+      paintResizeBox(resizeDrag, rw, rh);
+      return;
+    }
     if (endpointDrag) {
       var edx = ev.clientX - endpointDrag.startClientX;
       var edy = ev.clientY - endpointDrag.startClientY;
@@ -8949,6 +10693,34 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function onLayoutPointerUp(ev) {
+    if (resizeDrag) {
+      // Iframe pointercancel fires when the pointer leaves the frame and drops
+      // the gesture. Parent-window pointerup/pointercancel still commits it.
+      if (ev.type === "pointercancel" && ev.currentTarget !== window && window._bwResizeBound) return;
+      var upDx = ev.clientX - resizeDrag.startClientX;
+      var upDy = ev.clientY - resizeDrag.startClientY;
+      if (!resizeDrag.moved && (upDx * upDx + upDy * upDy) >= (LAYOUT_DRAG_THRESHOLD_PX * LAYOUT_DRAG_THRESHOLD_PX)) {
+        resizeDrag.moved = true;
+      }
+      if (resizeDrag.moved && typeof ev.clientX === "number") {
+        var upPt = resizePointerSvg(resizeDrag, ev.clientX, ev.clientY);
+        if (upPt) {
+          resizeDrag.lastW = Math.max(ARCH_MIN_W, Math.round(resizeDrag.baseW + (upPt.x - resizeDrag.startSvgX)));
+          resizeDrag.lastH = Math.max(ARCH_MIN_H, Math.round(resizeDrag.baseH + (upPt.y - resizeDrag.startSvgY)));
+          paintResizeBox(resizeDrag, resizeDrag.lastW, resizeDrag.lastH);
+        }
+      }
+      var rz = resizeDrag;
+      resizeDrag = null;
+      unbindArchResizeWindow();
+      try { rz.handle.releasePointerCapture(ev.pointerId); } catch (eRzUp) {}
+      if (!rz.moved) {
+        restoreResizeBox(rz);
+        return;
+      }
+      finishArchitectureResize(rz);
+      return;
+    }
     if (endpointDrag) {
       var epDrag = endpointDrag;
       endpointDrag = null;
@@ -8976,6 +10748,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!drag.moved) {
       drag.rect.setAttribute("x", String(drag.origX));
       drag.rect.setAttribute("y", String(drag.origY));
+      if (isArchitecture()) selectArchitectureComponent(drag.id);
+      return;
+    }
+    if (isArchitecture()) {
+      finishArchitectureDrag(drag);
       return;
     }
     var snap = snapLaneCol(drag.lastX, drag.lastY, state.layout);
@@ -8993,6 +10770,141 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.rawDirty = false;
     renderLists();
     saveLayoutDrop(drag, snap);
+  }
+
+  function selectArchitectureComponent(id) {
+    if (!id || state.selectedComponentId === id) return;
+    state.selectedComponentId = id;
+    mountLayoutOverlays();
+  }
+
+  function restoreComponentGeometry(node, prev) {
+    if (!node || !prev) return;
+    if (prev.hadPos) node.pos = prev.pos.slice();
+    else delete node.pos;
+    if (prev.hadRow) node.row = prev.row;
+    else delete node.row;
+    if (prev.hadCol) node.col = prev.col;
+    else delete node.col;
+    if (prev.hadSize) node.size = prev.size.slice();
+    else if (prev.sizeTouched) delete node.size;
+  }
+
+  function geometrySnapshot(node) {
+    var hadPos = Array.isArray(node.pos) && node.pos.length >= 2;
+    var hadSize = Array.isArray(node.size) && node.size.length >= 2;
+    return {
+      hadPos: hadPos,
+      pos: hadPos ? [node.pos[0], node.pos[1]] : null,
+      hadRow: Object.prototype.hasOwnProperty.call(node, "row"),
+      row: node.row,
+      hadCol: Object.prototype.hasOwnProperty.call(node, "col"),
+      col: node.col,
+      hadSize: hadSize,
+      size: hadSize ? [node.size[0], node.size[1]] : null,
+      sizeTouched: false,
+    };
+  }
+
+  function finishArchitectureDrag(drag) {
+    var node = findDocNode(drag.id);
+    if (!node) return;
+    var x = snap10(Number(drag.rect.getAttribute("x")));
+    var y = snap10(Number(drag.rect.getAttribute("y")));
+    if (!isFinite(x) || !isFinite(y)) {
+      drag.rect.setAttribute("x", String(drag.origX));
+      drag.rect.setAttribute("y", String(drag.origY));
+      return;
+    }
+    var hadPos = Array.isArray(node.pos) && node.pos.length >= 2;
+    var converted = usesGridPlacement(node);
+    if (hadPos && Number(node.pos[0]) === x && Number(node.pos[1]) === y) {
+      drag.rect.setAttribute("x", String(drag.origX));
+      drag.rect.setAttribute("y", String(drag.origY));
+      selectArchitectureComponent(drag.id);
+      setStatus("No move (same pos)", "");
+      return;
+    }
+    var prev = geometrySnapshot(node);
+    pushHistory();
+    node.pos = [x, y];
+    if (converted) {
+      delete node.row;
+      delete node.col;
+    }
+    state.selectedComponentId = drag.id;
+    state.rawDirty = false;
+    renderLists();
+    saveArchitectureGeometry(node, prev, {
+      kind: "move",
+      id: drag.id,
+      x: x,
+      y: y,
+      converted: converted,
+    });
+  }
+
+  function finishArchitectureResize(drag) {
+    var node = findDocNode(drag.id);
+    if (!node) return;
+    var w = Math.max(ARCH_MIN_W, Math.round(drag.lastW));
+    var h = Math.max(ARCH_MIN_H, Math.round(drag.lastH));
+    if (Math.round(drag.baseW) === w && Math.round(drag.baseH) === h) {
+      restoreResizeBox(drag);
+      setStatus("No resize", "");
+      return;
+    }
+    var prev = geometrySnapshot(node);
+    prev.sizeTouched = true;
+    pushHistory();
+    node.size = [w, h];
+    state.selectedComponentId = drag.id;
+    state.rawDirty = false;
+    renderLists();
+    saveArchitectureGeometry(node, prev, { kind: "resize", id: drag.id, w: w, h: h });
+  }
+
+  function saveArchitectureGeometry(node, prev, change) {
+    setLayoutBusy(true);
+    var label = change.kind === "resize"
+      ? ("previewing resize " + change.id + " → " + change.w + "×" + change.h)
+      : ("previewing " + change.id + " → pos [" + change.x + ", " + change.y + "]");
+    setStatus(label + "…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg;
+          if (change.kind === "resize") {
+            msg = "Resized " + change.id + " → size [" + change.w + ", " + change.h + "] (unsaved)";
+          } else if (change.converted) {
+            msg = "Moved " + change.id + " → pos [" + change.x + ", " + change.y + "]; dropped row/col (unsaved)";
+          } else {
+            msg = "Moved " + change.id + " → pos [" + change.x + ", " + change.y + "] (unsaved)";
+          }
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        restoreComponentGeometry(node, prev);
+        revertHistoryPush();
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus((change.kind === "resize" ? "Resize" : "Move") + " not updated (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+        mountLayoutOverlays();
+      })
+      .catch(function (e) {
+        restoreComponentGeometry(node, prev);
+        revertHistoryPush();
+        setLayoutBusy(false);
+        setStatus((change.kind === "resize" ? "Resize" : "Move") + " preview failed (reverted): " + e, "err");
+        renderLists();
+        mountLayoutOverlays();
+      });
   }
 
   function setLayoutBusy(busy) {
@@ -9150,11 +11062,31 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       var a = (state.doc.nodes[0] && state.doc.nodes[0].id) || "";
       var b = (state.doc.nodes[1] && state.doc.nodes[1].id) || a;
       item = { from: a, to: b, role: "main" };
+    } else if (kind === "components") {
+      item = {
+        id: uniqueItemId("component", state.doc.components),
+        type: "backend",
+        label: "New component",
+        pos: [40, 80],
+        size: [120, 60]
+      };
+    } else if (kind === "connections") {
+      if (!Array.isArray(state.doc.connections)) state.doc.connections = [];
+      var comps = state.doc.components || [];
+      var ca = (comps[0] && comps[0].id) || "";
+      var cb = (comps[1] && comps[1].id) || ca;
+      item = { from: ca, to: cb };
+    } else if (kind === "boundaries") {
+      if (!Array.isArray(state.doc.boundaries)) state.doc.boundaries = [];
+      var wrapId = (state.doc.components && state.doc.components[0] && state.doc.components[0].id) || "component1";
+      item = { kind: "region", label: "New boundary", wraps: [wrapId] };
     } else if (kind === "cards") {
+      if (isArchitecture() && !Array.isArray(state.doc.cards)) state.doc.cards = [];
       item = { dot: "slate", title: "New card", items: [] };
     } else {
       item = { id: "lane" + (state.doc.lanes.length + 1), label: "New lane" };
     }
+    if (!Array.isArray(state.doc[kind])) state.doc[kind] = [];
     state.doc[kind].push(item);
     state.selected[kind] = state.doc[kind].length - 1;
     state.rawDirty = false;
@@ -9163,16 +11095,146 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     renderAll();
   }
 
+  function uniqueItemId(prefix, items) {
+    var used = {};
+    (items || []).forEach(function (item) {
+      if (item && item.id) used[String(item.id)] = true;
+    });
+    var n = (items || []).length + 1;
+    var id = prefix + n;
+    while (used[id]) {
+      n += 1;
+      id = prefix + n;
+    }
+    return id;
+  }
+
   function removeSelected(kind) {
     var idx = state.selected[kind];
-    if (idx < 0) return;
-    var captured = kind === "edges" ? captureEdgeStyleKeys() : null;
+    if (idx < 0 || !state.doc || !Array.isArray(state.doc[kind])) return;
+    if (kind === "components") {
+      removeComponentAt(idx);
+      return;
+    }
+    var captured = (kind === "edges" || kind === "connections") ? captureEdgeStyleKeys() : null;
     var removedNodeId = (kind === "nodes" && state.doc.nodes[idx]) ? String(state.doc.nodes[idx].id || "") : "";
     pushHistory();
     state.doc[kind].splice(idx, 1);
+    if (kind === "boundaries" && state.doc.boundaries && !state.doc.boundaries.length) {
+      delete state.doc.boundaries;
+    }
+    if (kind === "connections" && state.doc.connections && !state.doc.connections.length) {
+      delete state.doc.connections;
+    }
+    if (kind === "cards" && isArchitecture() && state.doc.cards && !state.doc.cards.length) {
+      delete state.doc.cards;
+    }
     if (removedNodeId) dropAssignment(removedNodeId);
     if (captured) rekeyEdgeStyles(captured);
-    state.selected[kind] = Math.min(idx, state.doc[kind].length - 1);
+    var left = state.doc[kind] || [];
+    state.selected[kind] = Math.min(idx, left.length - 1);
+    state.rawDirty = false;
+    previewStale = true;
+    markDirty();
+    renderAll();
+  }
+
+  function cascadeRemoveComponent(idx) {
+    var comp = state.doc.components && state.doc.components[idx];
+    if (!comp) return null;
+    var id = String(comp.id || "");
+    var captured = captureEdgeStyleKeys();
+    state.doc.components.splice(idx, 1);
+    var removedConnections = 0;
+    if (Array.isArray(state.doc.connections)) {
+      var kept = [];
+      for (var i = 0; i < state.doc.connections.length; i++) {
+        var conn = state.doc.connections[i];
+        if (conn && (String(conn.from) === id || String(conn.to) === id)) removedConnections += 1;
+        else kept.push(conn);
+      }
+      if (kept.length) state.doc.connections = kept;
+      else delete state.doc.connections;
+    }
+    var removedBoundaries = [];
+    if (Array.isArray(state.doc.boundaries)) {
+      var keptB = [];
+      for (var b = 0; b < state.doc.boundaries.length; b++) {
+        var boundary = state.doc.boundaries[b];
+        if (!boundary) continue;
+        if (Array.isArray(boundary.wraps)) {
+          boundary.wraps = boundary.wraps.filter(function (wid) { return String(wid) !== id; });
+        }
+        if (!boundary.wraps || !boundary.wraps.length) {
+          removedBoundaries.push(boundary.label || "boundary");
+          continue;
+        }
+        keptB.push(boundary);
+      }
+      if (keptB.length) state.doc.boundaries = keptB;
+      else delete state.doc.boundaries;
+    }
+    dropAssignment(id);
+    ensureSidecar();
+    if (id && state.sidecar.nodes && state.sidecar.nodes[id]) delete state.sidecar.nodes[id];
+    if (captured) rekeyEdgeStyles(captured);
+    if (captured && state.sidecar.edges) {
+      var liveConn = state.doc.connections || [];
+      for (var ck = 0; ck < captured.length; ck++) {
+        if (liveConn.indexOf(captured[ck].edge) < 0 && captured[ck].key) {
+          delete state.sidecar.edges[captured[ck].key];
+        }
+      }
+    }
+    var left = state.doc.components || [];
+    var note = "Removed " + (id || "component");
+    if (removedConnections) note += "; removed " + removedConnections + " connection(s)";
+    if (removedBoundaries.length) {
+      note += "; removed empty boundary " + removedBoundaries.join(", ");
+    }
+    if (!left.length) note += "; a diagram needs at least one component";
+    return { id: id, note: note, left: left.length };
+  }
+
+  function removeComponentAt(idx) {
+    if (!state.doc || !state.doc.components || !state.doc.components[idx]) return;
+    pushHistory();
+    var result = cascadeRemoveComponent(idx);
+    if (!result) {
+      revertHistoryPush();
+      return;
+    }
+    state.selected.components = Math.min(idx, result.left - 1);
+    state.rawDirty = false;
+    previewStale = true;
+    markDirty();
+    renderAll();
+    setStatus(result.note, "");
+  }
+
+  function duplicateComponent() {
+    if (!state.doc || !Array.isArray(state.doc.components)) return;
+    var idx = state.selected.components;
+    var src = state.doc.components[idx];
+    if (!src) return;
+    pushHistory();
+    var copy = clone(src);
+    var fromId = String(src.id || "");
+    copy.id = uniqueItemId("component", state.doc.components);
+    if (Array.isArray(copy.pos) && copy.pos.length >= 2) {
+      copy.pos = [Number(copy.pos[0]) + 24, Number(copy.pos[1]) + 24];
+    } else if (typeof copy.col === "number") {
+      copy.col = copy.col + 1;
+    }
+    state.doc.components.push(copy);
+    ensureSidecar();
+    if (fromId && state.sidecar.nodes && state.sidecar.nodes[fromId] && !state.sidecar.nodes[copy.id]) {
+      state.sidecar.nodes[copy.id] = clone(state.sidecar.nodes[fromId]);
+    }
+    if (fromId && state.sidecar.assignments && state.sidecar.assignments[fromId] && !state.sidecar.assignments[copy.id]) {
+      state.sidecar.assignments[copy.id] = state.sidecar.assignments[fromId];
+    }
+    state.selected.components = state.doc.components.length - 1;
     state.rawDirty = false;
     previewStale = true;
     markDirty();
@@ -9264,7 +11326,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       onNodeBrandCatalog(item, val);
       return;
     }
-    if (kind === "nodes" && field === "type") {
+    if ((kind === "nodes" || kind === "components") && field === "type") {
+      if (String(val || "") === QUICK_TYPE_SENTINEL) {
+        fieldEl.value = nodeChooserValue(item);
+        openQuickType({ kind: kind, nodeId: item.id, selectEl: fieldEl });
+        return;
+      }
       if (nodeChooserValue(item) === String(val || "")) return;
       var typeSnap = snapshotBuffer();
       pushHistory();
@@ -9274,7 +11341,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         state.sidecar = typeSnap.sidecar;
         revertHistoryPush();
         setStatus(applied.error || "Type not applied", "err");
-        renderForm("nodes");
+        renderForm(kind);
         return;
       }
       if (applied.locked) setStatus("Object brand left locked on " + (item.id || ""), "");
@@ -9286,7 +11353,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       renderAll();
       return;
     }
-    if (kind === "nodes" && field === "bwColor") {
+    if ((kind === "nodes" || kind === "components") && field === "bwColor") {
       if (!writeNodeColorChoice(item.id, String(val || ""), true)) return;
       state.rawDirty = false;
       previewStale = true;
@@ -9295,7 +11362,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       updateDirtyUI();
       return;
     }
-    if (kind === "edges" && (field === "bwColor" || field === "bwDash")) {
+    if ((kind === "edges" || kind === "connections") && (field === "bwColor" || field === "bwDash")) {
       var styled = edgeStyleEntry(idx);
       if (!styled) {
         setStatus("sidecar edges is not an object; style not stored", "err");
@@ -9323,24 +11390,130 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       updateDirtyUI();
       return;
     }
-    var oldNodeId = (kind === "nodes" && field === "id") ? String(item.id || "") : "";
-    var capturedEnds = (kind === "edges" && (field === "from" || field === "to"))
+    if (kind === "boundaries" && field === "wraps") {
+      var chosen = fieldEl.selectedOptions || [];
+      var ids = [];
+      for (var wi = 0; wi < chosen.length; wi++) {
+        if (chosen[wi].value) ids.push(chosen[wi].value);
+      }
+      if (!ids.length) {
+        setStatus("Boundary wraps needs at least one component", "err");
+        renderForm(kind);
+        return;
+      }
+      pushHistory();
+      item.wraps = ids;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      renderLists();
+      updateDirtyUI();
+      return;
+    }
+    if (kind === "boundaries" && field === "pad") {
+      if (String(val) === "") {
+        if (item.pad == null) return;
+        pushHistory();
+        delete item.pad;
+      } else {
+        var padNum = parseFloat(val);
+        if (!isFinite(padNum) || padNum < 0) {
+          setStatus("pad must be a number >= 0", "err");
+          renderForm(kind);
+          return;
+        }
+        if (item.pad === padNum) return;
+        pushHistory();
+        item.pad = padNum;
+      }
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      renderLists();
+      updateDirtyUI();
+      return;
+    }
+    if (kind === "components" && (field === "posX" || field === "posY" || field === "sizeW" || field === "sizeH")) {
+      var axis = parseFloat(val);
+      if (!isFinite(axis)) {
+        setStatus(field + " must be a number", "err");
+        renderForm(kind);
+        return;
+      }
+      var pairKey = (field === "posX" || field === "posY") ? "pos" : "size";
+      var pairIndex = (field === "posX" || field === "sizeW") ? 0 : 1;
+      var pair = Array.isArray(item[pairKey]) ? item[pairKey].slice() : [0, 0];
+      while (pair.length < 2) pair.push(0);
+      if (Number(pair[pairIndex]) === axis) return;
+      pushHistory();
+      pair[pairIndex] = axis;
+      item[pairKey] = pair;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      renderLists();
+      updateDirtyUI();
+      return;
+    }
+    if (kind === "components" && (field === "sublabel" || field === "tag")) {
+      var trimmedOpt = String(val || "");
+      var hadOpt = Object.prototype.hasOwnProperty.call(item, field);
+      if ((!hadOpt && trimmedOpt === "") || (hadOpt && String(item[field] == null ? "" : item[field]) === trimmedOpt)) return;
+      pushHistory();
+      if (trimmedOpt === "") delete item[field];
+      else item[field] = trimmedOpt;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      renderLists();
+      updateDirtyUI();
+      return;
+    }
+    if (kind === "components" && (field === "row" || field === "col")) {
+      var cell = parseInt(val, 10);
+      if (isNaN(cell)) {
+        setStatus(field + " must be an integer", "err");
+        renderForm(kind);
+        return;
+      }
+      if (cell < 0) cell = 0;
+      if (item[field] === cell) return;
+      pushHistory();
+      item[field] = cell;
+      fieldEl.value = String(cell);
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      renderLists();
+      updateDirtyUI();
+      return;
+    }
+    var oldNodeId = ((kind === "nodes" || kind === "components") && field === "id") ? String(item.id || "") : "";
+    var capturedEnds = ((kind === "edges" || kind === "connections") && (field === "from" || field === "to"))
       ? captureEdgeStyleKeys() : null;
     pushHistory();
-    if (field === "col") {
+    if (kind === "nodes" && field === "col") {
       var n = parseInt(val, 10);
       if (isNaN(n)) n = 0;
       if (n < 0) n = 0;
       if (n > 5) n = 5;
       item.col = n;
       fieldEl.value = String(n);
+    } else if (kind === "boundaries" && field === "kind") {
+      if (val !== "region" && val !== "security-group") {
+        revertHistoryPush();
+        setStatus("Boundary kind must be region or security-group", "err");
+        renderForm(kind);
+        return;
+      }
+      item.kind = val;
     } else if (val === "" && (field === "role" || field === "variant" || field === "route" ||
                               field === "fromSide" || field === "toSide" || field === "label")) {
       delete item[field];
     } else {
       item[field] = val;
     }
-    if (kind === "nodes" && field === "label" && item.brand != null) ensureBrandWidth(item);
+    if ((kind === "nodes" || kind === "components") && field === "label" && item.brand != null) ensureBrandWidth(item);
     if (oldNodeId && oldNodeId !== String(item.id || "")) {
       migrateNodeStyle(oldNodeId, String(item.id || ""));
       migrateAssignment(oldNodeId, String(item.id || ""));
@@ -9369,10 +11542,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       }
       pushHistory();
       state.doc = parsed;
+      if (parsed.diagram_type === "architecture" || parsed.diagram_type === "workflow") {
+        state.diagram_type = parsed.diagram_type;
+      }
       ensureArrays();
       state.rawDirty = false;
       previewStale = true;
-      state.selected = { nodes: -1, edges: -1, lanes: -1, cards: -1 };
+      state.selected = emptySelection();
       syncDirtyFromDoc();
       diagramStripForceSync = true;
       renderAll();
@@ -9382,6 +11558,29 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       setStatus("Invalid JSON: " + e.message, "err");
       return false;
     }
+  }
+
+  function blankArchitecture() {
+    return {
+      schema_version: 1,
+      diagram_type: "architecture",
+      meta: { title: "Untitled diagram" },
+      components: [{
+        id: "component1",
+        type: "backend",
+        label: "New component",
+        pos: [40, 80],
+        size: [120, 60]
+      }]
+    };
+  }
+
+  function blankDiagram(dtype) {
+    return dtype === "architecture" ? blankArchitecture() : blankWorkflow();
+  }
+
+  function saveSuffix() {
+    return isArchitecture() ? ".architecture.json" : ".workflow.json";
   }
 
   function blankWorkflow() {
@@ -9406,9 +11605,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     return true;
   }
 
-  function isPristineSeed() {
+  function isPristineSeed(dtype) {
+    dtype = dtype || state.diagram_type || "workflow";
     return !state.file && !state.dirty && !!state.doc &&
-      docsEqual(state.doc, blankWorkflow()) && sidecarIsEmpty(state.sidecar);
+      state.diagram_type === dtype &&
+      docsEqual(state.doc, blankDiagram(dtype)) && sidecarIsEmpty(state.sidecar);
   }
 
   function applySessionNotes(data, base) {
@@ -9449,8 +11650,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       .catch(function () {});
   }
 
-  function createNewDiagram() {
-    if (isPristineSeed()) {
+  function createNewDiagram(dtype) {
+    dtype = dtype || state.diagram_type || "workflow";
+    if (dtype !== "workflow" && dtype !== "architecture") dtype = "workflow";
+    if (isPristineSeed(dtype)) {
       setStatus("Already a new diagram", "");
       return Promise.resolve(false);
     }
@@ -9458,7 +11661,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     return apiFetch("/api/new", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ diagram_type: dtype }),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -9489,7 +11692,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     return apiFetch("/api/pick", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "save" }),
+      body: JSON.stringify({ mode: "save", diagram_type: state.diagram_type || "workflow" }),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -9501,8 +11704,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
           setStatus("Save cancelled", "");
           return false;
         }
-        if (!/\.workflow\.json$/.test(String(data.path))) {
-          setStatus("name must end in .workflow.json", "err");
+        var suffix = saveSuffix();
+        if (!String(data.path).endsWith(suffix)) {
+          setStatus("name must end in " + suffix, "err");
           return false;
         }
         return postSave(String(data.path));
@@ -9649,6 +11853,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       });
   }
 
+  function isNewPanelActive() {
+    var panel = $("new-panel");
+    return !!(panel && panel.classList.contains("active"));
+  }
+
   function isOpenPanelActive() {
     var panel = $("open-panel");
     return !!(panel && panel.classList.contains("active"));
@@ -9723,6 +11932,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     cancelInlineEditors();
     layoutDrag = null;
     endpointDrag = null;
+    resizeDrag = null;
     state.file = data.file || null;
     state.diagram_type = data.diagram_type;
     state.doc = data.doc || null;
@@ -9738,8 +11948,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.undo = [];
     state.redo = [];
     state.rawDirty = false;
-    state.selected = { nodes: -1, edges: -1, lanes: -1, cards: -1 };
+    state.selected = emptySelection();
     state.selectedEdgeIndex = null;
+    state.selectedComponentId = null;
     state.connectFrom = null;
     state.layoutMode = "move";
     state.layout = null;
@@ -9800,7 +12011,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       return Promise.resolve(false);
     }
     if (!state.file) {
-      return createNewDiagram().then(function (ok) {
+      return createNewDiagram(state.diagram_type || "workflow").then(function (ok) {
         if (ok) setStatus("Discarded — new diagram", "ok");
         return ok;
       });
@@ -9877,7 +12088,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     switchTab(btn.getAttribute("data-tab"));
   });
 
-  ["nodes", "edges", "lanes", "cards"].forEach(function (kind) {
+  ["nodes", "edges", "lanes", "cards", "components", "connections", "boundaries"].forEach(function (kind) {
     $("list-" + kind).addEventListener("click", function (ev) {
       var item = ev.target.closest(".list-item");
       if (!item) return;
@@ -9908,6 +12119,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       if (!btn) return;
       var action = btn.getAttribute("data-action");
       if (action === "remove") removeSelected(kind);
+      else if (kind === "components" && action === "duplicate") duplicateComponent();
       else if (kind === "cards" && action === "add-item") addCardItem();
       else if (kind === "cards" && action === "remove-item") {
         removeCardItem(parseInt(btn.getAttribute("data-item-index"), 10));
@@ -9915,8 +12127,31 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     });
   });
 
+  function closeNewPanel() {
+    var panel = $("new-panel");
+    if (!panel) return;
+    panel.classList.remove("active");
+    panel.setAttribute("aria-hidden", "true");
+  }
+
+  function openNewPanel() {
+    var panel = $("new-panel");
+    if (!panel) return;
+    panel.classList.add("active");
+    panel.setAttribute("aria-hidden", "false");
+  }
+
   $("btn-new").addEventListener("click", function () {
-    whenClean(createNewDiagram);
+    whenClean(openNewPanel);
+  });
+  $("btn-new-close").addEventListener("click", closeNewPanel);
+  $("btn-new-workflow").addEventListener("click", function () {
+    closeNewPanel();
+    createNewDiagram("workflow");
+  });
+  $("btn-new-architecture").addEventListener("click", function () {
+    closeNewPanel();
+    createNewDiagram("architecture");
   });
   $("btn-open").addEventListener("click", function () {
     if (isOpenPanelActive()) closeOpenPanel();
@@ -9950,6 +12185,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (isDirtyPanelActive()) {
       var dirtyPanel = $("dirty-panel");
       if (dirtyPanel && !dirtyPanel.contains(ev.target)) return;
+    }
+    if (isNewPanelActive()) {
+      var newPanel = $("new-panel");
+      var newBtn = $("btn-new");
+      if (newPanel && !newPanel.contains(ev.target) && !(newBtn && newBtn.contains(ev.target))) {
+        closeNewPanel();
+      }
     }
     if (!isOpenPanelActive()) return;
     var panel = $("open-panel");
@@ -10105,13 +12347,113 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     });
   }
   document.addEventListener("pointerdown", function (ev) {
-    var pop = $("type-mgr-icon-pop");
-    if (!pop || pop.hidden) return;
-    var btn = $("type-mgr-icon-btn");
-    var target = ev.target;
-    if (pop.contains(target) || (btn && btn.contains(target))) return;
-    closeIconPicker(false);
+    [["type-mgr", "type-mgr-icon-pop", "type-mgr-icon-btn"],
+      ["qtype", "qtype-icon-pop", "qtype-icon-btn"]].forEach(function (row) {
+      var pop = $(row[1]);
+      if (!pop || pop.hidden) return;
+      var btn = $(row[2]);
+      if (pop.contains(ev.target) || (btn && btn.contains(ev.target))) return;
+      closeIconPicker(false, row[0]);
+    });
   });
+
+  function liveQuickTypeHint() {
+    var fields = quickTypeFields();
+    if (!fields.id || !fields.label || !TYPE_ID_RE.test(fields.id)) {
+      showQuickTypeError("");
+      return;
+    }
+    showQuickTypeError(quickTypeErrorText(fields));
+  }
+  var qtypeLabel = $("qtype-label");
+  if (qtypeLabel) {
+    qtypeLabel.addEventListener("input", function () {
+      if (!quickTypeIdManual) {
+        var idEl = $("qtype-id");
+        if (idEl) idEl.value = slugTypeId(qtypeLabel.value);
+      }
+      liveQuickTypeHint();
+    });
+  }
+  var qtypeIdEl = $("qtype-id");
+  if (qtypeIdEl) {
+    qtypeIdEl.addEventListener("input", function () {
+      quickTypeIdManual = true;
+      liveQuickTypeHint();
+    });
+  }
+  var qtypeSaveEl = $("qtype-save-lib");
+  if (qtypeSaveEl) {
+    qtypeSaveEl.addEventListener("change", function () {
+      quickTypeSaveLib = !!qtypeSaveEl.checked;
+    });
+  }
+  var qtypeIconBtn = $("qtype-icon-btn");
+  if (qtypeIconBtn) {
+    qtypeIconBtn.addEventListener("click", function () {
+      var pop = $("qtype-icon-pop");
+      if (pop && !pop.hidden) closeIconPicker(false, "qtype");
+      else openIconPicker("qtype");
+    });
+  }
+  var qtypeIconSearch = $("qtype-icon-search");
+  if (qtypeIconSearch) {
+    qtypeIconSearch.addEventListener("input", function () { renderIconPickerList("qtype"); });
+    qtypeIconSearch.addEventListener("keydown", function (ev) {
+      if (ev.key === "ArrowDown") { ev.preventDefault(); moveIconPicker(1, "qtype"); }
+      else if (ev.key === "ArrowUp") { ev.preventDefault(); moveIconPicker(-1, "qtype"); }
+      else if (ev.key === "Enter") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        pickSelectedIcon("qtype");
+      } else if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeIconPicker(true, "qtype");
+      }
+    });
+  }
+  var qtypeIconList = $("qtype-icon-list");
+  if (qtypeIconList) {
+    qtypeIconList.addEventListener("click", function (ev) {
+      var opt = ev.target.closest('[role="option"]');
+      if (!opt) return;
+      chooseIconValue(opt.getAttribute("data-value") || "none", "qtype");
+    });
+  }
+  var qtypeCreate = $("qtype-create");
+  if (qtypeCreate) qtypeCreate.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    createQuickType();
+  });
+  var qtypeCancel = $("qtype-cancel");
+  if (qtypeCancel) qtypeCancel.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    closeQuickType(true);
+    setStatus("Custom type cancelled", "");
+  });
+  var qtypeModal = $("quick-type-modal");
+  if (qtypeModal) {
+    qtypeModal.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var pop = $("qtype-icon-pop");
+        if (pop && !pop.hidden) {
+          closeIconPicker(true, "qtype");
+          return;
+        }
+        closeQuickType(true);
+        setStatus("Custom type cancelled", "");
+        return;
+      }
+      if (ev.key === "Enter" && ev.target && ev.target.id !== "qtype-cancel") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        createQuickType();
+      }
+    });
+  }
 
   $("btn-zoom-fit").addEventListener("click", function () {
     if (!$("layout-frame").contentDocument || !$("layout-frame").contentDocument.querySelector("svg")) return;
@@ -10149,6 +12491,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     layoutTypeEl.addEventListener("change", function () {
       if (!nodeEdit) return;
       var value = String(layoutTypeEl.value || "");
+      if (value === QUICK_TYPE_SENTINEL) {
+        var prev = layoutTypeEl.dataset.prev || "";
+        if (!prev || prev === QUICK_TYPE_SENTINEL) {
+          var currentNode = findDocNode(nodeEdit.nodeId);
+          prev = nodeChooserValue(currentNode);
+        }
+        layoutTypeEl.value = prev;
+        openQuickType({ kind: "layout", nodeId: nodeEdit.nodeId, selectEl: layoutTypeEl });
+        return;
+      }
+      layoutTypeEl.dataset.prev = value;
       var body = null;
       if (!isBuiltinType(value)) {
         body = sidecarType(value) || libraryType(value);
@@ -10286,6 +12639,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   // Outside click cancels; do NOT commit-on-blur (Tab between fields would save early).
   document.addEventListener("mousedown", function (ev) {
+    if (quickType) {
+      var qmodal = $("quick-type-modal");
+      var qpop = $("qtype-icon-pop");
+      var inModal = qmodal && qmodal.contains(ev.target);
+      var inPop = qpop && !qpop.hidden && qpop.contains(ev.target);
+      if (!inModal && !inPop) {
+        closeQuickType(true);
+        setStatus("Custom type cancelled", "");
+      }
+      return;
+    }
     if (nodeEdit) {
       var panel = $("layout-node-editor");
       if (panel && panel.classList.contains("active") && !panel.contains(ev.target)) {
@@ -10323,6 +12687,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var typing = tag === "input" || tag === "textarea" || tag === "select" || (ev.target && ev.target.isContentEditable);
 
     if (!typing && (ev.key === "Escape" || ev.key === "Esc")) {
+      if (quickType) {
+        ev.preventDefault();
+        var qpopEsc = $("qtype-icon-pop");
+        if (qpopEsc && !qpopEsc.hidden) closeIconPicker(true, "qtype");
+        else {
+          closeQuickType(true);
+          setStatus("Custom type cancelled", "");
+        }
+        return;
+      }
       if (isDirtyPanelActive()) {
         ev.preventDefault();
         closeDirtyPanel();
@@ -10348,6 +12722,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       }
     }
     if (!typing && (ev.key === "Delete" || ev.key === "Backspace")) {
+      if (quickType) return;
       // Prefer nodeEdit when the editor is open; skip when focus is in an input/select
       // so Backspace still edits Label text (typing already filtered above).
       if (state.tab === "layout" && nodeEdit) {
@@ -10687,6 +13062,91 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
                 ),
             ),
         },
+        {
+            # Architecture schema_version is always 1. Splice custom legend
+            # rows whenever the kind map is set. Do not copy the workflow
+            # schema-2 gate, and do not edit cli.mjs or template.html here.
+            "path": "renderers/architecture/render-architecture.mjs",
+            "anchors": (
+                (
+                    "import path from 'node:path';\n"
+                    "import { fileURLToPath } from 'node:url';\n",
+                    "import path from 'node:path';\n"
+                    "import { readFileSync } from 'node:fs';\n"
+                    "import { fileURLToPath } from 'node:url';\n",
+                ),
+                (
+                    "const architectureLegendEntries = resolveLegend(\n"
+                    "  arch.meta?.legend,\n"
+                    "  LEGEND_CATALOG,\n"
+                    "  new Set([...components.values()].map((component) => component.type)),\n"
+                    ");\n",
+                    compiler_helpers
+                    + "const bendwrightKinds = bendwrightKindMap();\n"
+                    "const unlabeledLegendKinds = new Set();\n"
+                    "const bendwrightNodeKinds = new Map();\n"
+                    "const bendwrightCustomByLabel = new Map();\n"
+                    "for (const component of asArray(arch.components)) {\n"
+                    "  const custom = bendwrightKindFor(component, bendwrightKinds);\n"
+                    "  if (!custom) {\n"
+                    "    unlabeledLegendKinds.add(component.type);\n"
+                    "    continue;\n"
+                    "  }\n"
+                    "  bendwrightNodeKinds.set(component.id, custom);\n"
+                    "  if (!bendwrightCustomByLabel.has(custom.label)) bendwrightCustomByLabel.set(custom.label, custom);\n"
+                    "}\n"
+                    "const bendwrightCustomEntries = [...bendwrightCustomByLabel.values()].map((custom) => ({\n"
+                    "  kind: custom.label,\n"
+                    "  label: custom.label,\n"
+                    "  present: true,\n"
+                    "  interactive: true,\n"
+                    "  colorDark: custom.colorDark,\n"
+                    "  colorLight: custom.colorLight,\n"
+                    "}));\n"
+                    "const presentLegendKinds = bendwrightKinds\n"
+                    "  ? unlabeledLegendKinds\n"
+                    "  : new Set([...components.values()].map((component) => component.type));\n"
+                    "let architectureLegendEntries = resolveLegend(\n"
+                    "  arch.meta?.legend,\n"
+                    "  LEGEND_CATALOG,\n"
+                    "  presentLegendKinds,\n"
+                    ");\n"
+                    "if (bendwrightKinds && arch.meta?.legend?.mode !== 'hidden') {\n"
+                    "  architectureLegendEntries = architectureLegendEntries.filter((entry) => unlabeledLegendKinds.has(entry.kind));\n"
+                    "  architectureLegendEntries = architectureLegendEntries.concat(bendwrightCustomEntries);\n"
+                    "}\n",
+                ),
+                (
+                    "  const passport = { kind: c.type, sublabel: c.sublabel, tag: c.tag, context: componentContext(c), ...brandMetadataFor(c) };\n",
+                    "  const bendwrightKind = bendwrightNodeKinds.get(c.id);\n"
+                    "  const passport = {\n"
+                    "    kind: c.type,\n"
+                    "    sublabel: c.sublabel,\n"
+                    "    tag: c.tag,\n"
+                    "    context: componentContext(c),\n"
+                    "    ...brandMetadataFor(c),\n"
+                    "    ...(bendwrightKind ? {\n"
+                    "      kindLabel: bendwrightKind.label,\n"
+                    "      kindColorDark: bendwrightKind.colorDark,\n"
+                    "      kindColorLight: bendwrightKind.colorLight,\n"
+                    "    } : {}),\n"
+                    "  };\n",
+                ),
+                (
+                    "    renderSwatch: (entry) => `<rect x=\"${entry.x}\" y=\"${entry.baseline - 9}\" width=\"16\" height=\"10\" rx=\"2.5\" class=\"${componentFill[entry.kind] || 'c-external'}\" stroke-width=\"1\"/>`,\n",
+                    "    renderSwatch: (entry) => {\n"
+                    "      const dark = entry.colorDark || '';\n"
+                    "      const light = entry.colorLight || '';\n"
+                    "      if (dark || light) {\n"
+                    "        const fill = dark || light;\n"
+                    "        const alt = light || dark;\n"
+                    "        return `<rect x=\"${entry.x}\" y=\"${entry.baseline - 9}\" width=\"16\" height=\"10\" rx=\"2.5\" fill=\"${esc(fill)}\" style=\"--bw-kind-light:${esc(alt)}\" class=\"bw-kind-swatch\" stroke-width=\"1\"/>`;\n"
+                    "      }\n"
+                    "      return `<rect x=\"${entry.x}\" y=\"${entry.baseline - 9}\" width=\"16\" height=\"10\" rx=\"2.5\" class=\"${componentFill[entry.kind] || 'c-external'}\" stroke-width=\"1\"/>`;\n"
+                    "    },\n",
+                ),
+            ),
+        },
     )
 
 
@@ -10750,6 +13210,16 @@ def _backup_path(path: Path) -> Path:
     return path.parent / f"{path.name}{_ARCHIFY_PATCH_BACKUP_SUFFIX}"
 
 
+def _anchors_applied(text: str, anchors: tuple[tuple[str, str], ...]) -> bool:
+    """True when every replacement string is already in the file."""
+    return all(new in text for _old, new in anchors)
+
+
+def _anchors_partial(text: str, anchors: tuple[tuple[str, str], ...]) -> bool:
+    present = [new in text for _old, new in anchors]
+    return any(present) and not all(present)
+
+
 def _replace_anchors(
     text: str, anchors: tuple[tuple[str, str], ...]
 ) -> tuple[str | None, str | None]:
@@ -10801,49 +13271,54 @@ def _record_patch_failure(
         return
 
 
-def _smoke_kind_patch(archify_mjs: str) -> str | None:
-    """None when the schema-2 fixture shows the label. Otherwise a short reason.
+def _smoke_kind_html(html: str) -> str | None:
+    """Shared label checks. None when the delivered page shows the custom kind."""
+    label = _SMOKE_KIND_LABEL
+    if html.count(f'data-node-kind-label="{label}"') < 1:
+        return "missing data-node-kind-label"
+    if 'data-node-kind="backend"' not in html:
+        return "base data-node-kind missing"
+    if html.count(f'data-legend-kind="{label}"') != 1:
+        return f"expected one {label} legend row"
+    if f'data-legend-label="{label}"' not in html:
+        return "legend label is not the raw label"
+    if "bw-kind-swatch" not in html or "#6CB4F5" not in html or "#0072B2" not in html:
+        return "theme swatch missing"
+    passport = (
+        "node.getAttribute('data-node-kind-label') || "
+        "viewerKindLabel(node.getAttribute('data-node-kind') || 'node')"
+    )
+    if passport not in html:
+        return "passport does not prefer the label attr"
+    finder = (
+        "function semanticType(node) {\n"
+        "        var labeled = node.getAttribute('data-node-kind-label');"
+    )
+    if finder not in html:
+        return "finder semanticType does not prefer the label attr"
+    if "var typeLabel = item.node.getAttribute('data-node-kind-label')" not in html:
+        return "finder meta title-cases the custom label"
+    lens = (
+        "var labeled = node.getAttribute('data-node-kind-label');\n"
+        "          var value = labeled || node.getAttribute('data-node-kind') || 'neutral';"
+    )
+    if lens not in html:
+        return "lens does not group by the label attr"
+    return None
 
-    Requires data-node-kind-label, the passport/finder/lens label path, and
-    one in-drawing legend row. Does not go through run_archify.
-    """
-    if not shutil.which("node"):
-        return "node not on PATH"
-    doc = {
-        "schema_version": 2,
-        "diagram_type": "workflow",
-        "meta": {"title": "Bendwright kind smoke", "animation": "none"},
-        "lanes": [{"id": "lane", "label": "Lane"}],
-        "nodes": [
-            {
-                "id": "vm",
-                "lane": "lane",
-                "col": 0,
-                "type": "backend",
-                "label": "Guest",
-            }
-        ],
-        "edges": [],
-    }
-    kind_map = {
-        "vm": {
-            "label": _SMOKE_KIND_LABEL,
-            "colorDark": "#6CB4F5",
-            "colorLight": "#0072B2",
-        }
-    }
+
+def _smoke_kind_deliver(
+    archify_mjs: str, diagram_type: str, doc: dict[str, Any], map_path: str
+) -> str | None:
     fd, fixture = tempfile.mkstemp(prefix=f"{APP}-smoke-", suffix=".json")
     os.close(fd)
     fd, html_path = tempfile.mkstemp(prefix=f"{APP}-smoke-", suffix=".html")
     os.close(fd)
-    fd, map_path = tempfile.mkstemp(prefix=f"{APP}-kinds-", suffix=".json")
-    os.close(fd)
     try:
         Path(fixture).write_text(json.dumps(doc), encoding="utf-8")
-        Path(map_path).write_text(json.dumps(kind_map), encoding="utf-8")
         try:
             proc = subprocess.run(
-                ["node", archify_mjs, "deliver", "workflow", fixture, html_path, "--json"],
+                ["node", archify_mjs, "deliver", diagram_type, fixture, html_path, "--json"],
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -10870,41 +13345,74 @@ def _smoke_kind_patch(archify_mjs: str) -> str | None:
             html = Path(html_path).read_text(encoding="utf-8")
         except (OSError, UnicodeError) as e:
             return f"could not read smoke html: {e}"
-        label = _SMOKE_KIND_LABEL
-        if html.count(f'data-node-kind-label="{label}"') < 1:
-            return "missing data-node-kind-label"
-        if 'data-node-kind="backend"' not in html:
-            return "base data-node-kind missing"
-        if html.count(f'data-legend-kind="{label}"') != 1:
-            return f"expected one {label} legend row"
-        if f'data-legend-label="{label}"' not in html:
-            return "legend label is not the raw label"
-        if "bw-kind-swatch" not in html or "#6CB4F5" not in html or "#0072B2" not in html:
-            return "theme swatch missing"
-        passport = (
-            "node.getAttribute('data-node-kind-label') || "
-            "viewerKindLabel(node.getAttribute('data-node-kind') || 'node')"
-        )
-        if passport not in html:
-            return "passport does not prefer the label attr"
-        finder = (
-            "function semanticType(node) {\n"
-            "        var labeled = node.getAttribute('data-node-kind-label');"
-        )
-        if finder not in html:
-            return "finder semanticType does not prefer the label attr"
-        if "var typeLabel = item.node.getAttribute('data-node-kind-label')" not in html:
-            return "finder meta title-cases the custom label"
-        lens = (
-            "var labeled = node.getAttribute('data-node-kind-label');\n"
-            "          var value = labeled || node.getAttribute('data-node-kind') || 'neutral';"
-        )
-        if lens not in html:
-            return "lens does not group by the label attr"
-        return None
+        return _smoke_kind_html(html)
     finally:
         _unlink_quiet(fixture)
         _unlink_quiet(html_path)
+
+
+def _smoke_kind_patch(archify_mjs: str) -> str | None:
+    """None when workflow and architecture fixtures both show the label.
+
+    Requires data-node-kind-label, the passport/finder/lens label path, and
+    one in-drawing legend row. Architecture is schema 1 and must still splice
+    the custom row. Does not go through run_archify.
+    """
+    if not shutil.which("node"):
+        return "node not on PATH"
+    workflow_doc = {
+        "schema_version": 2,
+        "diagram_type": "workflow",
+        "meta": {"title": "Bendwright kind smoke", "animation": "none"},
+        "lanes": [{"id": "lane", "label": "Lane"}],
+        "nodes": [
+            {
+                "id": "vm",
+                "lane": "lane",
+                "col": 0,
+                "type": "backend",
+                "label": "Guest",
+            }
+        ],
+        "edges": [],
+    }
+    architecture_doc = {
+        "schema_version": 1,
+        "diagram_type": "architecture",
+        "meta": {"title": "Bendwright kind smoke", "animation": "none"},
+        "components": [
+            {
+                "id": "vm",
+                "type": "backend",
+                "label": "Guest",
+                "pos": [40, 80],
+                "size": [160, 72],
+            }
+        ],
+    }
+    kind_map = {
+        "vm": {
+            "label": _SMOKE_KIND_LABEL,
+            "colorDark": "#6CB4F5",
+            "colorLight": "#0072B2",
+        }
+    }
+    fd, map_path = tempfile.mkstemp(prefix=f"{APP}-kinds-", suffix=".json")
+    os.close(fd)
+    try:
+        Path(map_path).write_text(json.dumps(kind_map), encoding="utf-8")
+        workflow_reason = _smoke_kind_deliver(
+            archify_mjs, "workflow", workflow_doc, map_path
+        )
+        if workflow_reason:
+            return f"workflow: {workflow_reason}"
+        architecture_reason = _smoke_kind_deliver(
+            archify_mjs, "architecture", architecture_doc, map_path
+        )
+        if architecture_reason:
+            return f"architecture: {architecture_reason}"
+        return None
+    finally:
         _unlink_quiet(map_path)
 
 
@@ -10968,7 +13476,16 @@ def _apply_archify_kind_patch(archify_mjs: str | None) -> tuple[str, str]:
         except (OSError, UnicodeError) as e:
             return f"archify patch: not patched (could not read {rel}: {e})", "unpatched"
         originals[rel] = text
-        updated, err = _replace_anchors(text, spec["anchors"])
+        anchors = spec["anchors"]
+        if _anchors_applied(text, anchors):
+            # Already patched (workflow tree). Leave the file and its backup.
+            patched_text[rel] = text
+            continue
+        if _anchors_partial(text, anchors):
+            note = f"anchor partial in {rel}"
+            _record_patch_failure(hunk_sha, root, version, current, note)
+            return f"archify patch: not patched ({note}; custom names shown in tooltips and page legend only)", "unpatched"
+        updated, err = _replace_anchors(text, anchors)
         if updated is None:
             note = f"anchor miss in {rel}: {err}"
             _record_patch_failure(hunk_sha, root, version, current, note)
@@ -10978,10 +13495,14 @@ def _apply_archify_kind_patch(archify_mjs: str | None) -> tuple[str, str]:
     wrote: list[str] = []
     try:
         for rel, text in originals.items():
+            if patched_text[rel] == text:
+                continue
             backup = _backup_path(root / rel)
             if not backup.exists():
                 _write_bytes_atomic(backup, text.encode("utf-8"))
         for rel, text in patched_text.items():
+            if text == originals[rel]:
+                continue
             _write_bytes_atomic(root / rel, text.encode("utf-8"))
             wrote.append(rel)
         reason = _smoke_kind_patch(archify_mjs)
@@ -11107,7 +13628,7 @@ def unpatch_archify_main(cli_path: str | None) -> int:
 # ---------------------------------------------------------------------------
 SUPPORTED_TYPES = {
     "workflow": "workflow",
-    # future: "architecture": "architecture",
+    "architecture": "architecture",
 }
 
 
@@ -11125,7 +13646,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "type_or_path",
         nargs="?",
         default=None,
-        help='diagram type ("workflow") or path to IR JSON; omit both for empty start',
+        help='diagram type ("workflow" or "architecture") or path to IR JSON; omit both for empty start',
     )
     p.add_argument(
         "path",
@@ -11286,6 +13807,7 @@ def main(argv: list[str] | None = None) -> int:
         _file_path = file_path
         _diagram_type = dtype
         _doc = doc
+        _remember_absent_empty_keys(doc)
         _had_trailing_newline = trailing
         _sidecar, _sidecar_note, _sidecar_unreadable = load_sidecar(file_path, doc)
     else:
@@ -11294,7 +13816,8 @@ def main(argv: list[str] | None = None) -> int:
             _diagram_type = SUPPORTED_TYPES[args.type_override]
         else:
             _diagram_type = "workflow"
-        _doc = blank_workflow()
+        _doc = blank_diagram(_diagram_type)
+        _remember_absent_empty_keys(_doc)
         _had_trailing_newline = True
         _sidecar = empty_sidecar()
         _sidecar_note = None

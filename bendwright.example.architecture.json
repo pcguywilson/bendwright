@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Example: Web Platform",
+    "subtitle": "Sample architecture diagram shipped with bendwright",
+    "quality_profile": "standard"
+  },
+  "components": [
+    { "id": "users", "type": "external", "label": "Users", "sublabel": "browser", "pos": [40, 200], "size": [130, 60] },
+    { "id": "cdn", "type": "cloud", "label": "CDN", "sublabel": "edge cache", "pos": [240, 200], "size": [130, 60] },
+    { "id": "gateway", "type": "security", "label": "API Gateway", "sublabel": "TLS :443", "pos": [440, 200], "size": [140, 60] },
+    { "id": "web", "type": "frontend", "label": "Web App", "sublabel": "static site", "pos": [440, 60], "size": [140, 60] },
+    { "id": "api", "type": "backend", "label": "API Service", "sublabel": "containers", "pos": [660, 200], "size": [140, 60] },
+    { "id": "queue", "type": "messagebus", "label": "Job Queue", "sublabel": "async work", "pos": [660, 340], "size": [140, 60] },
+    { "id": "worker", "type": "backend", "label": "Worker", "sublabel": "batch jobs", "pos": [880, 340], "size": [130, 60] },
+    { "id": "db", "type": "database", "label": "Database", "sublabel": "primary", "pos": [880, 200], "size": [130, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Cloud region", "wraps": ["cdn", "gateway", "web", "api", "queue", "worker", "db"], "pad": 20 },
+    { "kind": "security-group", "label": "Private network", "wraps": ["api", "queue", "worker", "db"], "pad": 12 }
+  ],
+  "connections": [
+    { "from": "users", "to": "cdn", "label": "HTTPS", "variant": "emphasis" },
+    { "from": "cdn", "to": "gateway", "label": "origin", "variant": "security" },
+    { "from": "cdn", "to": "web", "label": "assets", "fromSide": "top", "toSide": "left" },
+    { "from": "gateway", "to": "api", "variant": "emphasis" },
+    { "from": "api", "to": "db", "label": "SQL" },
+    { "from": "api", "to": "queue", "variant": "dashed" },
+    { "from": "queue", "to": "worker", "variant": "dashed" }
+  ],
+  "cards": [
+    { "title": "Request path", "dot": "cyan", "items": ["Users reach the CDN over HTTPS", "The gateway terminates TLS"] },
+    { "title": "Async work", "dot": "amber", "items": ["The API enqueues jobs", "Workers drain the queue"] }
+  ]
+}
