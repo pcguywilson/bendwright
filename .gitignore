@@ -15,3 +15,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# bendwright local data (your icons, type library, archify patch state) -- never commit
+bendwright-data/
+*.bendwright.json

@@ -348,42 +348,286 @@ def _load_m27_brands() -> tuple[list[str], dict[str, dict[str, Any]]]:
 _BRAND_ORDER, _BRANDS = _load_m27_brands()
 
 # Archify brand-marks/catalog.json. Empty until main() resolves archify.
-_catalog_marks: list[dict[str, str]] = []
+# Shape fields (viewBox, hex, path) are optional. Filled from catalog or, when
+# catalog has no path, from generated-brand-marks.mjs parsed as JSON.
+_catalog_marks: list[dict[str, Any]] = []
 _catalog_ids: set[str] = set()
 _catalog_note: str | None = None
-# ~/.bendwright/icons. Rescanned at startup, on the Custom types tab, and Refresh.
+_CATALOG_UNREADABLE = "archify catalog unreadable; type icon falls back to a catalog id field"
+# bendwright-data/icons. Rescanned at startup, on the Custom types tab, and Refresh.
 _user_icons: dict[str, dict[str, Any]] = {}
 _user_icon_note: str | None = None
+_data_dir_note: str | None = None
+
+
+def data_dir() -> Path:
+    """Local data root: BENDWRIGHT_DATA_DIR when set, else <script>/bendwright-data."""
+    override = os.environ.get("BENDWRIGHT_DATA_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(__file__).resolve().parent / "bendwright-data"
 
 
 def user_icons_dir() -> Path:
-    """%USERPROFILE%\\.bendwright\\icons (Path.home elsewhere)."""
-    return Path.home() / ".bendwright" / "icons"
+    """bendwright-data/icons (or BENDWRIGHT_DATA_DIR/icons)."""
+    return data_dir() / "icons"
+
+
+def migrate_legacy_data_dir() -> str | None:
+    """One-time copy from ~/.bendwright into data_dir(). Never moves or deletes.
+
+    Runs only when the new data dir does not exist yet and the legacy folder
+    does. Never raises.
+    """
+    global _data_dir_note
+    dest = data_dir()
+    try:
+        if dest.exists():
+            return None
+    except OSError:
+        return None
+    legacy = Path.home() / ".bendwright"
+    try:
+        if not legacy.is_dir():
+            return None
+    except OSError:
+        return None
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        legacy_icons = legacy / "icons"
+        try:
+            has_icons = legacy_icons.is_dir()
+        except OSError:
+            has_icons = False
+        if has_icons:
+            icons_dest = dest / "icons"
+            icons_dest.mkdir(parents=True, exist_ok=True)
+            try:
+                entries = list(legacy_icons.iterdir())
+            except OSError:
+                entries = []
+            for path in entries:
+                try:
+                    if not path.is_file() or path.suffix.lower() != ".png":
+                        continue
+                except OSError:
+                    continue
+                target = icons_dest / path.name
+                if target.exists():
+                    continue
+                shutil.copy2(path, target)
+        for name in ("types.json", "archify-patch-state.json"):
+            src = legacy / name
+            try:
+                if not src.is_file():
+                    continue
+            except OSError:
+                continue
+            target = dest / name
+            if target.exists():
+                continue
+            shutil.copy2(src, target)
+        note = (
+            f"copied your old ~/.bendwright data to {dest}; "
+            "the old folder was left in place"
+        )
+        _data_dir_note = note
+        return note
+    except OSError:
+        return None
+
+
+def note_data_dir_writable() -> str | None:
+    """Status note when the data dir cannot be written. Never raises."""
+    global _data_dir_note
+    folder = data_dir()
+    if _dir_writable(folder):
+        return None
+    note = (
+        f"data dir not writable: {folder}; "
+        "set BENDWRIGHT_DATA_DIR to an absolute writable path"
+    )
+    if not _data_dir_note:
+        _data_dir_note = note
+    return note
+
+
+def _clean_viewbox(value: Any) -> int | float | str | None:
+    """Square number, or a 'minx miny w h' string. Anything else is dropped."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        if value > 0 and value == value:
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            return value
+        return None
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())
+    if not text:
+        return None
+    parts = text.split(" ")
+    try:
+        nums = [float(part) for part in parts]
+    except ValueError:
+        return None
+    if len(nums) == 1 and nums[0] > 0:
+        return int(nums[0]) if nums[0].is_integer() else nums[0]
+    if len(nums) == 4 and nums[2] > 0 and nums[3] > 0:
+        return text
+    return None
+
+
+def _clean_hex(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if text.startswith("#"):
+        text = text[1:]
+    if not text or any(ch not in "0123456789abcdefABCDEF" for ch in text):
+        return None
+    if len(text) == 3:
+        text = "".join(ch * 2 for ch in text)
+    if len(text) != 6:
+        return None
+    return text
+
+
+def _clean_path(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or len(text) > 50000 or "<" in text or ">" in text:
+        return None
+    return text
+
+
+def _shape_of_mark(row: dict[str, Any]) -> dict[str, Any]:
+    """Top-level {viewBox, hex, path}, else the same keys under custom. Path required."""
+    sources: list[Any] = [row, row.get("custom")]
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        path = _clean_path(source.get("path"))
+        if not path:
+            continue
+        shape: dict[str, Any] = {"path": path}
+        viewbox = _clean_viewbox(source.get("viewBox"))
+        if viewbox is not None:
+            shape["viewBox"] = viewbox
+        color = _clean_hex(source.get("hex"))
+        if color:
+            shape["hex"] = color
+        return shape
+    return {}
+
+
+def _json_bracket_slice(text: str, start: int) -> str | None:
+    """Slice a JSON array/object starting at start. Strings are respected. None if unbalanced."""
+    if start < 0 or start >= len(text) or text[start] not in "[{":
+        return None
+    depth = 0
+    in_str = False
+    escaped = False
+    opener = text[start]
+    closer = "]" if opener == "[" else "}"
+    for index in range(start, len(text)):
+        ch = text[index]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch in "[{":
+            depth += 1
+        elif ch in "]}":
+            depth -= 1
+            if depth == 0:
+                if ch != closer:
+                    return None
+                return text[start : index + 1]
+            if depth < 0:
+                return None
+    return None
+
+
+def _generated_brand_shapes(root: Path) -> dict[str, dict[str, Any]]:
+    """Shape data from generated-brand-marks.mjs. JSON parse only; never executed.
+
+    Unreadable, non-JSON, or not a frozen array: empty dict (caller keeps names).
+    """
+    path = root / "renderers" / "shared" / "generated-brand-marks.mjs"
+    try:
+        if not path.is_file() or path.stat().st_size > 20 * 1024 * 1024:
+            return {}
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return {}
+    marker = "Object.freeze("
+    idx = text.find(marker)
+    if idx < 0:
+        return {}
+    bracket = text.find("[", idx)
+    if bracket < 0:
+        return {}
+    blob = _json_bracket_slice(text, bracket)
+    if not blob:
+        return {}
+    try:
+        data = json.loads(blob)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, list):
+        return {}
+    shapes: dict[str, dict[str, Any]] = {}
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        mark_id = row.get("id")
+        if not isinstance(mark_id, str) or not mark_id or mark_id in shapes:
+            continue
+        shape = _shape_of_mark(row)
+        if shape:
+            shapes[mark_id] = shape
+    return shapes
 
 
 def load_archify_catalog(archify_mjs: str | None) -> None:
     """Read brand-marks/catalog.json from the resolved archify. Never raises.
 
-    Missing or unreadable: status note, empty catalog, free-text icon field.
+    List comes only from catalog.json (id, title, aliases, category). Shape is
+    the mark's own viewBox/hex/path, or custom.*, or — only when that is missing —
+    generated-brand-marks.mjs. Missing catalog: status note, empty list, free-text field.
     """
     global _catalog_marks, _catalog_ids, _catalog_note
     _catalog_marks = []
     _catalog_ids = set()
     _catalog_note = None
     if not archify_mjs:
-        _catalog_note = "archify catalog unreadable; type icon falls back to a catalog id field"
+        _catalog_note = _CATALOG_UNREADABLE
         return
-    path = archify_skill_root(archify_mjs) / "brand-marks" / "catalog.json"
     try:
+        root = archify_skill_root(archify_mjs)
+        path = root / "brand-marks" / "catalog.json"
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        _catalog_note = "archify catalog unreadable; type icon falls back to a catalog id field"
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        _catalog_note = _CATALOG_UNREADABLE
         return
     marks = data.get("marks") if isinstance(data, dict) else None
     if not isinstance(marks, list):
-        _catalog_note = "archify catalog unreadable; type icon falls back to a catalog id field"
+        _catalog_note = _CATALOG_UNREADABLE
         return
-    loaded: list[dict[str, str]] = []
+    try:
+        shapes = _generated_brand_shapes(root)
+    except Exception:
+        shapes = {}
+    loaded: list[dict[str, Any]] = []
     seen: set[str] = set()
     for row in marks:
         if not isinstance(row, dict):
@@ -394,17 +638,43 @@ def load_archify_catalog(archify_mjs: str | None) -> None:
         title = row.get("title")
         if not isinstance(title, str) or not title.strip():
             title = mark_id
+        item: dict[str, Any] = {"id": mark_id, "title": title.strip()}
+        category = row.get("category")
+        if isinstance(category, str) and category.strip():
+            item["category"] = category.strip()
+        aliases_raw = row.get("aliases")
+        if isinstance(aliases_raw, list):
+            aliases = [alias.strip() for alias in aliases_raw if isinstance(alias, str) and alias.strip()]
+            if aliases:
+                item["aliases"] = aliases
+        shape = _shape_of_mark(row)
+        if not shape:
+            shape = shapes.get(mark_id) or {}
+        item.update(shape)
         seen.add(mark_id)
-        loaded.append({"id": mark_id, "title": title.strip()})
+        loaded.append(item)
     _catalog_marks = loaded
     _catalog_ids = seen
     if not loaded:
-        _catalog_note = "archify catalog unreadable; type icon falls back to a catalog id field"
+        _catalog_note = _CATALOG_UNREADABLE
+
+
+def catalog_api_payload() -> dict[str, Any]:
+    """Lean catalog preview. No domains, provenance, or simpleIcon slugs."""
+    payload: dict[str, Any] = {
+        "ok": True,
+        "catalog": list(_catalog_marks),
+        "catalog_ok": bool(_catalog_marks),
+    }
+    if _catalog_note:
+        payload["note"] = _catalog_note
+    return payload
 
 
 def scan_user_icons() -> str | None:
-    """Load ~/.bendwright/icons. Bad files are skipped. Does not raise.
+    """Load bendwright-data/icons. Bad files are skipped. Does not raise.
 
+    Creates the icons folder on first scan when the data dir is writable.
     Built-in gap names and catalog ids win a clash. Stem must already match;
     names are not rewritten. PNG magic and a 64 KB cap.
     """
@@ -412,6 +682,10 @@ def scan_user_icons() -> str | None:
     table: dict[str, dict[str, Any]] = {}
     notes: list[str] = []
     folder = user_icons_dir()
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     try:
         exists = folder.is_dir()
     except OSError:
@@ -976,7 +1250,10 @@ def state_payload() -> dict[str, Any]:
     }
     # Brands stay on GET /api/brands — not in /api/state and not in IR_KEYS.
     payload["archify_patch"] = _archify_patch_state
-    archify_note = _join_notes(_archify_version_note, _archify_patch_note, _catalog_note)
+    # Migration and data-dir notes share the startup status line with the patch note.
+    archify_note = _join_notes(
+        _archify_version_note, _archify_patch_note, _catalog_note, _data_dir_note
+    )
     if archify_note:
         payload["archify_note"] = archify_note
     payload["catalog"] = list(_catalog_marks)
@@ -1557,8 +1834,8 @@ def _builtin_type_ids() -> set[str]:
 
 
 def type_library_path() -> Path:
-    """User-level type library. %USERPROFILE%\\.bendwright on Windows."""
-    return Path.home() / ".bendwright" / "types.json"
+    """User-level type library at bendwright-data/types.json."""
+    return data_dir() / "types.json"
 
 
 def empty_type_library() -> dict[str, Any]:
@@ -1614,7 +1891,7 @@ def _normalize_type_fields(type_id: str, entry: dict[str, Any]) -> dict[str, Any
 
 
 def load_type_library() -> tuple[dict[str, Any], str | None]:
-    """Load ~/.bendwright/types.json. Missing file is an empty v1 library.
+    """Load bendwright-data/types.json. Missing file is an empty v1 library.
 
     Does not merge into a diagram. Unknown keys are kept. A newer version
     keeps unknown fields and returns a note.
@@ -3354,6 +3631,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/brands":
                 self._send_json(200, brands_api_payload())
                 return
+            if path == "/api/catalog":
+                self._send_json(200, catalog_api_payload())
+                return
             if path == "/api/type-library":
                 lib, note = load_type_library()
                 payload: dict[str, Any] = {"ok": True, "library": lib}
@@ -3799,11 +4079,23 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, payload)
 
     def _handle_brand_rescan(self) -> None:
-        """Rescan ~/.bendwright/icons. Startup and this route do not raise."""
+        """Rescan catalog.json and bendwright-data/icons. Does not raise."""
+        with _state_lock:
+            archify = _archify_path
+        try:
+            load_archify_catalog(archify)
+        except Exception:
+            pass
         note = scan_user_icons()
-        payload: dict[str, Any] = {"ok": True, "brands": brands_api_payload()}
-        if note:
-            payload["note"] = note
+        payload: dict[str, Any] = {
+            "ok": True,
+            "brands": brands_api_payload(),
+            "catalog": list(_catalog_marks),
+            "catalog_ok": bool(_catalog_marks),
+        }
+        notes = [item for item in (_catalog_note, note) if item]
+        if notes:
+            payload["note"] = "\n".join(notes)
         self._send_json(200, payload)
 
     def _handle_open(self) -> None:
@@ -4069,6 +4361,49 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 .form h2 { margin: 0 0 4px; font-size: 14px; }
 .field { display: flex; flex-direction: column; gap: 4px; max-width: 420px; }
 .field[hidden] { display: none; }
+.icon-picker { position: relative; max-width: 420px; }
+#type-mgr-icon-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 180px;
+  background: var(--input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 9px; font-size: 13px; text-align: left;
+}
+#type-mgr-icon-btn:focus { outline: none; border-color: var(--focus); }
+#type-mgr-icon-btn:disabled { opacity: 0.55; }
+.icon-art {
+  width: 18px; height: 18px; flex: 0 0 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.icon-art svg, .icon-art img { width: 18px; height: 18px; display: block; }
+.icon-swatch { background: #f4f6f8; border-radius: 3px; }
+.icon-ph {
+  width: 18px; height: 18px; box-sizing: border-box; border-radius: 3px;
+  border: 1px dashed var(--muted);
+}
+.icon-picker-pop {
+  position: fixed; z-index: 80; display: flex; flex-direction: column;
+  width: min(360px, calc(100vw - 16px)); max-height: 320px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 12px 36px rgba(0,0,0,0.55); padding: 8px;
+}
+.icon-picker-pop[hidden] { display: none; }
+#type-mgr-icon-search {
+  width: 100%; box-sizing: border-box; margin-bottom: 6px;
+  background: var(--input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px;
+}
+#type-mgr-icon-search:focus { outline: none; border-color: var(--focus); }
+#type-mgr-icon-list { overflow: auto; min-height: 0; }
+.icon-group {
+  font-size: 11px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.04em; padding: 8px 6px 2px;
+}
+.icon-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 4px 6px; border: 0; border-radius: 4px; background: transparent;
+  color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.icon-opt[aria-selected="true"] { background: var(--row-hover); }
+.icon-opt .icon-sub { color: var(--muted); font-size: 11px; }
 .field label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .field input, .field select, .field textarea {
   background: var(--input); color: var(--text); border: 1px solid var(--border);
@@ -4460,14 +4795,26 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     <section id="types-manager">
       <h2>Custom types</h2>
       <p class="types-hint" id="types-m29-hint">Until bendwright has patched your local archify, the click panel, search and in-drawing legend show the base type.</p>
-      <p class="types-hint">A per-node color overrides the type color. Icons are set only on a type. Export reads this diagram's sidecar, not the type library.</p>
+      <p class="types-hint">A per-node color overrides the type color. Icons are set only on a type (drop PNGs in bendwright-data/icons). Export reads this diagram's sidecar, not the type library (bendwright-data/types.json).</p>
       <div id="types-list"></div>
       <div class="types-grid">
         <div class="field"><label for="type-mgr-id">id</label><input type="text" id="type-mgr-id" spellcheck="false" autocomplete="off"></div>
         <div class="field"><label for="type-mgr-label">label</label><input type="text" id="type-mgr-label" spellcheck="false" autocomplete="off"></div>
         <div class="field"><label for="type-mgr-base">base</label><select id="type-mgr-base"></select></div>
         <div class="field"><label for="type-mgr-color">color</label><select id="type-mgr-color"></select></div>
-        <div class="field"><label for="type-mgr-icon">icon</label><select id="type-mgr-icon"></select></div>
+        <div class="field" id="type-mgr-icon-field">
+          <label for="type-mgr-icon-btn">icon</label>
+          <input type="hidden" id="type-mgr-icon" value="none">
+          <div class="icon-picker">
+            <button type="button" id="type-mgr-icon-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="type-mgr-icon-list">
+              <span class="icon-art" aria-hidden="true"></span><span class="icon-picker-name">none</span>
+            </button>
+            <div id="type-mgr-icon-pop" class="icon-picker-pop" hidden>
+              <input type="search" id="type-mgr-icon-search" aria-label="Search icons" aria-autocomplete="list" aria-controls="type-mgr-icon-list" autocomplete="off" spellcheck="false">
+              <div id="type-mgr-icon-list" role="listbox" aria-label="Icons"></div>
+            </div>
+          </div>
+        </div>
         <div class="field" id="type-mgr-catalog-field"><label for="type-mgr-catalog">catalog id</label><input type="text" id="type-mgr-catalog" spellcheck="false" autocomplete="off" placeholder="or catalog id"></div>
       </div>
       <div class="row-actions">
@@ -4476,7 +4823,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         <button type="button" id="btn-type-remove">Remove</button>
         <button type="button" id="btn-type-to-lib">Save type to library</button>
         <button type="button" id="btn-type-from-lib">Update this diagram from library</button>
-        <button type="button" id="btn-type-refresh" title="Rescan ~/.bendwright/icons">Refresh icons</button>
+        <button type="button" id="btn-type-refresh" title="Rescan bendwright-data/icons">Refresh icons</button>
       </div>
     </section>
   </div>
@@ -5044,6 +5391,245 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     return selected || "none";
   }
 
+  function catalogViewBox(mark) {
+    var vb = mark && mark.viewBox;
+    if (typeof vb === "number" && isFinite(vb) && vb > 0) return "0 0 " + vb + " " + vb;
+    if (typeof vb === "string") {
+      var parts = vb.trim().split(/\s+/);
+      if (parts.length === 1 && Number(parts[0]) > 0) return "0 0 " + parts[0] + " " + parts[0];
+      if (parts.length === 4) return parts.join(" ");
+    }
+    return "0 0 24 24";
+  }
+
+  function catalogIconHtml(mark) {
+    if (!mark || typeof mark.path !== "string" || !mark.path) return '<span class="icon-ph"></span>';
+    var fill = "currentColor";
+    var plate = "";
+    if (typeof mark.hex === "string" && /^[0-9A-Fa-f]{6}$/.test(mark.hex)) {
+      fill = "#" + mark.hex;
+      plate = " icon-swatch";
+    }
+    return '<span class="icon-art' + plate + '" aria-hidden="true"><svg viewBox="' + esc(catalogViewBox(mark)) +
+      '" width="18" height="18" focusable="false"><path fill="' + esc(fill) + '" d="' + esc(mark.path) +
+      '"></path></svg></span>';
+  }
+
+  function pngIconHtml(name) {
+    return '<span class="icon-art" aria-hidden="true"><img src="/brand/' + esc(name) +
+      '.png" alt="" width="18" height="18"></span>';
+  }
+
+  function blankIconHtml() {
+    return '<span class="icon-art" aria-hidden="true"></span>';
+  }
+
+  function iconValueKnown(value) {
+    if (!value || value === "none") return true;
+    if (catalogHas(value)) return true;
+    var brands = state.brands || [];
+    for (var i = 0; i < brands.length; i++) {
+      if (brands[i] && brands[i].name === value) return true;
+    }
+    return false;
+  }
+
+  function iconSearchHit(query, parts) {
+    if (!query) return true;
+    var q = String(query).toLowerCase();
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i] != null && String(parts[i]).toLowerCase().indexOf(q) >= 0) return true;
+    }
+    return false;
+  }
+
+  function iconOptionHtml(value, art, name, title) {
+    var text = '<span class="icon-picker-name">' + esc(name) + "</span>";
+    if (title && title !== name) text += ' <span class="icon-sub">' + esc(title) + "</span>";
+    return '<div role="option" class="icon-opt" data-value="' + esc(value) + '">' + art + text + "</div>";
+  }
+
+  function iconGroupHtml(label, options) {
+    if (!options) return "";
+    return '<div role="group" aria-label="' + esc(label) + '"><div class="icon-group" aria-hidden="true">' +
+      esc(label) + "</div>" + options + "</div>";
+  }
+
+  function renderIconPickerList() {
+    var list = $("type-mgr-icon-list");
+    if (!list) return;
+    var query = String(($("type-mgr-icon-search") && $("type-mgr-icon-search").value) || "");
+    var current = String(($("type-mgr-icon") && $("type-mgr-icon").value) || "none");
+    var html = "";
+    if (iconSearchHit(query, ["none"])) html += iconOptionHtml("none", blankIconHtml(), "none", "");
+    var taken = { none: true };
+    if (state.catalogOk) {
+      var buckets = [];
+      var bucketIndex = {};
+      var marks = state.catalog || [];
+      for (var c = 0; c < marks.length; c++) {
+        var mark = marks[c];
+        if (!mark || !mark.id || taken[mark.id]) continue;
+        var aliases = Array.isArray(mark.aliases) ? mark.aliases : [];
+        if (!iconSearchHit(query, [mark.id, mark.title, mark.category].concat(aliases))) continue;
+        taken[mark.id] = true;
+        var cat = mark.category ? String(mark.category) : "";
+        if (!Object.prototype.hasOwnProperty.call(bucketIndex, cat)) {
+          bucketIndex[cat] = buckets.length;
+          buckets.push({ category: cat, html: "" });
+        }
+        var title = mark.title && mark.title !== mark.id ? String(mark.title) : "";
+        buckets[bucketIndex[cat]].html += iconOptionHtml(mark.id, catalogIconHtml(mark), mark.id, title);
+      }
+      var catalogHtml = "";
+      for (var b = 0; b < buckets.length; b++) {
+        var bucket = buckets[b];
+        if (!bucket.html) continue;
+        catalogHtml += bucket.category ? iconGroupHtml(bucket.category, bucket.html) : bucket.html;
+      }
+      html += iconGroupHtml("Archify catalog", catalogHtml);
+    }
+    function addPngGroup(label, source) {
+      var chunk = "";
+      var brands = state.brands || [];
+      for (var i = 0; i < brands.length; i++) {
+        var row = brands[i];
+        if (!row || !row.name || taken[row.name]) continue;
+        var rowSource = row.source || "bendwright";
+        if (rowSource !== source) continue;
+        if (!iconSearchHit(query, [row.name, row.label])) continue;
+        taken[row.name] = true;
+        var rowTitle = row.label && row.label !== row.name ? String(row.label) : "";
+        chunk += iconOptionHtml(row.name, pngIconHtml(row.name), row.name, rowTitle);
+      }
+      html += iconGroupHtml(label, chunk);
+    }
+    addPngGroup("bendwright", "bendwright");
+    addPngGroup("My icons", "user");
+    list.innerHTML = html || '<div class="icon-group">No matches</div>';
+    var opts = list.querySelectorAll('[role="option"]');
+    var picked = -1;
+    for (var n = 0; n < opts.length; n++) {
+      opts[n].id = "type-mgr-icon-opt-" + n;
+      if (opts[n].getAttribute("data-value") === current) picked = n;
+    }
+    if (picked < 0 && opts.length) picked = 0;
+    for (var s = 0; s < opts.length; s++) {
+      opts[s].setAttribute("aria-selected", s === picked ? "true" : "false");
+    }
+    var search = $("type-mgr-icon-search");
+    if (search) {
+      if (picked >= 0) search.setAttribute("aria-activedescendant", opts[picked].id);
+      else search.removeAttribute("aria-activedescendant");
+    }
+  }
+
+  function syncIconPickerButton() {
+    var btn = $("type-mgr-icon-btn");
+    var hidden = $("type-mgr-icon");
+    if (!btn || !hidden) return;
+    var value = String(hidden.value || "none");
+    var art = blankIconHtml();
+    var label = "none";
+    if (value && value !== "none") {
+      var mark = null;
+      var marks = state.catalog || [];
+      for (var i = 0; i < marks.length; i++) {
+        if (marks[i] && marks[i].id === value) { mark = marks[i]; break; }
+      }
+      if (mark) {
+        art = catalogIconHtml(mark);
+        label = mark.title || mark.id;
+      } else {
+        var brand = null;
+        var brands = state.brands || [];
+        for (var b = 0; b < brands.length; b++) {
+          if (brands[b] && brands[b].name === value) { brand = brands[b]; break; }
+        }
+        if (brand) {
+          art = pngIconHtml(brand.name);
+          label = brand.label || brand.name;
+        } else {
+          art = '<span class="icon-ph" aria-hidden="true"></span>';
+          label = value;
+        }
+      }
+    }
+    btn.innerHTML = art + '<span class="icon-picker-name">' + esc(label) + "</span>";
+  }
+
+  function placeIconPicker() {
+    var btn = $("type-mgr-icon-btn");
+    var pop = $("type-mgr-icon-pop");
+    if (!btn || !pop || pop.hidden) return;
+    var rect = btn.getBoundingClientRect();
+    var width = Math.min(360, Math.max(180, window.innerWidth - 16));
+    var left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    var top = rect.bottom + 4;
+    var maxH = Math.min(320, Math.max(140, window.innerHeight - top - 8));
+    if (top + maxH > window.innerHeight - 8 && rect.top > maxH) top = Math.max(8, rect.top - maxH - 4);
+    pop.style.width = width + "px";
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+    pop.style.maxHeight = maxH + "px";
+  }
+
+  function closeIconPicker(focusBtn) {
+    var pop = $("type-mgr-icon-pop");
+    var btn = $("type-mgr-icon-btn");
+    if (pop) pop.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+    var search = $("type-mgr-icon-search");
+    if (search) search.removeAttribute("aria-activedescendant");
+    if (focusBtn && btn) btn.focus();
+  }
+
+  function openIconPicker() {
+    var btn = $("type-mgr-icon-btn");
+    var pop = $("type-mgr-icon-pop");
+    if (!btn || !pop || btn.disabled) return;
+    var search = $("type-mgr-icon-search");
+    if (search) search.value = "";
+    pop.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+    renderIconPickerList();
+    placeIconPicker();
+    if (search) search.focus();
+  }
+
+  function chooseIconValue(value) {
+    var hidden = $("type-mgr-icon");
+    if (hidden) hidden.value = value || "none";
+    syncIconPickerButton();
+    closeIconPicker(true);
+  }
+
+  function moveIconPicker(delta) {
+    var list = $("type-mgr-icon-list");
+    if (!list) return;
+    var opts = list.querySelectorAll('[role="option"]');
+    if (!opts.length) return;
+    var idx = 0;
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].getAttribute("aria-selected") === "true") idx = i;
+    }
+    var next = idx + delta;
+    if (next < 0) next = 0;
+    if (next >= opts.length) next = opts.length - 1;
+    for (var j = 0; j < opts.length; j++) opts[j].setAttribute("aria-selected", j === next ? "true" : "false");
+    var search = $("type-mgr-icon-search");
+    if (search) search.setAttribute("aria-activedescendant", opts[next].id);
+    if (opts[next].scrollIntoView) opts[next].scrollIntoView({ block: "nearest" });
+  }
+
+  function pickSelectedIcon() {
+    var list = $("type-mgr-icon-list");
+    if (!list) return;
+    var selected = list.querySelector('[role="option"][aria-selected="true"]');
+    if (!selected) return;
+    chooseIconValue(selected.getAttribute("data-value") || "none");
+  }
+
   function readTypeForm() {
     return {
       id: String(($("type-mgr-id") && $("type-mgr-id").value) || "").trim(),
@@ -5067,43 +5653,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (colorEl && !colorEl.options.length) {
       fillStyleSelect(colorEl, "color", "");
     }
-    var iconEl = $("type-mgr-icon");
-    if (!iconEl) return;
-    var current = iconEl.value;
-    var taken = {};
-    var htmlIcon = '<option value="none">none</option>';
-    var marks = state.catalog || [];
-    if (marks.length) {
-      htmlIcon += '<optgroup label="Archify catalog">';
-      for (var c = 0; c < marks.length; c++) {
-        var mark = marks[c];
-        if (!mark || !mark.id || taken[mark.id]) continue;
-        taken[mark.id] = true;
-        var title = mark.title || mark.id;
-        htmlIcon += '<option value="' + esc(mark.id) + '">' + esc(title) + "</option>";
-      }
-      htmlIcon += "</optgroup>";
-    }
-    function addGroup(label, source) {
-      var chunk = "";
-      var brands = state.brands || [];
-      for (var i = 0; i < brands.length; i++) {
-        var row = brands[i];
-        if (!row || !row.name || taken[row.name]) continue;
-        var rowSource = row.source || "bendwright";
-        if (source && rowSource !== source) continue;
-        if (!source && row.source && row.source !== "bendwright" && row.source !== "user") continue;
-        taken[row.name] = true;
-        chunk += '<option value="' + esc(row.name) + '">' + esc(row.label || row.name) + "</option>";
-      }
-      if (chunk) htmlIcon += '<optgroup label="' + esc(label) + '">' + chunk + "</optgroup>";
-    }
-    addGroup("bendwright", "bendwright");
-    addGroup("My icons", "user");
-    iconEl.innerHTML = htmlIcon;
-    if (current) iconEl.value = current;
     var catalogWrap = $("type-mgr-catalog-field");
     if (catalogWrap) catalogWrap.hidden = !!state.catalogOk;
+    syncIconPickerButton();
+    var pop = $("type-mgr-icon-pop");
+    if (pop && !pop.hidden) renderIconPickerList();
   }
 
   function loadTypeManagerForm(id) {
@@ -5121,22 +5675,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (baseEl) baseEl.value = body && body.base ? String(body.base) : "backend";
     if (colorEl) fillStyleSelect(colorEl, "color", body ? typeColorOf(body) : "");
     var icon = body && body.icon ? String(body.icon) : "none";
-    var known = false;
-    if (iconEl) {
-      for (var i = 0; i < iconEl.options.length; i++) {
-        if (iconEl.options[i].value === icon) known = true;
-      }
-      iconEl.value = known ? icon : "none";
-    }
+    var known = iconValueKnown(icon);
+    if (iconEl) iconEl.value = known ? icon : "none";
     if (!known && icon !== "none" && iconEl && state.catalogOk) {
-      var extra = document.createElement("option");
-      extra.value = icon;
-      extra.textContent = icon;
-      iconEl.appendChild(extra);
       iconEl.value = icon;
       known = true;
     }
     if (catalogEl) catalogEl.value = known || icon === "none" ? "" : icon;
+    syncIconPickerButton();
   }
 
   function renderTypesManager() {
@@ -5168,7 +5714,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       }
     }
     var noDoc = !state.doc;
-    ["type-mgr-id", "type-mgr-label", "type-mgr-base", "type-mgr-color", "type-mgr-icon", "type-mgr-catalog",
+    if (noDoc || state.layoutBusy) closeIconPicker(false);
+    ["type-mgr-id", "type-mgr-label", "type-mgr-base", "type-mgr-color", "type-mgr-icon", "type-mgr-icon-btn",
+      "type-mgr-catalog",
       "btn-type-new", "btn-type-save", "btn-type-remove", "btn-type-to-lib", "btn-type-from-lib",
       "btn-type-refresh"].forEach(function (elId) {
       var el = $(elId);
@@ -8890,6 +9438,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data && Array.isArray(data.brands)) state.brands = data.brands;
+        if (data && Array.isArray(data.catalog)) {
+          state.catalog = data.catalog;
+          state.catalogOk = !!data.catalog_ok;
+        }
         fillTypeManagerSelects();
         if (state.tab === "types") renderTypesManager();
         if (data && data.note) setStatus(data.note, "");
@@ -9523,6 +10075,43 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   if (btnTypeFromLib) btnTypeFromLib.addEventListener("click", updateDiagramFromLibrary);
   var btnTypeRefresh = $("btn-type-refresh");
   if (btnTypeRefresh) btnTypeRefresh.addEventListener("click", function () { rescanIcons(); });
+  var iconPickerBtn = $("type-mgr-icon-btn");
+  if (iconPickerBtn) {
+    iconPickerBtn.addEventListener("click", function () {
+      var pop = $("type-mgr-icon-pop");
+      if (pop && !pop.hidden) closeIconPicker(false);
+      else openIconPicker();
+    });
+  }
+  var iconPickerSearch = $("type-mgr-icon-search");
+  if (iconPickerSearch) {
+    iconPickerSearch.addEventListener("input", function () { renderIconPickerList(); });
+    iconPickerSearch.addEventListener("keydown", function (ev) {
+      if (ev.key === "ArrowDown") { ev.preventDefault(); moveIconPicker(1); }
+      else if (ev.key === "ArrowUp") { ev.preventDefault(); moveIconPicker(-1); }
+      else if (ev.key === "Enter") { ev.preventDefault(); pickSelectedIcon(); }
+      else if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        closeIconPicker(true);
+      }
+    });
+  }
+  var iconPickerList = $("type-mgr-icon-list");
+  if (iconPickerList) {
+    iconPickerList.addEventListener("click", function (ev) {
+      var opt = ev.target.closest('[role="option"]');
+      if (!opt) return;
+      chooseIconValue(opt.getAttribute("data-value") || "none");
+    });
+  }
+  document.addEventListener("pointerdown", function (ev) {
+    var pop = $("type-mgr-icon-pop");
+    if (!pop || pop.hidden) return;
+    var btn = $("type-mgr-icon-btn");
+    var target = ev.target;
+    if (pop.contains(target) || (btn && btn.contains(target))) return;
+    closeIconPicker(false);
+  });
 
   $("btn-zoom-fit").addEventListener("click", function () {
     if (!$("layout-frame").contentDocument || !$("layout-frame").contentDocument.querySelector("svg")) return;
@@ -9810,8 +10399,8 @@ _SMOKE_KIND_LABEL = "VM"
 
 
 def archify_patch_state_path() -> Path:
-    """%USERPROFILE%\\.bendwright\\archify-patch-state.json (Path.home on Windows)."""
-    return Path.home() / ".bendwright" / "archify-patch-state.json"
+    """bendwright-data/archify-patch-state.json (or under BENDWRIGHT_DATA_DIR)."""
+    return data_dir() / "archify-patch-state.json"
 
 
 def archify_skill_root(archify_mjs: str) -> Path:
@@ -10525,7 +11114,12 @@ SUPPORTED_TYPES = {
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog=APP,
-        description="Local offline editor for Archify diagram IR JSON.",
+        description=(
+            "Local offline editor for Archify diagram IR JSON. "
+            "User data (icons, type library, archify patch state) lives in "
+            "bendwright-data/ next to this script. Set BENDWRIGHT_DATA_DIR to "
+            "an absolute path to override."
+        ),
     )
     p.add_argument(
         "type_or_path",
@@ -10611,6 +11205,7 @@ def main(argv: list[str] | None = None) -> int:
     global _sidecar, _sidecar_note, _sidecar_unreadable
 
     args = parse_args(argv)
+    migrate_legacy_data_dir()
     if args.unpatch_archify:
         return unpatch_archify_main(args.archify)
     known = ", ".join(sorted(SUPPORTED_TYPES))
@@ -10647,6 +11242,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    note_data_dir_writable()
     _archify_path, archify_msg = detect_archify(args.archify)
     note_archify_version(_archify_path)
     load_archify_catalog(_archify_path)
@@ -10658,6 +11254,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[{APP}] {_archify_version_note}", flush=True)
     if _archify_patch_note:
         print(f"[{APP}] {_archify_patch_note}", flush=True)
+    if _data_dir_note:
+        print(f"[{APP}] {_data_dir_note}", flush=True)
     if _catalog_note:
         print(f"[{APP}] {_catalog_note}", flush=True)
     if icon_note:

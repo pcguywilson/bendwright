@@ -41,9 +41,11 @@ machine.
 - **Custom types** - define your own node types (for example "VM" or "File share") with
   a name, color, and icon on the **Custom types** tab. The name shows everywhere,
   including the exported page. Save a type to your library to reuse it in every diagram.
-- **Icons** - pick from Archify's built-in logo catalog, a few extras bendwright ships
-  for common infrastructure (Windows, Linux, Ubuntu, nginx, Apache, AWS, Azure, VM,
-  web server, database), or your own PNGs.
+- **Icons** - a searchable picker (by name, alias, or category) with pictures of
+  Archify's built-in logo catalog, a few extras bendwright ships for common
+  infrastructure (Windows, Linux, Ubuntu, nginx, Apache, AWS, Azure, VM, web server,
+  database), and your own PNGs. The catalog is read from your Archify install, so
+  logos Archify adds later show up automatically.
 - **Connections** - add an edge (click a source node, then a target), drag an
   endpoint to reroute, and select or delete edges.
 - **Inline labels** - double-click a node, an edge, or a lane header to rename it.
@@ -123,10 +125,13 @@ your JSON and writes `<name>.html` next to it, ready to open or share.
 - `<name>.bendwright.json`, next to your diagram: this diagram's colors, custom types,
   and any of your own icons it uses. Written only when you **Save**. Keep it with the
   diagram if you move or share the JSON.
-- `~/.bendwright/types.json` (`%USERPROFILE%\.bendwright\types.json` on Windows): your
-  type library, shared across diagrams.
-- `~/.bendwright/icons/`: your own icons. Drop a file in and click **Refresh icons** on
-  the Custom types tab.
+- `bendwright-data/types.json`, next to `bendwright.py`: your type library, shared
+  across diagrams.
+- `bendwright-data/icons/`, next to `bendwright.py`: your own icons. Drop a file in and
+  click **Refresh icons** on the Custom types tab.
+- `bendwright-data/` also holds the Archify patch record. It is git-ignored, so your
+  icons and types never end up in a commit. To keep it elsewhere, set
+  `BENDWRIGHT_DATA_DIR` to an absolute path.
 
 **Your own icons**
 
@@ -203,7 +208,11 @@ schema for the full contract.
 
 ![Colors and line styles](gifs/edge-colors.gif)
 
-**Custom types** - on the **Custom types** tab, create "VM" with a color and icon, assign it to a node, and the name shows in the exported page's click panel and legend.
+**Edge styles at a glance** - every preset color as a solid, dashed, and dotted line, in the dark and light themes. Rendered by bendwright.
+
+![Edge styles](gifs/edge-styles.gif)
+
+**Custom types** - on the **Custom types** tab, create "VM", pick a color, search the icon picker and choose an icon, assign the type to a node, and the name shows in the exported page's click panel and legend.
 
 ![Custom types](gifs/custom-types.gif)
 
