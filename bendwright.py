@@ -4595,18 +4595,20 @@ SPA_HTML = r"""<!DOCTYPE html>
 <title>bendwright</title>
 <style>
 :root {
-  --bg: #0f1419;
-  --panel: #1a2332;
-  --border: #2d3a4d;
-  --text: #e7ecf3;
-  --muted: #8b9bb4;
-  --accent: #3d8bfd;
-  --danger: #e35d6a;
+  --bg: #12171C;
+  --surface: #1C242C;
+  --surface2: #242C34;
+  --panel: #1C242C;
+  --border: #343C46;
+  --text: #E7E4DC;
+  --muted: #8E969E;
+  --accent: #8FB4C9;
+  --danger: #C46A6A;
   --ok: #3dd68c;
-  --input: #0d1117;
-  --row-hover: #243044;
-  --tab: #151c27;
-  --focus: #5b9cff;
+  --input: #12171C;
+  --row-hover: #343C46;
+  --tab: #242C34;
+  --focus: #8FB4C9;
   font-family: "Segoe UI", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
@@ -4615,30 +4617,62 @@ body {
   height: 100vh; display: flex; flex-direction: column;
 }
 header {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 16px; border-bottom: 1px solid var(--border);
-  background: var(--panel); flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px;
+  height: 48px; box-sizing: border-box; flex-shrink: 0;
+  padding: 0 12px; border-bottom: 1px solid var(--border);
+  background: var(--surface); flex-wrap: nowrap; overflow: visible;
 }
 header h1 {
   display: flex; align-items: center; gap: 8px;
-  font-size: 15px; margin: 0; font-weight: 600; letter-spacing: 0.02em;
+  font-size: 14px; margin: 0; font-weight: 600; letter-spacing: 0.02em;
+  flex-shrink: 0;
 }
 .bw-mark { width: 22px; height: 22px; flex: 0 0 22px; display: block; color: currentColor; }
 .bw-mark svg { width: 22px; height: 22px; display: block; }
-header .meta { color: var(--muted); font-size: 12px; flex: 1; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+header .meta { color: var(--text); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kind-chip {
+  flex-shrink: 0; font-size: 11px; line-height: 1.2;
+  padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface2); color: var(--text);
+}
+.kind-chip[hidden] { display: none; }
+.save-state { flex-shrink: 0; font-size: 12px; color: var(--muted); }
+.save-state[hidden] { display: none; }
+.save-state.is-unsaved { color: var(--accent); }
+.status-chip {
+  flex-shrink: 1; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: transparent; color: var(--danger); border: 1px solid var(--danger);
+  border-radius: 999px; padding: 2px 8px; font-size: 11px;
+}
+.status-chip[hidden] { display: none; }
+.toolbar { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.overflow-wrap { position: relative; }
+#overflow-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 80;
+  min-width: 220px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55); padding: 6px;
+}
+#overflow-menu[hidden] { display: none; }
+#overflow-menu button, #overflow-menu a {
+  display: block; width: 100%; text-align: left; text-decoration: none;
+  background: transparent; color: var(--text); border: 0; border-radius: 4px;
+  padding: 8px 10px; font-size: 13px; cursor: pointer;
+}
+#overflow-menu button:hover, #overflow-menu a:hover { background: var(--surface2); border-color: transparent; }
+#overflow-menu button.danger { color: var(--danger); }
+#overflow-menu .overflow-sep { height: 1px; background: var(--border); margin: 4px 2px; }
 button, .btn {
   background: var(--tab); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer;
 }
 button:hover { border-color: var(--accent); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #12171C; }
 button.danger { border-color: var(--danger); color: var(--danger); }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 #status-bar {
-  position: relative;
-  height: 44px; box-sizing: border-box; flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; white-space: nowrap;
 }
 #status {
   font-size: 12px; padding: 6px 16px; padding-right: 96px;
@@ -4656,11 +4690,21 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   font-size: 11px; padding: 2px 8px;
 }
 #status-bar.status-clipped #status-more { display: inline-block; }
+#status-toast {
+  position: fixed; left: 16px; bottom: 16px; z-index: 45;
+  max-width: min(420px, calc(100vw - 32px));
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  padding: 8px 12px; font-size: 12px; line-height: 1.4; white-space: pre-wrap;
+}
+#status-toast[hidden] { display: none; }
+#status-toast.ok { border-color: var(--ok); color: var(--ok); }
 #status-overlay {
   display: none;
   position: fixed;
   z-index: 50;
-  top: 56px;
+  top: 48px;
   left: 50%;
   transform: translateX(-50%);
   width: min(520px, calc(100vw - 24px));
@@ -4686,14 +4730,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 #status-overlay.ok .status-overlay-body { color: var(--ok); }
 #status-overlay.err .status-overlay-body { color: var(--danger); }
 .tabs {
-  display: flex; gap: 2px; align-items: center; padding: 8px 16px 0; background: var(--bg);
+  display: none; gap: 2px; align-items: center; padding: 8px 16px 0; background: var(--bg);
   border-bottom: 1px solid var(--border); min-height: 40px; box-sizing: border-box;
 }
 .tabs button {
   border-radius: 6px 6px 0 0; border-bottom: none;
   background: var(--tab); padding: 8px 14px; flex-shrink: 0;
 }
-.tabs button.active { background: var(--panel); color: #fff; border-color: var(--border); }
+.tabs button.active { background: var(--panel); color: var(--text); border-color: var(--border); }
 #layout-hint {
   flex: 1; min-width: 0; margin-left: auto;
   font-size: 12px; color: var(--muted);
@@ -4703,18 +4747,31 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 .pane { display: none; flex: 1; overflow: hidden; }
 .pane.active { display: flex; }
-.split { display: flex; flex: 1; overflow: hidden; }
-#pane-nodes { flex-direction: column; }
+.split { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+#pane-nodes,
+#pane-edges,
+#pane-lanes,
+#pane-cards,
+#pane-components,
+#pane-connections,
+#pane-boundaries,
+#pane-raw { flex-direction: column; }
 #pane-nodes .split { min-height: 0; }
 #pane-types { flex-direction: column; }
 #types-manager {
   flex: 1 1 auto;
   max-height: none;
   overflow: auto;
-  border-top: none;
+  border-top: 1px solid var(--border);
   padding: 10px 14px 16px;
+  background: var(--surface);
+  color: var(--text);
 }
-#types-manager h2 { margin: 0 0 6px; font-size: 14px; }
+#types-manager h2 { margin: 0 0 6px; font-size: 14px; color: var(--text); }
+#types-list button {
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+}
+#types-list button.active { border-color: var(--accent); background: var(--panel); color: var(--text); }
 .types-hint { margin: 0 0 6px; color: var(--muted); font-size: 12px; }
 .types-grid { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .types-grid .field { margin: 0; min-width: 120px; }
@@ -4723,17 +4780,20 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 .type-base { color: var(--muted); }
 .list {
   width: 260px; min-width: 180px; border-right: 1px solid var(--border);
-  overflow: auto; background: var(--tab);
+  overflow: auto; background: var(--surface); color: var(--text);
 }
 .list-item {
-  padding: 8px 12px; border-bottom: 1px solid var(--border);
-  cursor: pointer; font-size: 12px;
+  padding: 10px 12px; border-bottom: 1px solid var(--border);
+  cursor: pointer; font-size: 13px; color: var(--text); background: transparent;
 }
-.list-item:hover { background: var(--row-hover); }
-.list-item.active { background: var(--row-hover); border-left: 3px solid var(--accent); }
+.list-item:hover { background: var(--surface2); }
+.list-item.active {
+  background: var(--surface2); border-left: 3px solid var(--accent); color: var(--text);
+}
 .list-item .sub { color: var(--muted); font-size: 11px; }
 .form {
   flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel); color: var(--text);
 }
 .form h2 { margin: 0 0 4px; font-size: 14px; }
 .field { display: flex; flex-direction: column; gap: 4px; max-width: 420px; }
@@ -4798,8 +4858,9 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   border: 1px solid var(--border); border-radius: 6px; padding: 10px;
   font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.4;
 }
+#pane-layout { min-width: 0; min-height: 0; }
 #layout-wrap {
-  flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0;
+  flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 0;
   position: relative;
 }
 #layout-node-editor {
@@ -4861,6 +4922,26 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 .brand-picker button.brand-pick:disabled { opacity: 0.55; cursor: not-allowed; }
 .brand-picker img { width: 16px; height: 16px; object-fit: contain; }
 .bw-brand-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.bw-style-swatch {
+  display: inline-block; width: 12px; height: 12px; margin-left: 6px;
+  border-radius: 3px; border: 1px solid var(--border); vertical-align: -1px;
+  background: transparent;
+}
+.bw-style-swatch[data-bw-color="blue"] { background: #6CB4F5; }
+.bw-style-swatch[data-bw-color="green"] { background: #3DDC97; }
+.bw-style-swatch[data-bw-color="red"] { background: #FF8A3D; }
+.bw-style-swatch[data-bw-color="amber"] { background: #F0B429; }
+.bw-style-swatch[data-bw-color="purple"] { background: #F0A0C8; }
+.bw-style-swatch[data-bw-color="teal"] { background: #5EE0D0; }
+.bw-style-swatch[data-bw-color="gray"] { background: #C5CAD3; }
+#layout-node-editor .field,
+#layout-single-editor .field { max-width: none; }
+#layout-edit-brand-slot .field { max-width: none; margin-bottom: 8px; }
+#layout-edit-brand-slot .field label {
+  text-transform: none; letter-spacing: 0.02em; font-weight: 600; font-size: 11px; color: var(--muted);
+}
+#layout-single-style[hidden],
+#layout-single-style-note[hidden] { display: none; }
 #layout-node-editor .bw-ed-actions {
   display: flex; align-items: center; gap: 10px; margin-top: 4px;
 }
@@ -4880,12 +4961,12 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   overflow: auto;
   background: var(--panel);
   color: var(--text);
-  border: 2px solid var(--accent);
-  border-radius: 6px;
-  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
   font-size: 13px;
   font-family: inherit;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55);
   box-sizing: border-box;
 }
 #quick-type-modal.active { display: block; }
@@ -5001,28 +5082,97 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted);
   flex-wrap: wrap;
 }
+#layout-stage {
+  flex: 1; min-height: 0; min-width: 0; position: relative;
+  display: flex; flex-direction: column;
+  padding-bottom: 64px; box-sizing: border-box;
+}
+#inspector {
+  width: 320px; flex: 0 0 320px; min-height: 0; overflow: auto;
+  box-sizing: border-box; padding: 12px;
+  border-left: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+#inspector-document[hidden],
+#inspector-node[hidden],
+#inspector-edge[hidden] { display: none; }
+.inspector-kicker {
+  margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--muted);
+}
+#inspector #layout-diagram-strip {
+  flex-direction: column; align-items: stretch; gap: 6px;
+  padding: 0 0 8px; border-bottom: 0; background: transparent;
+}
+#inspector #layout-diagram-strip input,
+#inspector #layout-diagram-strip input#layout-meta-title,
+#inspector #layout-diagram-strip input#layout-meta-subtitle {
+  width: 100%; max-width: none; flex: none; min-width: 0; box-sizing: border-box;
+}
+#inspector #layout-toolbar {
+  flex-direction: column; align-items: stretch; gap: 8px;
+  padding: 8px 0; border-bottom: 0; background: transparent;
+}
+#inspector-kindline {
+  margin: 0; font-size: 12px; line-height: 1.4; color: var(--muted);
+}
+#inspector-browse {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  margin: 4px 0 12px;
+}
+#inspector-browse button {
+  background: transparent; border-color: transparent; color: var(--accent);
+  padding: 3px 0; text-align: left;
+}
+#inspector-diagnostics {
+  margin: 0; font-size: 11px; line-height: 1.45; color: var(--muted);
+  white-space: pre-wrap; word-break: break-word;
+}
+#inspector #layout-node-editor,
+#inspector #layout-single-editor.bw-docked {
+  position: static; z-index: auto; display: none;
+  width: auto; min-width: 0; max-height: none;
+  border: 0; box-shadow: none; padding: 0; background: transparent;
+}
+#inspector #layout-node-editor.active,
+#inspector #layout-single-editor.bw-docked.active { display: block; }
+.bw-visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); border: 0;
+}
+.back-to-diagram {
+  margin: 8px 12px 0; align-self: flex-start;
+  background: transparent; color: var(--accent); border-color: transparent;
+}
+#layout-floatbar {
+  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+  z-index: 6; display: flex; gap: 8px; align-items: center;
+  padding: 6px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 999px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+}
 #layout-zoom-controls {
-  display: flex; gap: 4px; align-items: center; margin-left: auto;
+  display: flex; gap: 4px; align-items: center;
 }
 #layout-zoom-pct {
   min-width: 3.5em; text-align: center; color: var(--text); font-variant-numeric: tabular-nums;
+  cursor: pointer; border-radius: 6px; padding: 6px 4px;
 }
+#layout-zoom-pct:hover { color: var(--accent); }
 #layout-mode-toggle, #layout-quality-toggle {
   display: flex; gap: 4px; align-items: center;
 }
 #layout-mode-toggle button.mode-active,
 #layout-quality-toggle button.mode-active {
-  border-color: var(--accent); color: var(--accent); background: #1a2332;
+  border-color: var(--accent); color: #12171C; background: var(--accent);
 }
 #layout-quality-toggle button:disabled {
   opacity: 0.55; cursor: wait;
 }
 #layout-frame {
-  flex: 1; width: 100%; border: 0; background: #0b0f14; min-height: 0;
+  flex: 1; width: 100%; border: 0; background: var(--bg); min-height: 0;
 }
 #layout-hint.layout-hint-active {
   color: var(--accent);
-  background: #1a2332;
+  background: var(--surface2);
   box-shadow: inset 0 0 0 1px var(--accent);
   font-weight: 600;
 }
@@ -5036,6 +5186,7 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   right: 16px;
   width: min(440px, calc(100vw - 24px));
   background: var(--panel);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 12px 36px rgba(0,0,0,0.55);
@@ -5057,6 +5208,7 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   transform: translateX(-50%);
   width: min(420px, calc(100vw - 24px));
   background: var(--panel);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 12px 36px rgba(0,0,0,0.55);
@@ -5077,26 +5229,40 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   transform: translateX(-50%);
   width: min(420px, calc(100vw - 24px));
   background: var(--panel);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 12px 36px rgba(0,0,0,0.55);
   padding: 12px 14px;
 }
-button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
+button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 </style>
 </head>
 <body>
 <header>
   <h1><span class="bw-mark" aria-hidden="true">__BW_HEADER_MARK__</span>bendwright</h1>
   <div class="meta" id="file-meta">loading…</div>
+  <span id="file-kind" class="kind-chip" hidden></span>
+  <span id="file-save-state" class="save-state" hidden></span>
+  <button type="button" id="status-chip" class="status-chip" hidden title="Show error"></button>
   <div class="toolbar">
     <button type="button" id="btn-new" title="New diagram">New</button>
     <button type="button" id="btn-open" title="Open another diagram">Open</button>
     <button type="button" id="btn-undo" title="Ctrl+Z">Undo</button>
     <button type="button" id="btn-redo" title="Ctrl+Y">Redo</button>
-    <button type="button" id="btn-discard" title="Reload from disk" disabled>Discard</button>
-    <button type="button" class="primary" id="btn-save" title="Ctrl+S">Save</button>
-    <button type="button" id="btn-export" title="Export rendered HTML beside the JSON" disabled>Export HTML</button>
+    <button type="button" id="btn-save" title="Ctrl+S">Save</button>
+    <div class="overflow-wrap" id="overflow-wrap">
+      <button type="button" id="btn-overflow" title="More" aria-haspopup="menu" aria-expanded="false" aria-controls="overflow-menu">⋯</button>
+      <div id="overflow-menu" role="menu" hidden>
+        <button type="button" id="btn-export" role="menuitem" title="Export rendered HTML beside the JSON" disabled>Export HTML</button>
+        <a href="/preview" id="link-full-preview" role="menuitem" target="_blank" rel="noopener">Open full preview</a>
+        <button type="button" id="btn-overflow-source" role="menuitem">Source JSON</button>
+        <button type="button" id="btn-overflow-types" role="menuitem">Custom types library</button>
+        <button type="button" id="btn-type-refresh" role="menuitem" title="Rescan bendwright-data/icons">Refresh icons</button>
+        <div class="overflow-sep" role="separator"></div>
+        <button type="button" id="btn-discard" class="danger" role="menuitem" title="Reload from disk" disabled>Discard changes</button>
+      </div>
+    </div>
   </div>
 </header>
 <div id="open-panel" aria-hidden="true">
@@ -5175,6 +5341,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   <input type="search" id="qtype-icon-search" aria-label="Search icons" aria-autocomplete="list" aria-controls="qtype-icon-list" autocomplete="off" spellcheck="false">
   <div id="qtype-icon-list" role="listbox" aria-label="Icons"></div>
 </div>
+<div id="status-toast" role="status" aria-live="polite" hidden></div>
 <div id="status-overlay" role="dialog" aria-label="Full status message" aria-hidden="true">
   <div class="open-head">
     <span>Status</span>
@@ -5202,34 +5369,45 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 <main>
   <div class="pane" id="pane-layout">
     <div id="layout-wrap">
-      <div id="layout-diagram-strip">
-        <span class="diagram-strip-name">Diagram</span>
-        <label for="layout-meta-title">Diagram title</label>
-        <input type="text" id="layout-meta-title" autocomplete="off" spellcheck="false">
-        <label for="layout-meta-subtitle">Subtitle</label>
-        <input type="text" id="layout-meta-subtitle" autocomplete="off" spellcheck="false">
-      </div>
-      <div id="layout-toolbar">
-        <div id="layout-mode-toggle">
-          <button type="button" id="btn-mode-move" class="mode-active" title="Move nodes / rename">Move</button>
-          <button type="button" id="btn-mode-connect" title="Connect / edit: click a source node then a target to add; drag endpoints to reroute; click an edge to select or delete.">Connect / Edit</button>
-        </div>
-        <div id="layout-quality-toggle" title="meta.quality_profile (Archify default: standard)">
-          <button type="button" id="btn-quality-standard" class="mode-active">standard</button>
-          <button type="button" id="btn-quality-showcase">showcase</button>
-        </div>
-        <button type="button" id="btn-add-node" title="Add node at first free cell">+ Node</button>
-        <button type="button" id="btn-delete-edge" disabled title="Delete selected edge">Delete edge</button>
-        <div id="layout-zoom-controls">
-          <button type="button" id="btn-zoom-fit" title="Fit to window">Fit</button>
-          <button type="button" id="btn-zoom-out" title="Zoom out">−</button>
-          <span id="layout-zoom-pct">—</span>
-          <button type="button" id="btn-zoom-in" title="Zoom in">+</button>
-          <button type="button" id="btn-zoom-100" title="100%">100%</button>
-        </div>
-        <a href="/preview" target="_blank" rel="noopener" style="color:var(--accent)">Open full preview</a>
-      </div>
+      <div id="layout-stage">
       <iframe id="layout-frame" title="Layout diagram"></iframe>
+      <div id="layout-floatbar">
+        <div id="layout-mode-toggle">
+          <button type="button" id="btn-mode-move" class="mode-active" title="Select (V). Move nodes / rename">Select</button>
+          <button type="button" id="btn-mode-connect" title="Connect (C). Click a source node then a target to add; drag endpoints to reroute; click an edge to select or delete.">Connect</button>
+        </div>
+        <div id="layout-zoom-controls">
+          <button type="button" id="btn-zoom-out" title="Zoom out">−</button>
+          <span id="layout-zoom-pct" title="100%">—</span>
+          <button type="button" id="btn-zoom-in" title="Zoom in">+</button>
+          <button type="button" id="btn-zoom-fit" title="Fit to window">Fit</button>
+          <button type="button" id="btn-zoom-100" title="100%" hidden>100%</button>
+        </div>
+      </div>
+      </div>
+    </div>
+    <aside id="inspector" aria-label="Inspector">
+      <div id="inspector-document">
+        <div class="inspector-kicker">Diagram</div>
+        <div id="layout-diagram-strip">
+          <label for="layout-meta-title">Diagram title</label>
+          <input type="text" id="layout-meta-title" autocomplete="off" spellcheck="false">
+          <label for="layout-meta-subtitle">Subtitle</label>
+          <input type="text" id="layout-meta-subtitle" autocomplete="off" spellcheck="false">
+        </div>
+        <div id="layout-toolbar">
+          <div id="layout-quality-toggle" title="meta.quality_profile (Archify default: standard)">
+            <button type="button" id="btn-quality-standard" class="mode-active">standard</button>
+            <button type="button" id="btn-quality-showcase">showcase</button>
+          </div>
+          <p id="inspector-kindline"></p>
+          <button type="button" id="btn-add-node" title="Add node at first free cell">+ Node</button>
+        </div>
+        <nav id="inspector-browse" aria-label="Diagram lists"></nav>
+        <div id="inspector-diagnostics"></div>
+      </div>
+      <div id="inspector-node" hidden>
+        <div class="inspector-kicker" id="inspector-node-kicker">Node</div>
       <div id="layout-node-editor" role="dialog" aria-label="Edit node text">
         <div class="bw-ed-field">
           <label for="layout-edit-type">Type</label>
@@ -5247,32 +5425,55 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
           <label for="layout-edit-tag">Tag</label>
           <input type="text" id="layout-edit-tag" autocomplete="off" spellcheck="false">
         </div>
+        <div id="layout-edit-position"></div>
         <div class="bw-ed-field">
           <label for="layout-edit-color">Color</label>
           <select id="layout-edit-color"></select>
         </div>
+        <div class="bw-ed-hint" id="layout-edit-color-note">Saved beside the diagram, not in the Archify file.</div>
+        <div id="layout-edit-brand-slot"></div>
         <div class="bw-ed-actions">
-          <button type="button" class="primary" id="layout-edit-save">Save</button>
+          <button type="button" class="primary bw-visually-hidden" id="layout-edit-save" tabindex="-1">Save</button>
           <button type="button" id="layout-edit-duplicate" disabled title="Clone node to a free cell">Duplicate</button>
           <button type="button" id="layout-edit-delete" disabled title="Delete node and its edges">Delete</button>
-          <span class="meta">Enter=save · Esc=cancel</span>
+          <span class="meta">Enter=apply · Esc=cancel</span>
         </div>
       </div>
-      <div id="layout-single-editor" role="dialog" aria-label="Edit label">
+      </div>
+      <div id="inspector-edge" hidden>
+        <div class="inspector-kicker" id="inspector-edge-kicker">Edge</div>
+        <div id="inspector-edge-slot">
+      <div id="layout-single-editor" class="bw-docked" role="dialog" aria-label="Edit label">
         <div class="bw-ed-field">
           <label for="layout-single-label" id="layout-single-label-caption">Label</label>
           <input type="text" id="layout-single-label" autocomplete="off" spellcheck="false">
         </div>
+        <div id="layout-single-style" hidden>
+          <div class="bw-ed-field">
+            <label for="layout-single-dash">Line</label>
+            <select id="layout-single-dash" data-field="bwDash"></select>
+          </div>
+          <div class="bw-ed-field">
+            <label for="layout-single-color">Color <span id="layout-single-color-swatch" class="bw-style-swatch" data-bw-color=""></span></label>
+            <select id="layout-single-color" data-field="bwColor"></select>
+          </div>
+        </div>
+        <div class="bw-ed-hint" id="layout-single-style-note" hidden>Saved beside the diagram, not in the Archify file.</div>
         <div class="bw-ed-actions">
-          <button type="button" class="primary" id="layout-single-save">Save</button>
-          <span class="meta">Enter=save · Esc=cancel</span>
+          <button type="button" class="primary bw-visually-hidden" id="layout-single-save" tabindex="-1">Save</button>
+          <span class="meta" id="layout-single-hint">Enter=apply · Esc=cancel</span>
         </div>
         <details id="layout-single-advanced" hidden>
           <summary>Advanced</summary>
           <div id="layout-single-advanced-body"></div>
         </details>
       </div>
-    </div>
+        </div>
+        <div class="bw-ed-actions">
+          <button type="button" id="btn-delete-edge" disabled title="Delete selected edge">Delete edge</button>
+        </div>
+      </div>
+    </aside>
   </div>
   <div class="pane active" id="pane-nodes">
     <div class="split">
@@ -5312,7 +5513,6 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         <button type="button" id="btn-type-remove">Remove</button>
         <button type="button" id="btn-type-to-lib">Save type to library</button>
         <button type="button" id="btn-type-from-lib">Update this diagram from library</button>
-        <button type="button" id="btn-type-refresh" title="Rescan bendwright-data/icons">Refresh icons</button>
       </div>
     </section>
   </div>
@@ -5387,6 +5587,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     connectFrom: null,
     selectedEdgeIndex: null,
     selectedComponentId: null,
+    selectedNodeId: null,
+    diagnostics: {
+      archify: "",
+      archify_patch: "",
+      archify_note: "",
+      sidecar_note: "",
+      icon_note: "",
+      type_library_note: ""
+    },
     brands: [],
     sidecar: null,
     lastSavedSidecar: null,
@@ -5419,6 +5628,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   var scrollCancelToken = 0;
   var pendingDirtyAction = null;
   var statusKind = "";
+  var statusToastTimer = null;
+  // Last rejection shown on the chip. Info/ok lines must not overwrite it.
+  var statusErrorText = "";
+  var statusOverlayShowsError = false;
+  var inspectorCommitLock = false;
+  var pendingLabelFocusId = null;
+  var pendingLaneIndex = null;
+  var pendingEdgeFocusIndex = null;
+  var lastLayoutHintText = "";
 
   function $(id) { return document.getElementById(id); }
 
@@ -5429,6 +5647,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function closeStatusOverlay() {
     var panel = $("status-overlay");
+    statusOverlayShowsError = false;
     if (!panel) return;
     panel.classList.remove("active");
     panel.setAttribute("aria-hidden", "true");
@@ -5440,12 +5659,84 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var panel = $("status-overlay");
     var body = $("status-overlay-body");
     if (!el || !panel || !body) return;
-    if (!bar || !bar.classList.contains("status-clipped")) return;
+    var clipped = !!(bar && bar.classList.contains("status-clipped"));
+    if (!clipped) return;
+    statusOverlayShowsError = false;
     body.textContent = el.title || el.textContent || "";
     panel.classList.remove("ok", "err");
     if (statusKind === "ok" || statusKind === "err") panel.classList.add(statusKind);
     panel.classList.add("active");
     panel.setAttribute("aria-hidden", "false");
+  }
+
+  function openStatusErrorOverlay() {
+    var panel = $("status-overlay");
+    var body = $("status-overlay-body");
+    if (!panel || !body || !statusErrorText) return;
+    body.textContent = statusErrorText;
+    panel.classList.remove("ok");
+    panel.classList.add("err");
+    panel.classList.add("active");
+    panel.setAttribute("aria-hidden", "false");
+    statusOverlayShowsError = true;
+  }
+
+  function clearStatusChip() {
+    statusErrorText = "";
+    if (statusOverlayShowsError) closeStatusOverlay();
+    var chip = $("status-chip");
+    if (!chip) return;
+    chip.hidden = true;
+    chip.textContent = "";
+    chip.removeAttribute("title");
+  }
+
+  function showStatusChip(text) {
+    var chip = $("status-chip");
+    if (!chip) return;
+    var full = String(text || "");
+    statusErrorText = full;
+    var line = full.split("\n")[0] || "Error";
+    chip.hidden = false;
+    chip.textContent = line;
+    chip.title = full || line;
+  }
+
+  function hideStatusToast() {
+    if (statusToastTimer) {
+      clearTimeout(statusToastTimer);
+      statusToastTimer = null;
+    }
+    var toast = $("status-toast");
+    if (!toast) return;
+    toast.hidden = true;
+    toast.textContent = "";
+    toast.className = "";
+  }
+
+  function showStatusToast(text, kind) {
+    var toast = $("status-toast");
+    if (!toast) return;
+    if (!text) {
+      hideStatusToast();
+      return;
+    }
+    if (statusToastTimer) {
+      clearTimeout(statusToastTimer);
+      statusToastTimer = null;
+    }
+    toast.textContent = text;
+    toast.className = kind === "ok" ? "ok" : "";
+    toast.hidden = false;
+    statusToastTimer = setTimeout(function () {
+      statusToastTimer = null;
+      toast.hidden = true;
+    }, 4000);
+  }
+
+  function dismissStatusError() {
+    clearStatusChip();
+    closeStatusOverlay();
   }
 
   function measureStatusClip() {
@@ -5462,7 +5753,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       el.classList.remove("status-clipped");
       bar.classList.remove("status-clipped");
       if (more) more.setAttribute("aria-hidden", "true");
-      closeStatusOverlay();
+      if (!statusOverlayShowsError) closeStatusOverlay();
     }
   }
 
@@ -5475,7 +5766,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       kind = "err";
     }
     var el = $("status");
-    statusKind = kind || "";
+    var nextKind = kind || "";
+    // An open error panel keeps its stored text across later info lines.
+    var pinningError = nextKind !== "err" && nextKind !== "ok" && statusOverlayShowsError;
+    statusKind = nextKind;
     el.textContent = text || "";
     el.title = text || "";
     el.className = statusKind;
@@ -5483,7 +5777,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (bar) bar.classList.remove("status-clipped");
     var more = $("status-more");
     if (more) more.setAttribute("aria-hidden", "true");
-    closeStatusOverlay();
+    if (!pinningError) closeStatusOverlay();
+    if (statusKind === "err") {
+      showStatusChip(text);
+      hideStatusToast();
+    } else if (statusKind === "ok") {
+      clearStatusChip();
+      showStatusToast(text, "ok");
+    } else {
+      showStatusToast(text, "");
+    }
     requestAnimationFrame(function () {
       requestAnimationFrame(measureStatusClip);
     });
@@ -5516,6 +5819,39 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     return JSON.stringify(a) === JSON.stringify(b);
   }
 
+  function setFileKindChip(hasDoc) {
+    var kindEl = $("file-kind");
+    if (!kindEl) return;
+    if (!hasDoc) {
+      kindEl.hidden = true;
+      kindEl.textContent = "";
+      kindEl.removeAttribute("title");
+      return;
+    }
+    kindEl.hidden = false;
+    if (isArchitecture()) {
+      kindEl.textContent = "Architecture";
+      kindEl.title = "Architecture: components and boundaries";
+    } else {
+      kindEl.textContent = "Workflow";
+      kindEl.title = "Workflow: a process in lanes";
+    }
+  }
+
+  function setFileSaveState(hasDoc, dirty) {
+    var el = $("file-save-state");
+    if (!el) return;
+    if (!hasDoc) {
+      el.hidden = true;
+      el.textContent = "";
+      el.classList.remove("is-unsaved");
+      return;
+    }
+    el.hidden = false;
+    el.textContent = dirty ? "Unsaved" : "Saved";
+    el.classList.toggle("is-unsaved", !!dirty);
+  }
+
   function updateDirtyUI() {
     var meta = $("file-meta");
     var saveBtn = $("btn-save");
@@ -5523,10 +5859,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var exportBtn = $("btn-export");
     var addBtn = $("btn-add-node");
     if (!state.doc) {
-      if (meta) meta.textContent = "No file open";
+      if (meta) {
+        meta.textContent = "No file open";
+        meta.title = "";
+      }
+      setFileKindChip(false);
+      setFileSaveState(false, false);
       if (saveBtn) {
         saveBtn.textContent = "Save";
-        saveBtn.classList.remove("dirty-emphasis");
+        saveBtn.classList.remove("dirty-emphasis", "primary");
         saveBtn.disabled = true;
       }
       if (discardBtn) discardBtn.disabled = true;
@@ -5545,14 +5886,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       : (" · nodes " + ((state.doc.nodes) || []).length +
         " / edges " + ((state.doc.edges) || []).length +
         " / lanes " + ((state.doc.lanes) || []).length);
-    var base = state.file
-      ? (state.file + " · " + state.diagram_type + counts)
-      : ("Unsaved new diagram · " + state.diagram_type + counts);
-    if (state.dirty) base += " · unsaved changes";
-    if (meta) meta.textContent = base;
+    var fileLabel = state.file ? state.file : "Unsaved new diagram";
+    if (meta) {
+      meta.textContent = fileLabel;
+      meta.title = fileLabel + " · " + state.diagram_type + counts +
+        (state.dirty ? " · unsaved changes" : "");
+    }
+    setFileKindChip(true);
+    setFileSaveState(true, !!state.dirty);
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.textContent = state.dirty ? "Save*" : "Save";
+      saveBtn.textContent = "Save";
+      saveBtn.classList.toggle("primary", !!state.dirty);
       saveBtn.classList.toggle("dirty-emphasis", !!state.dirty);
     }
     if (discardBtn) discardBtn.disabled = !state.dirty || !!state.layoutBusy;
@@ -5631,13 +5976,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var delBtn = $("btn-delete-edge");
     if (moveBtn) {
       moveBtn.disabled = !state.doc || !!state.layoutBusy;
-      moveBtn.title = arch ? "Move / resize components" : "Move nodes / rename";
+      moveBtn.title = arch
+        ? "Select (V). Move / resize components"
+        : "Select (V). Move nodes / rename";
     }
     if (connBtn) {
       connBtn.disabled = !state.doc || !!state.layoutBusy;
       connBtn.title = arch
-        ? "Connect / edit: click a source component then a target to add; drag endpoints to reroute; click a connection to select or delete."
-        : "Connect / edit: click a source node then a target to add; drag endpoints to reroute; click an edge to select or delete.";
+        ? "Connect (C). Click a source component then a target to add; drag endpoints to reroute; click a connection to select or delete."
+        : "Connect (C). Click a source node then a target to add; drag endpoints to reroute; click an edge to select or delete.";
     }
     if (addBtn) {
       addBtn.textContent = arch ? "+ Component" : "+ Node";
@@ -5650,6 +5997,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       delBtn.title = arch ? "Delete selected connection" : "Delete selected edge";
       delBtn.disabled = state.selectedEdgeIndex == null || !!state.layoutBusy;
     }
+    var nodeKicker = $("inspector-node-kicker");
+    if (nodeKicker) nodeKicker.textContent = arch ? "Component" : "Node";
+    var edgeKicker = $("inspector-edge-kicker");
+    if (edgeKicker) edgeKicker.textContent = arch ? "Connection" : "Edge";
   }
 
   function markDirty() {
@@ -6844,6 +7195,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function undo() {
     if (!state.doc || state.layoutBusy) return;
+    if (inspectorBufferDirty()) revertInspectorBuffer();
     dropEqualHistory(state.undo);
     if (!state.undo.length) {
       updateHistoryButtons();
@@ -6862,6 +7214,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function redo() {
     if (!state.doc || state.layoutBusy) return;
+    if (inspectorBufferDirty()) revertInspectorBuffer();
     // Skip snapshots identical to the buffer so one click applies the next
     // real change. If none differ, disable Redo instead of leaving it stuck.
     dropEqualHistory(state.redo);
@@ -7115,6 +7468,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       html += '<option value="' + esc(opts[i].value) + '"' + sel + ">" + esc(opts[i].label) + "</option>";
     }
     el.innerHTML = html;
+    syncEdgeColorSwatch(el);
+  }
+
+  function syncEdgeColorSwatch(source) {
+    var swatch = $("layout-single-color-swatch");
+    var colorEl = $("layout-single-color");
+    if (!swatch) return;
+    if (source && source !== colorEl) return;
+    swatch.setAttribute("data-bw-color", colorEl ? String(colorEl.value || "") : "");
   }
 
   // Same key as edge_style_key() in Python. id when set; else from->to#n
@@ -7558,6 +7920,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     updateHistoryButtons();
     syncQualityToggle();
     updateDirtyUI();
+    renderInspectorChrome();
   }
 
   // Set around undo/redo, raw apply, and open so a focused strip input
@@ -7820,10 +8183,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function switchTab(tab) {
-    cancelInlineEditors();
+    cancelLanePopup();
+    if (inspectorBufferDirty()) applyDockedBufferSync();
     if (tab !== "layout") {
       clearConnectFrom();
+      if (singleEdit && singleEdit.kind === "edge") {
+        singleEdit = null;
+        hideSingleEditor();
+      }
       clearEdgeSelection(false);
+      syncInspectorPanes();
     }
     state.tab = tab;
     var buttons = document.querySelectorAll(".tabs button");
@@ -7840,11 +8209,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function showPreviewFailedHint() {
-    var hint = $("layout-hint");
-    var text = "Diagram not updated - preview failed; fix the highlighted fields";
-    if (!hint) return;
-    hint.textContent = text;
-    hint.title = text;
+    publishLayoutHint("Diagram not updated - preview failed; fix the highlighted fields", true);
   }
 
   function enterLayoutTab() {
@@ -7860,6 +8225,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     postPreviewDoc()
       .then(function (receipt) {
         if (receipt && receipt.ok) {
+          clearStatusChip();
           if (sent === bufferToken()) previewStale = false;
           if (receipt.note) setStatus("Preview updated\nNote: " + receipt.note, "");
           return loadLayoutPane(true).then(function () {
@@ -8004,35 +8370,42 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     btn.disabled = state.selectedEdgeIndex == null || state.layoutBusy;
   }
 
-  function updateLayoutHint() {
+  function publishLayoutHint(text, active) {
     var hint = $("layout-hint");
-    if (!hint) return;
+    if (hint) {
+      hint.textContent = text;
+      hint.title = text;
+      hint.classList.toggle("layout-hint-active", !!active);
+    }
+    if (!text || text === lastLayoutHintText) return;
+    lastLayoutHintText = text;
+    showStatusToast(text, "");
+  }
+
+  function updateLayoutHint() {
     var text;
+    var active = false;
     if (isArchitecture()) {
       if (state.layoutMode === "connect") {
-        hint.classList.add("layout-hint-active");
+        active = true;
         text = state.connectFrom
           ? ("Source " + state.connectFrom + " → click a target component to connect. Click a connection to select/delete. Drag endpoints to reroute. Esc cancels.")
           : "Click a source component, then a target to connect. Click a connection to select/delete. Drag endpoints to reroute. Esc cancels.";
       } else {
-        hint.classList.remove("layout-hint-active");
         text = "Drag a component; drop snaps to 10px and writes pos (unsaved until Save). A row/col component converts to pos on the first drag. Drag the corner handle to resize (floor 120×60).";
       }
-      hint.textContent = text;
-      hint.title = text;
+      publishLayoutHint(text, active);
       return;
     }
     if (state.layoutMode === "connect") {
-      hint.classList.add("layout-hint-active");
+      active = true;
       text = state.connectFrom
         ? ("Source " + state.connectFrom + " → click a target to connect. Click an edge to select/delete. Drag endpoints to reroute. Esc cancels.")
         : "Click a source node, then a target to connect. Click an edge to select/delete. Drag endpoints to reroute. Esc cancels.";
     } else {
-      hint.classList.remove("layout-hint-active");
       text = "Drag a node; drop snaps to nearest lane + column (preview; unsaved until Save). Use Connect / Edit to add or change connections.";
     }
-    hint.textContent = text;
-    hint.title = text;
+    publishLayoutHint(text, active);
   }
 
   function clearConnectFrom() {
@@ -8049,7 +8422,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function setLayoutMode(mode) {
     if (mode !== "move" && mode !== "connect") return;
-    cancelInlineEditors();
+    cancelLanePopup();
+    if (singleEdit && singleEdit.kind === "edge") {
+      if (inspectorBufferDirty()) applyDockedBufferSync();
+      singleEdit = null;
+      hideSingleEditor();
+      syncInspectorPanes();
+    }
     if (layoutDrag) {
       layoutDrag.rect.setAttribute("x", String(layoutDrag.origX));
       layoutDrag.rect.setAttribute("y", String(layoutDrag.origY));
@@ -8111,6 +8490,23 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       rects[i].setAttribute("stroke-width", on ? "2.5" : "1.5");
       rects[i].setAttribute("fill", on ? "rgba(61,214,140,0.18)" : "rgba(61,139,253,0.01)");
     }
+    refreshNodeSelectionStyles();
+  }
+
+  function refreshNodeSelectionStyles() {
+    var iframe = $("layout-frame");
+    var doc = iframe && iframe.contentDocument;
+    if (!doc) return;
+    var sel = isArchitecture() ? state.selectedComponentId : state.selectedNodeId;
+    if (!sel) return;
+    var rects = doc.querySelectorAll("rect.bw-handle");
+    for (var i = 0; i < rects.length; i++) {
+      if (String(rects[i].getAttribute("data-node-id")) !== String(sel)) continue;
+      if (state.connectFrom && String(state.connectFrom) === String(sel)) continue;
+      rects[i].setAttribute("stroke", "rgba(61,139,253,0.95)");
+      rects[i].setAttribute("stroke-width", "2.5");
+      rects[i].setAttribute("fill", "rgba(61,139,253,0.12)");
+    }
   }
 
   function refreshEdgeSelectionStyles() {
@@ -8161,16 +8557,23 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     updateDeleteEdgeButton();
   }
 
-  function selectLayoutEdge(docIdx) {
+  function selectLayoutEdge(docIdx, opts) {
+    opts = opts || {};
     if (docIdx == null || isNaN(docIdx) || docIdx < 0) return;
     var edges = relationRecords();
     if (!edges[docIdx]) return;
     state.connectFrom = null;
     state.selectedEdgeIndex = docIdx;
     var e = edges[docIdx];
-    updateConnectHighlight();
-    refreshEdgeSelectionStyles();
-    updateDeleteEdgeButton();
+    var iframe = $("layout-frame");
+    var doc = iframe && iframe.contentDocument;
+    var hit = doc && doc.querySelector('polyline.bw-edge-hit[data-doc-index="' + docIdx + '"]');
+    if (hit) openEdgeLabelEditor(hit, opts);
+    else {
+      updateConnectHighlight();
+      refreshEdgeSelectionStyles();
+      updateDeleteEdgeButton();
+    }
     updateLayoutHint();
     var noun = isArchitecture() ? "connection" : "edge";
     setStatus("Selected " + noun + " " + e.from + " → " + e.to + " (Delete to remove)", "");
@@ -8462,6 +8865,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var edges = relationRecords();
     if (!edges[idx]) return;
     if (state.layoutBusy) return;
+    if (singleEdit && singleEdit.kind === "edge") {
+      singleEdit = null;
+      hideSingleEditor();
+    }
     var removed = edges[idx];
     var captured = captureEdgeStyleKeys();
     var sideBefore = clone(state.sidecar);
@@ -8610,7 +9017,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function applyLayoutZoom(z) {
-    cancelInlineEditors();
+    cancelLanePopup();
     return setLayoutZoomCss(z);
   }
 
@@ -8653,7 +9060,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function fitLayoutViewport() {
-    cancelInlineEditors();
+    cancelLanePopup();
     setLayoutZoomCss(computeFitZoom());
     var doc = $("layout-frame").contentDocument;
     var scroll = doc && doc.getElementById("bw-scroll");
@@ -8790,16 +9197,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       svg.appendChild(rect);
     }
 
-    // Corner resize on the selected architecture component (Move mode only).
-    if (isArchitecture() && state.layoutMode === "move" && nodes.length) {
-      var selOk = false;
-      if (state.selectedComponentId) {
-        for (var si = 0; si < nodes.length; si++) {
-          if (nodes[si] && String(nodes[si].id) === String(state.selectedComponentId)) selOk = true;
-        }
-      }
-      if (!selOk) state.selectedComponentId = String(nodes[0].id);
-    }
+    // Corner resize only while a component is selected. Empty selection stays the Document pane.
     if (isArchitecture() && state.layoutMode === "move" && state.selectedComponentId) {
       for (var ri = 0; ri < nodes.length; ri++) {
         var rn = nodes[ri];
@@ -8882,7 +9280,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
           if (scroll.scrollLeft === baseLeft && scroll.scrollTop === baseTop) return;
           baseLeft = scroll.scrollLeft;
           baseTop = scroll.scrollTop;
-          cancelInlineEditors();
+          cancelLanePopup();
         });
       }
     }
@@ -8901,6 +9299,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         ev.preventDefault();
         clearConnectFrom();
         setStatus("Connect cancelled", "");
+        return;
+      }
+      if (inspectorBufferDirty()) {
+        ev.preventDefault();
+        revertInspectorBuffer();
+        setStatus("Edits reverted", "");
+        return;
+      }
+      if (nodeEdit || (singleEdit && singleEdit.kind === "edge") ||
+          state.selectedNodeId || state.selectedComponentId || state.selectedEdgeIndex != null) {
+        ev.preventDefault();
+        showDocumentInspector();
+        setStatus("Selection cleared", "");
       }
       return;
     }
@@ -8917,13 +9328,43 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         deleteSelectedEdge();
       }
     }
+    onModeShortcut(ev);
+  }
+
+  function modeShortcutBlocked(ev) {
+    var el = ev && ev.target;
+    if (el && el.tagName) {
+      var tag = el.tagName.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if (el.isContentEditable) return true;
+    }
+    if (nodeEdit || singleEdit || quickType) return true;
+    if (isStatusOverlayActive()) return true;
+    if (isOpenPanelActive() || isDirtyPanelActive() || isNewPanelActive()) return true;
+    return false;
+  }
+
+  function onModeShortcut(ev) {
+    if (!ev || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    var key = String(ev.key || "").toLowerCase();
+    if (key !== "v" && key !== "c") return;
+    if (modeShortcutBlocked(ev)) return;
+    if (!state.doc || state.layoutBusy) return;
+    ev.preventDefault();
+    if (key === "v") {
+      setLayoutMode("move");
+      setStatus("Layout mode: Select", "");
+    } else {
+      setLayoutMode("connect");
+      setStatus("Layout mode: Connect", "");
+    }
   }
 
   function hideNodeEditor() {
     var panel = $("layout-node-editor");
     if (!panel) return;
     panel.classList.remove("active");
-    ["layout-edit-label", "layout-edit-sublabel", "layout-edit-tag", "layout-edit-brand"].forEach(function (id) {
+    ["layout-edit-label", "layout-edit-sublabel", "layout-edit-tag"].forEach(function (id) {
       var el = $(id);
       if (el) {
         el.value = "";
@@ -8940,17 +9381,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       colorEl.innerHTML = "";
       colorEl.disabled = false;
     }
+    var posSlot = $("layout-edit-position");
+    if (posSlot) posSlot.innerHTML = "";
+    var brandSlot = $("layout-edit-brand-slot");
+    if (brandSlot) {
+      brandSlot.innerHTML = "";
+      brandSlot.dataset.locked = "0";
+    }
     var dupBtn = $("layout-edit-duplicate");
     if (dupBtn) dupBtn.disabled = true;
     var delBtn = $("layout-edit-delete");
     if (delBtn) delBtn.disabled = true;
-    var hint = $("layout-edit-brand-hint");
-    if (hint) {
-      hint.hidden = true;
-      hint.textContent = "";
-    }
-    var picker = $("layout-edit-brand-picker");
-    if (picker) picker.innerHTML = "";
+    syncInspectorPanes();
   }
 
   function fillNodeTypeSelect(current) {
@@ -8974,23 +9416,45 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (det) det.open = false;
     var body = $("layout-single-advanced-body");
     if (body) body.innerHTML = "";
+    setEdgeStyleVisible(false);
     var saveBtn = $("layout-single-save");
     if (saveBtn) saveBtn.disabled = false;
+    syncInspectorPanes();
+  }
+
+  function setSingleEditorHint(text) {
+    var hint = $("layout-single-hint");
+    if (hint) hint.textContent = text;
+  }
+
+  function setEdgeStyleVisible(shown) {
+    var block = $("layout-single-style");
+    var note = $("layout-single-style-note");
+    if (block) block.hidden = !shown;
+    if (note) note.hidden = !shown;
+  }
+
+  function fillEdgeStyle(edge) {
+    if (!edge) {
+      setEdgeStyleVisible(false);
+      return;
+    }
+    setEdgeStyleVisible(true);
+    var idx = relationRecords().indexOf(edge);
+    var styled = idx >= 0 ? edgeStyleEntry(idx) : null;
+    var entry = styled && styled.entry;
+    fillStyleSelect($("layout-single-dash"), "dash", storedDash(entry));
+    fillStyleSelect($("layout-single-color"), "color", storedColor(entry));
   }
 
   function fillEdgeAdvanced(edge) {
     var body = $("layout-single-advanced-body");
     if (!body || !edge) return;
-    var idx = relationRecords().indexOf(edge);
-    var styled = idx >= 0 ? edgeStyleEntry(idx) : null;
-    var entry = styled && styled.entry;
     if (isArchitecture()) {
       body.innerHTML =
         componentSelect("from", edge.from) +
         componentSelect("to", edge.to) +
-        fieldSelect("variant", "edge.variant", "variant", edge.variant) +
-        styleSelect("Color", "bwColor", storedColor(entry), "color") +
-        styleSelect("Dash", "bwDash", storedDash(entry), "dash") +
+        fieldSelect("Variant", "edge.variant", "variant", edge.variant) +
         fieldSelect("route", "connection.route", "route", edge.route) +
         fieldSelect("fromSide", "edge.fromSide", "fromSide", edge.fromSide) +
         fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide);
@@ -8999,13 +9463,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         nodeSelect("from", edge.from) +
         nodeSelect("to", edge.to) +
         fieldSelect("role", "edge.role", "role", edge.role) +
-        fieldSelect("variant", "edge.variant", "variant", edge.variant) +
-        styleSelect("Color", "bwColor", storedColor(entry), "color") +
-        styleSelect("Dash", "bwDash", storedDash(entry), "dash") +
+        fieldSelect("Variant", "edge.variant", "variant", edge.variant) +
         fieldSelect("route", "edge.route", "route", edge.route) +
         fieldSelect("fromSide", "edge.fromSide", "fromSide", edge.fromSide) +
         fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide);
     }
+    fillEdgeStyle(edge);
     if (state.layoutBusy) setEdgeAdvancedDisabled(true);
   }
 
@@ -9015,6 +9478,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       var sels = body.querySelectorAll("select");
       for (var i = 0; i < sels.length; i++) sels[i].disabled = !!disabled;
     }
+    ["layout-single-dash", "layout-single-color"].forEach(function (id) {
+      var el = $(id);
+      if (el) el.disabled = !!disabled;
+    });
     var saveBtn = $("layout-single-save");
     if (!saveBtn) return;
     if (singleEdit && singleEdit.kind === "edge") saveBtn.disabled = !!disabled;
@@ -9037,12 +9504,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     }
     var body = $("layout-single-advanced-body");
     if (body) body.innerHTML = "";
+    setEdgeStyleVisible(false);
   }
 
   function clampSingleEditorToWrap() {
     var panel = $("layout-single-editor");
     var wrap = $("layout-wrap");
     if (!panel || !wrap || !panel.classList.contains("active")) return;
+    if (panel.classList.contains("bw-docked")) return;
     var room = wrap.clientHeight - 16;
     if (room > 80) {
       panel.style.maxHeight = Math.min(window.innerHeight * 0.6, room) + "px";
@@ -9052,16 +9521,315 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (top > limit) panel.style.top = Math.max(8, limit) + "px";
   }
 
+  function cancelLanePopup() {
+    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
+  }
+
+  function syncInspectorPanes() {
+    var nodePanel = $("layout-node-editor");
+    var showNode = !!(nodeEdit && nodePanel && nodePanel.classList.contains("active"));
+    var showEdge = !!(singleEdit && singleEdit.kind === "edge");
+    var docPane = $("inspector-document");
+    var nodePane = $("inspector-node");
+    var edgePane = $("inspector-edge");
+    if (docPane) docPane.hidden = showNode || showEdge;
+    if (nodePane) nodePane.hidden = !showNode;
+    if (edgePane) edgePane.hidden = !showEdge;
+  }
+
+  function syncNodeEditorButtons() {
+    if (!nodeEdit) return;
+    var dupBtn = $("layout-edit-duplicate");
+    var delBtn = $("layout-edit-delete");
+    if (state.layoutBusy) {
+      if (dupBtn) dupBtn.disabled = true;
+      if (delBtn) delBtn.disabled = true;
+      return;
+    }
+    if (dupBtn) {
+      dupBtn.disabled = false;
+      dupBtn.title = isArchitecture() ? "Clone component beside this one" : "Clone node to a free cell";
+    }
+    if (!delBtn) return;
+    if (isArchitecture()) {
+      delBtn.disabled = false;
+      delBtn.title = "Delete component and its connections";
+      return;
+    }
+    var nodeCount = (state.doc && state.doc.nodes) ? state.doc.nodes.length : 0;
+    delBtn.disabled = nodeCount <= 1;
+    delBtn.title = nodeCount <= 1 ? "Cannot delete the last node" : "Delete node and its edges";
+  }
+
+  function syncDockedFieldsDisabled(disabled) {
+    var ids = [
+      "layout-edit-label", "layout-edit-sublabel", "layout-edit-tag",
+      "layout-edit-type", "layout-edit-color", "layout-single-label",
+      "layout-single-dash", "layout-single-color"
+    ];
+    for (var i = 0; i < ids.length; i++) {
+      var el = $(ids[i]);
+      if (el) el.disabled = !!disabled;
+    }
+    var posSlot = $("layout-edit-position");
+    if (posSlot) {
+      var posControls = posSlot.querySelectorAll("input, select");
+      for (var p = 0; p < posControls.length; p++) posControls[p].disabled = !!disabled;
+    }
+    var brandSlot = $("layout-edit-brand-slot");
+    if (brandSlot) {
+      var lock = brandSlot.dataset.locked === "1";
+      var brandControls = brandSlot.querySelectorAll("button, input");
+      for (var b = 0; b < brandControls.length; b++) brandControls[b].disabled = !!disabled || lock;
+    }
+    if (disabled) {
+      var dupBtn = $("layout-edit-duplicate");
+      var delBtn = $("layout-edit-delete");
+      if (dupBtn) dupBtn.disabled = true;
+      if (delBtn) delBtn.disabled = true;
+    }
+  }
+
+  function dockSingleEditor(docked) {
+    var panel = $("layout-single-editor");
+    var slot = $("inspector-edge-slot");
+    var wrap = $("layout-wrap");
+    if (!panel) return;
+    if (docked) {
+      panel.classList.add("bw-docked");
+      panel.style.left = "";
+      panel.style.top = "";
+      panel.style.width = "";
+      panel.style.maxHeight = "";
+      if (slot && panel.parentNode !== slot) slot.appendChild(panel);
+    } else {
+      panel.classList.remove("bw-docked");
+      if (wrap && panel.parentNode !== wrap) wrap.appendChild(panel);
+    }
+  }
+
+  function focusInsideInspectorUi(node) {
+    if (!node || !node.closest) return false;
+    if (node.closest("#inspector")) return true;
+    if (node.closest("#quick-type-modal")) return true;
+    if (node.closest("#qtype-icon-pop")) return true;
+    if (node.closest("#layout-single-editor")) return true;
+    return false;
+  }
+
+  function inspectorNumber(label, name, value, min, max, step) {
+    var shown = (value == null || value === "") ? (step === "any" ? "" : 0) : value;
+    var bounds = "";
+    if (min != null) bounds += ' min="' + min + '"';
+    if (max != null) bounds += ' max="' + max + '"';
+    return '<div class="bw-ed-field"><label>' + esc(label) + "</label>" +
+      '<input type="number" data-field="' + name + '" value="' + esc(shown) + '"' +
+      bounds + ' step="' + step + '"></div>';
+  }
+
+  function inspectorLaneSelect(value) {
+    var lanes = (state.doc && state.doc.lanes) || [];
+    var html = '<div class="bw-ed-field"><label for="layout-edit-lane">Lane</label>' +
+      '<select id="layout-edit-lane" data-field="lane">';
+    html += '<option value="">—</option>';
+    var known = false;
+    for (var i = 0; i < lanes.length; i++) {
+      var id = lanes[i].id || "";
+      var sel = (String(value) === String(id)) ? " selected" : "";
+      if (sel) known = true;
+      var label = lanes[i].label ? String(lanes[i].label) : String(id);
+      html += '<option value="' + esc(id) + '"' + sel + ">" + esc(label) + "</option>";
+    }
+    if (value && !known) {
+      html += '<option value="' + esc(value) + '" selected>' + esc(value) + "</option>";
+    }
+    html += "</select></div>";
+    return html;
+  }
+
+  function positionEditorHtml(node) {
+    if (!isArchitecture()) {
+      return inspectorLaneSelect(node.lane) +
+        inspectorNumber("Column", "col", node.col, 0, 5, "1");
+    }
+    if (usesGridPlacement(node)) {
+      return inspectorNumber("Row", "row", node.row, 0, 1000000, "1") +
+        inspectorNumber("Column", "col", node.col, 0, 1000000, "1");
+    }
+    return inspectorNumber("pos x", "posX", pairNumber(node, "pos", 0, 40), null, null, "any") +
+      inspectorNumber("pos y", "posY", pairNumber(node, "pos", 1, 80), null, null, "any") +
+      inspectorNumber("size w", "sizeW", pairNumber(node, "size", 0, 120), null, null, "any") +
+      inspectorNumber("size h", "sizeH", pairNumber(node, "size", 1, 60), null, null, "any");
+  }
+
+  function refillPositionEditor(node) {
+    var slot = $("layout-edit-position");
+    if (!slot || !node) return;
+    slot.innerHTML = positionEditorHtml(node);
+  }
+
+  function refillBrandEditor(node) {
+    var slot = $("layout-edit-brand-slot");
+    if (!slot || !node) return;
+    slot.dataset.locked = isForeignObjectBrand(node.brand) ? "1" : "0";
+    slot.innerHTML = brandFieldHtml(node);
+  }
+
+  function refillNodeEditorFromNode(node) {
+    if (!node) return;
+    fillNodeTypeSelect(nodeChooserValue(node));
+    fillStyleSelect($("layout-edit-color"), "color", displayedNodeColor(node.id));
+    var labelEl = $("layout-edit-label");
+    var subEl = $("layout-edit-sublabel");
+    var tagEl = $("layout-edit-tag");
+    if (labelEl) labelEl.value = node.label != null ? String(node.label) : "";
+    if (subEl) subEl.value = node.sublabel != null ? String(node.sublabel) : "";
+    if (tagEl) tagEl.value = node.tag != null ? String(node.tag) : "";
+    refillPositionEditor(node);
+    refillBrandEditor(node);
+    if (nodeEdit) nodeEdit.colorTouched = false;
+  }
+
+  function inspectorBufferDirty() {
+    if (nodeEdit) {
+      var node = findDocNode(nodeEdit.nodeId);
+      if (!node) return false;
+      var values = readNodeEditorValues();
+      if (values.type === QUICK_TYPE_SENTINEL) return false;
+      return !nodeTextUnchanged(node, values);
+    }
+    if (singleEdit && singleEdit.kind === "edge") {
+      var edge = relationRecords()[singleEdit.edgeIndex];
+      if (!edge) return false;
+      var input = $("layout-single-label");
+      var next = String((input && input.value) || "").trim();
+      var cur = edge.label != null ? String(edge.label) : "";
+      var has = Object.prototype.hasOwnProperty.call(edge, "label");
+      return !((!has && !next) || (has && cur === next));
+    }
+    return false;
+  }
+
+  function revertInspectorBuffer() {
+    if (nodeEdit) {
+      var node = findDocNode(nodeEdit.nodeId);
+      if (node) refillNodeEditorFromNode(node);
+      nodeEdit.colorTouched = false;
+      return;
+    }
+    if (singleEdit && singleEdit.kind === "edge") {
+      var edge = relationRecords()[singleEdit.edgeIndex];
+      var input = $("layout-single-label");
+      if (edge && input) input.value = edge.label != null ? String(edge.label) : "";
+    }
+  }
+
+  function showDocumentInspector() {
+    var hadComponent = !!state.selectedComponentId;
+    nodeEdit = null;
+    hideNodeEditor();
+    if (singleEdit && singleEdit.kind === "edge") {
+      singleEdit = null;
+      hideSingleEditor();
+    }
+    state.selectedNodeId = null;
+    state.selectedComponentId = null;
+    state.selectedEdgeIndex = null;
+    updateDeleteEdgeButton();
+    syncInspectorPanes();
+    if (hadComponent && isArchitecture() && !state.layoutBusy) mountLayoutOverlays();
+    else updateConnectHighlight();
+    refreshEdgeSelectionStyles();
+  }
+
+  function rememberDiagnostics(data) {
+    data = data || {};
+    state.diagnostics = {
+      archify: data.archify ? String(data.archify) : "",
+      archify_patch: data.archify_patch ? String(data.archify_patch) : "",
+      archify_note: data.archify_note ? String(data.archify_note) : "",
+      sidecar_note: data.sidecar_note ? String(data.sidecar_note) : "",
+      icon_note: data.icon_note ? String(data.icon_note) : "",
+      type_library_note: data.type_library_note ? String(data.type_library_note) : ""
+    };
+  }
+
+  function renderInspectorChrome() {
+    var kind = $("inspector-kindline");
+    if (kind) {
+      if (!state.doc) kind.textContent = "";
+      else if (isArchitecture()) {
+        kind.textContent = "Architecture · components " + ((state.doc.components) || []).length +
+          " · connections " + ((state.doc.connections) || []).length +
+          " · boundaries " + ((state.doc.boundaries) || []).length +
+          " · cards " + ((state.doc.cards) || []).length;
+      } else {
+        kind.textContent = "Workflow · nodes " + ((state.doc.nodes) || []).length +
+          " · edges " + ((state.doc.edges) || []).length +
+          " · lanes " + ((state.doc.lanes) || []).length +
+          " · cards " + ((state.doc.cards) || []).length;
+      }
+    }
+    var nav = $("inspector-browse");
+    if (nav) {
+      var html = "";
+      if (state.doc) {
+        var arch = isArchitecture();
+        var typeCount = 0;
+        if (state.sidecar && state.sidecar.types && typeof state.sidecar.types === "object") {
+          typeCount = Object.keys(state.sidecar.types).length;
+        }
+        var links = arch
+          ? [
+              ["components", "Components", ((state.doc.components) || []).length],
+              ["connections", "Connections", ((state.doc.connections) || []).length],
+              ["boundaries", "Boundaries", ((state.doc.boundaries) || []).length],
+              ["cards", "Cards", ((state.doc.cards) || []).length],
+              ["types", "Custom types", typeCount]
+            ]
+          : [
+              ["nodes", "Nodes", ((state.doc.nodes) || []).length],
+              ["edges", "Edges", ((state.doc.edges) || []).length],
+              ["lanes", "Lanes", ((state.doc.lanes) || []).length],
+              ["cards", "Cards", ((state.doc.cards) || []).length],
+              ["types", "Custom types", typeCount]
+            ];
+        for (var i = 0; i < links.length; i++) {
+          html += '<button type="button" class="inspector-link" data-tab="' + links[i][0] + '">' +
+            links[i][1] + " (" + links[i][2] + ")</button>";
+        }
+      }
+      if (nav.getAttribute("data-sig") !== html) {
+        nav.setAttribute("data-sig", html);
+        nav.innerHTML = html;
+      }
+    }
+    var notes = $("inspector-diagnostics");
+    if (notes) {
+      var d = state.diagnostics || {};
+      var lines = [];
+      if (d.archify) lines.push(String(d.archify));
+      if (d.archify_patch) lines.push(String(d.archify_patch));
+      if (d.archify_note) lines.push(String(d.archify_note));
+      if (d.sidecar_note) lines.push(String(d.sidecar_note));
+      if (d.icon_note) lines.push(String(d.icon_note));
+      if (d.type_library_note) lines.push(String(d.type_library_note));
+      notes.textContent = lines.join("\n");
+    }
+  }
+
   function cancelNodeEditor() {
     if (!nodeEdit) return;
     nodeEdit = null;
     hideNodeEditor();
+    syncInspectorPanes();
   }
 
   function cancelSingleEditor() {
     if (!singleEdit) return;
     singleEdit = null;
     hideSingleEditor();
+    syncInspectorPanes();
   }
 
   function cancelInlineEditors() {
@@ -9106,6 +9874,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       displayedColor: displayedNodeColor(node.id),
       hasSize: Array.isArray(node.size) && node.size.length >= 2,
       size: (Array.isArray(node.size) && node.size.length >= 2) ? node.size.slice() : null,
+      hasLane: Object.prototype.hasOwnProperty.call(node, "lane"),
+      lane: node.lane,
+      hasCol: Object.prototype.hasOwnProperty.call(node, "col"),
+      col: node.col,
+      hasRow: Object.prototype.hasOwnProperty.call(node, "row"),
+      row: node.row,
+      hasPos: Array.isArray(node.pos) && node.pos.length >= 2,
+      pos: (Array.isArray(node.pos) && node.pos.length >= 2) ? node.pos.slice() : null,
       types: clone(state.sidecar.types || {}),
       assignments: clone(state.sidecar.assignments || {}),
     };
@@ -9127,6 +9903,22 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (Object.prototype.hasOwnProperty.call(snap, "hasSize")) {
       if (snap.hasSize && Array.isArray(snap.size)) node.size = snap.size.slice();
       else delete node.size;
+    }
+    if (Object.prototype.hasOwnProperty.call(snap, "hasLane")) {
+      if (snap.hasLane) node.lane = snap.lane;
+      else delete node.lane;
+    }
+    if (Object.prototype.hasOwnProperty.call(snap, "hasCol")) {
+      if (snap.hasCol) node.col = snap.col;
+      else delete node.col;
+    }
+    if (Object.prototype.hasOwnProperty.call(snap, "hasRow")) {
+      if (snap.hasRow) node.row = snap.row;
+      else delete node.row;
+    }
+    if (Object.prototype.hasOwnProperty.call(snap, "hasPos")) {
+      if (snap.hasPos && Array.isArray(snap.pos)) node.pos = snap.pos.slice();
+      else delete node.pos;
     }
     if (node.id) {
       ensureSidecar();
@@ -9154,59 +9946,57 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     };
   }
 
-  function openNodeEditor(handle) {
-    cancelInlineEditors();
+  function openNodeEditor(handle, opts) {
+    opts = opts || {};
     if (state.layoutBusy || !handle) return;
     var id = handle.getAttribute("data-node-id");
     var node = findDocNode(id);
     if (!node) return;
     var panel = $("layout-node-editor");
-    var wrap = $("layout-wrap");
     var labelEl = $("layout-edit-label");
     var subEl = $("layout-edit-sublabel");
     var tagEl = $("layout-edit-tag");
     var typeEl = $("layout-edit-type");
-    if (!panel || !wrap || !labelEl || !subEl || !tagEl || !typeEl) return;
-    positionEditorPanel(panel, handle, 220);
-    fillNodeTypeSelect(nodeChooserValue(node));
-    fillStyleSelect($("layout-edit-color"), "color", displayedNodeColor(id));
-    labelEl.value = node.label != null ? String(node.label) : "";
-    subEl.value = node.sublabel != null ? String(node.sublabel) : "";
-    tagEl.value = node.tag != null ? String(node.tag) : "";
+    if (!panel || !labelEl || !subEl || !tagEl || !typeEl) return;
+    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
+    if (singleEdit && singleEdit.kind === "edge") {
+      singleEdit = null;
+      hideSingleEditor();
+    }
+    if (isArchitecture()) state.selectedComponentId = String(id);
+    else state.selectedNodeId = String(id);
+    state.selectedEdgeIndex = null;
+    updateDeleteEdgeButton();
+    if (nodeEdit && String(nodeEdit.nodeId) === String(id)) {
+      panel.classList.add("active");
+      syncInspectorPanes();
+      updateConnectHighlight();
+      if (opts.focus && !labelEl.disabled) {
+        labelEl.focus();
+        labelEl.select();
+      }
+      return;
+    }
+    refillNodeEditorFromNode(node);
     nodeEdit = {
       nodeId: id,
       colorTouched: false,
       snap: snapNodeTextFields(node),
       handle: handle,
     };
-    var dupBtn = $("layout-edit-duplicate");
-    if (dupBtn) {
-      dupBtn.disabled = false;
-      dupBtn.title = isArchitecture() ? "Clone component beside this one" : "Clone node to a free cell";
-    }
-    var delBtn = $("layout-edit-delete");
-    if (delBtn) {
-      if (isArchitecture()) {
-        delBtn.disabled = false;
-        delBtn.title = "Delete component and its connections";
-      } else {
-        var nodeCount = (state.doc.nodes || []).length;
-        delBtn.disabled = nodeCount <= 1;
-        delBtn.title = nodeCount <= 1
-          ? "Cannot delete the last node"
-          : "Delete node and its edges";
-      }
-    }
+    syncNodeEditorButtons();
     panel.classList.add("active");
-    labelEl.focus();
-    labelEl.select();
-    setStatus(isArchitecture()
-      ? ("Editing component " + id + " (Enter=save, Esc=cancel)")
-      : ("Editing " + id + " (Enter=save, Esc=cancel)"), "");
+    syncInspectorPanes();
+    updateConnectHighlight();
+    if (isArchitecture() && !state.layoutBusy) mountLayoutOverlays();
+    if (opts.focus && !labelEl.disabled) {
+      labelEl.focus();
+      labelEl.select();
+    }
   }
 
-  function openEdgeLabelEditor(hitEl) {
-    cancelInlineEditors();
+  function openEdgeLabelEditor(hitEl, opts) {
+    opts = opts || {};
     if (state.layoutBusy || !hitEl) return;
     var idx = parseInt(hitEl.getAttribute("data-doc-index"), 10);
     var edges = relationRecords();
@@ -9216,9 +10006,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var input = $("layout-single-label");
     var caption = $("layout-single-label-caption");
     if (!panel || !input) return;
+    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
+    if (nodeEdit) {
+      nodeEdit = null;
+      hideNodeEditor();
+    }
+    state.selectedNodeId = null;
+    state.selectedComponentId = null;
+    state.selectedEdgeIndex = idx;
+    updateDeleteEdgeButton();
     if (caption) caption.textContent = isArchitecture() ? "Connection label" : "Edge label";
     panel.setAttribute("aria-label", isArchitecture() ? "Edit connection" : "Edit edge");
-    positionEditorPanel(panel, hitEl, 260);
+    dockSingleEditor(true);
+    setSingleEditorHint("Enter=apply · Esc=cancel");
     input.value = edge.label != null ? String(edge.label) : "";
     showEdgeAdvanced(edge);
     singleEdit = {
@@ -9229,14 +10029,25 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       anchor: hitEl,
     };
     panel.classList.add("active");
-    clampSingleEditorToWrap();
-    input.focus();
-    input.select();
-    setStatus("Editing " + (isArchitecture() ? "connection " : "edge ") + edge.from + " → " + edge.to + " (label: Enter/Save; Advanced applies immediately)", "");
+    syncInspectorPanes();
+    refreshEdgeSelectionStyles();
+    updateConnectHighlight();
+    if (opts.focus && !input.disabled) {
+      input.focus();
+      input.select();
+    }
   }
 
   function openLaneLabelEditor(hitEl) {
-    cancelInlineEditors();
+    if (inspectorBufferDirty()) applyDockedBufferSync();
+    if (nodeEdit) {
+      nodeEdit = null;
+      hideNodeEditor();
+    }
+    if (singleEdit && singleEdit.kind === "edge") {
+      singleEdit = null;
+      hideSingleEditor();
+    }
     if (state.layoutBusy || !hitEl) return;
     var idx = parseInt(hitEl.getAttribute("data-lane-index"), 10);
     if (isNaN(idx) || idx < 0 || !(state.doc.lanes && state.doc.lanes[idx])) return;
@@ -9247,7 +10058,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!panel || !input) return;
     if (caption) caption.textContent = "Lane label";
     panel.setAttribute("aria-label", "Edit lane label");
+    setSingleEditorHint("Enter=save · Esc=cancel");
     hideEdgeAdvanced();
+    dockSingleEditor(false);
     positionEditorPanel(panel, hitEl, 200);
     input.value = lane.label != null ? String(lane.label) : "";
     singleEdit = {
@@ -9257,6 +10070,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       anchor: hitEl,
     };
     panel.classList.add("active");
+    syncInspectorPanes();
     input.focus();
     input.select();
     setStatus("Editing lane " + (lane.id || idx) + " label (required)", "");
@@ -9398,11 +10212,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     );
     if (hit) {
       edit.anchor = hit;
-      positionEditorPanel(panel, hit, 260);
+      if (!panel.classList.contains("bw-docked")) positionEditorPanel(panel, hit, 260);
     }
     fillEdgeAdvanced(edge);
     panel.classList.add("active");
-    clampSingleEditorToWrap();
+    if (!panel.classList.contains("bw-docked")) clampSingleEditorToWrap();
+    syncInspectorPanes();
+    if (state.selectedEdgeIndex == null) state.selectedEdgeIndex = edit.edgeIndex;
     holdScrollCancel();
   }
 
@@ -9417,6 +10233,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function commitSingleEditor() {
     if (!singleEdit || state.layoutBusy) return;
+    if (singleEdit.kind === "edge") {
+      commitDockedInspector({ focusId: "layout-single-label" });
+      return;
+    }
     var edit = singleEdit;
     var input = $("layout-single-label");
     var value = String((input && input.value) || "").trim();
@@ -9517,13 +10337,117 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function readNodeEditorValues() {
+    var root = $("layout-edit-position");
+    function posVal(name) {
+      var el = root && root.querySelector('[data-field="' + name + '"]');
+      return el ? el.value : "";
+    }
     return {
       type: String(($("layout-edit-type") && $("layout-edit-type").value) || "").trim(),
       label: String(($("layout-edit-label") && $("layout-edit-label").value) || "").trim(),
       sublabel: String(($("layout-edit-sublabel") && $("layout-edit-sublabel").value) || "").trim(),
       tag: String(($("layout-edit-tag") && $("layout-edit-tag").value) || "").trim(),
       color: String(($("layout-edit-color") && $("layout-edit-color").value) || ""),
+      lane: posVal("lane"),
+      col: posVal("col"),
+      row: posVal("row"),
+      posX: posVal("posX"),
+      posY: posVal("posY"),
+      sizeW: posVal("sizeW"),
+      sizeH: posVal("sizeH"),
     };
+  }
+
+  function displayedCol(node) {
+    if (!node || node.col == null || node.col === "") return 0;
+    var n = Number(node.col);
+    return isFinite(n) ? n : 0;
+  }
+
+  function displayedCell(node, field) {
+    if (!node || node[field] == null || node[field] === "") return 0;
+    var n = Number(node[field]);
+    return isFinite(n) ? n : 0;
+  }
+
+  function positionCommitError(node, values) {
+    if (!node || !isArchitecture()) return "";
+    if (usesGridPlacement(node)) {
+      if (isNaN(parseInt(values.row, 10))) return "row must be an integer";
+      if (isNaN(parseInt(values.col, 10))) return "col must be an integer";
+      return "";
+    }
+    var keys = ["posX", "posY", "sizeW", "sizeH"];
+    for (var i = 0; i < keys.length; i++) {
+      if (!isFinite(parseFloat(values[keys[i]]))) return keys[i] + " must be a number";
+    }
+    return "";
+  }
+
+  function positionUnchanged(node, values) {
+    if (!node) return true;
+    if (!isArchitecture()) {
+      if (String(node.lane == null ? "" : node.lane) !== String(values.lane == null ? "" : values.lane)) return false;
+      var col = parseInt(values.col, 10);
+      if (isNaN(col)) col = 0;
+      if (col < 0) col = 0;
+      if (col > 5) col = 5;
+      return displayedCol(node) === col;
+    }
+    if (positionCommitError(node, values)) return false;
+    if (usesGridPlacement(node)) {
+      var row = parseInt(values.row, 10);
+      var gcol = parseInt(values.col, 10);
+      if (row < 0) row = 0;
+      if (gcol < 0) gcol = 0;
+      return displayedCell(node, "row") === row && displayedCell(node, "col") === gcol;
+    }
+    return Number(pairNumber(node, "pos", 0, 40)) === parseFloat(values.posX) &&
+      Number(pairNumber(node, "pos", 1, 80)) === parseFloat(values.posY) &&
+      Number(pairNumber(node, "size", 0, 120)) === parseFloat(values.sizeW) &&
+      Number(pairNumber(node, "size", 1, 60)) === parseFloat(values.sizeH);
+  }
+
+  function positionBaseline(node) {
+    return {
+      grid: usesGridPlacement(node),
+      lane: node.lane == null ? "" : String(node.lane),
+      col: displayedCol(node),
+      row: displayedCell(node, "row"),
+      posX: Number(pairNumber(node, "pos", 0, 40)),
+      posY: Number(pairNumber(node, "pos", 1, 80)),
+      sizeW: Number(pairNumber(node, "size", 0, 120)),
+      sizeH: Number(pairNumber(node, "size", 1, 60)),
+    };
+  }
+
+  function applyNodePosition(node, values, base) {
+    base = base || positionBaseline(node);
+    if (!isArchitecture()) {
+      var lane = values.lane == null ? "" : String(values.lane);
+      if (base.lane !== lane) node.lane = lane;
+      var col = parseInt(values.col, 10);
+      if (isNaN(col)) col = 0;
+      if (col < 0) col = 0;
+      if (col > 5) col = 5;
+      if (base.col !== col) node.col = col;
+      return;
+    }
+    if (base.grid) {
+      var row = parseInt(values.row, 10);
+      var gcol = parseInt(values.col, 10);
+      if (row < 0) row = 0;
+      if (gcol < 0) gcol = 0;
+      if (base.row !== row) node.row = row;
+      if (base.col !== gcol) node.col = gcol;
+      return;
+    }
+    var px = parseFloat(values.posX);
+    var py = parseFloat(values.posY);
+    var sw = parseFloat(values.sizeW);
+    var sh = parseFloat(values.sizeH);
+    if (base.posX !== px || base.posY !== py) node.pos = [px, py];
+    if (base.sizeW !== sw || base.sizeH !== sh) node.size = [sw, sh];
   }
 
   function nodeTextUnchanged(node, values) {
@@ -9534,11 +10458,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (curSub !== values.sublabel) return false;
     if (curTag !== values.tag) return false;
     if (displayedNodeColor(node.id) !== String(values.color || "")) return false;
+    if (!positionUnchanged(node, values)) return false;
     return true;
   }
 
   function applyNodeEditorValues(node, values, edit) {
     if (values.type === QUICK_TYPE_SENTINEL) return { ok: false, error: "Choose a type" };
+    var positionBase = positionBaseline(node);
     var choiceChanged = nodeChooserValue(node) !== values.type;
     var applied = { ok: true };
     if (choiceChanged) {
@@ -9557,75 +10483,284 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!choiceChanged || colorTouched) {
       writeNodeColorChoice(node.id, String(values.color || ""), false);
     }
+    applyNodePosition(node, values, positionBase);
     applied.ok = true;
     return applied;
   }
 
-  function commitNodeEditor() {
+  function finishDockedSelect(opts) {
+    opts = opts || {};
+    if (opts.nextNodeId) selectLayoutNode(opts.nextNodeId, { focus: !!opts.focus });
+    else if (opts.nextEdgeIndex != null) selectLayoutEdge(opts.nextEdgeIndex, { focus: !!opts.focus });
+    else if (opts.deselect) showDocumentInspector();
+    else if (opts.focusId) {
+      var el = $(opts.focusId);
+      if (el && !el.disabled) {
+        el.focus();
+        if (el.select && String(el.tagName || "").toLowerCase() === "input") el.select();
+      }
+    }
+  }
+
+  function commitDockedInspector(opts) {
+    opts = opts || {};
+    if (state.layoutBusy || inspectorCommitLock) return;
+    if (singleEdit && singleEdit.kind === "lane") return;
+    if (!inspectorBufferDirty()) {
+      finishDockedSelect(opts);
+      return;
+    }
+    if (nodeEdit) commitNodeEditor(opts);
+    else if (singleEdit && singleEdit.kind === "edge") commitEdgeInspector(opts);
+  }
+
+  function applyDockedBufferSync() {
+    if (state.layoutBusy || inspectorCommitLock || !inspectorBufferDirty()) return false;
+    if (nodeEdit) {
+      var values = readNodeEditorValues();
+      var node = findDocNode(nodeEdit.nodeId);
+      var posErr = node ? positionCommitError(node, values) : "";
+      if (!node || values.type === QUICK_TYPE_SENTINEL || !values.label || !values.type || posErr) {
+        if (node) refillNodeEditorFromNode(node);
+        if (!values.label) setStatus("Label required (minLength 1); kept previous", "");
+        else if (!values.type) setStatus("Type required; kept previous", "");
+        else if (posErr) setStatus(posErr + "; kept previous", "");
+        return false;
+      }
+      var snap = nodeEdit.snap;
+      pushHistory();
+      var applied = applyNodeEditorValues(node, values, nodeEdit);
+      if (!applied.ok) {
+        restoreNodeTextFields(node, snap);
+        revertHistoryPush();
+        refillNodeEditorFromNode(node);
+        setStatus(applied.error || "Type not applied", "err");
+        return false;
+      }
+      nodeEdit.snap = snapNodeTextFields(node);
+      nodeEdit.colorTouched = false;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      return true;
+    }
+    if (singleEdit && singleEdit.kind === "edge") {
+      var edge = relationRecords()[singleEdit.edgeIndex];
+      var input = $("layout-single-label");
+      if (!edge) return false;
+      var value = String((input && input.value) || "").trim();
+      pushHistory();
+      if (value) edge.label = value;
+      else delete edge.label;
+      singleEdit.hasLabel = Object.prototype.hasOwnProperty.call(edge, "label");
+      singleEdit.snapLabel = edge.label;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      return true;
+    }
+    return false;
+  }
+
+  function restoreNodeEditorAfterRemount() {
     if (!nodeEdit) return;
+    var node = findDocNode(nodeEdit.nodeId);
+    var panel = $("layout-node-editor");
+    if (!node || !panel) {
+      nodeEdit = null;
+      hideNodeEditor();
+      syncInspectorPanes();
+      return;
+    }
+    nodeEdit.snap = snapNodeTextFields(node);
+    nodeEdit.colorTouched = false;
+    refillNodeEditorFromNode(node);
+    panel.classList.add("active");
+    syncNodeEditorButtons();
+    syncInspectorPanes();
+  }
+
+  function commitNodeEditor(opts) {
+    opts = opts || {};
+    if (!nodeEdit || state.layoutBusy || inspectorCommitLock) return;
     var edit = nodeEdit;
     var values = readNodeEditorValues();
     if (values.type === QUICK_TYPE_SENTINEL) {
       openQuickType({ kind: "layout", nodeId: edit.nodeId, selectEl: $("layout-edit-type") });
       return;
     }
-    // Clear session before hide so outside-click cannot re-enter.
-    nodeEdit = null;
-    hideNodeEditor();
     if (!values.label) {
       setStatus("Label required (minLength 1); kept previous", "");
+      var keepLabel = findDocNode(edit.nodeId);
+      if (keepLabel) refillNodeEditorFromNode(keepLabel);
       return;
     }
     if (!values.type) {
       setStatus("Type required; kept previous", "");
+      var keepType = findDocNode(edit.nodeId);
+      if (keepType) refillNodeEditorFromNode(keepType);
       return;
     }
     var node = findDocNode(edit.nodeId);
     if (!node) return;
+    var posErr = positionCommitError(node, values);
+    if (posErr) {
+      setStatus(posErr + "; kept previous", "");
+      refillNodeEditorFromNode(node);
+      return;
+    }
     if (nodeTextUnchanged(node, values)) {
-      setStatus("Node unchanged", "");
+      finishDockedSelect(opts);
       return;
     }
-    pushHistory();
-    var appliedNode = applyNodeEditorValues(node, values, edit);
-    if (!appliedNode.ok) {
-      restoreNodeTextFields(node, edit.snap);
-      revertHistoryPush();
-      setStatus(appliedNode.error || "Type not applied", "err");
-      renderLists();
-      return;
+    inspectorCommitLock = true;
+    var snap = edit.snap;
+    var appliedNode = null;
+    var committedId = edit.nodeId;
+    try {
+      pushHistory();
+      appliedNode = applyNodeEditorValues(node, values, edit);
+      if (!appliedNode.ok) {
+        restoreNodeTextFields(node, snap);
+        revertHistoryPush();
+        setStatus(appliedNode.error || "Type not applied", "err");
+        refillNodeEditorFromNode(node);
+        return;
+      }
+      state.rawDirty = false;
+    } finally {
+      inspectorCommitLock = false;
     }
-    state.rawDirty = false;
-    renderLists();
+    if (!appliedNode || !appliedNode.ok) return;
+    finishDockedSelect(opts);
+    var focusId = (!opts.nextNodeId && opts.nextEdgeIndex == null && !opts.deselect) ? (opts.focusId || null) : null;
     setLayoutBusy(true);
-    setStatus("previewing node… " + edit.nodeId, "");
+    setStatus("previewing node… " + committedId, "");
     postPreviewDoc()
       .then(function (receipt) {
         if (receipt.ok) {
           markDirty();
-          var msg = "Updated " + edit.nodeId + " (unsaved)";
+          if (nodeEdit && String(nodeEdit.nodeId) === String(committedId)) {
+            var live = findDocNode(committedId);
+            if (live) nodeEdit.snap = snapNodeTextFields(live);
+            nodeEdit.colorTouched = false;
+          }
+          var msg = "Updated " + committedId + " (unsaved)";
           if (appliedNode.locked) msg += " (object brand left locked)";
           else if (appliedNode.kept) msg += " (brand left unchanged)";
           else if (appliedNode.unknown) msg += " (unknown icon " + appliedNode.unknown + " stored as a catalog id)";
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
-          return loadLayoutPane(true).then(function () {
+          return loadLayoutPane(true, { restoreFocusId: focusId }).then(function () {
             setLayoutBusy(false);
             renderAll();
           });
         }
-        restoreNodeTextFields(node, edit.snap);
+        var failed = findDocNode(committedId);
+        if (failed) restoreNodeTextFields(failed, snap);
         revertHistoryPush();
+        if (nodeEdit && String(nodeEdit.nodeId) === String(committedId)) {
+          nodeEdit.snap = snap;
+          if (failed) refillNodeEditorFromNode(failed);
+        }
         setLayoutBusy(false);
         var errs = receipt.errors || [receipt.error || "preview failed"];
         setStatus("Node not updated (reverted):\n- " + errs.join("\n- "), "err");
         renderLists();
       })
       .catch(function (e) {
-        restoreNodeTextFields(node, edit.snap);
+        var failedErr = findDocNode(committedId);
+        if (failedErr) restoreNodeTextFields(failedErr, snap);
         revertHistoryPush();
+        if (nodeEdit && String(nodeEdit.nodeId) === String(committedId)) {
+          nodeEdit.snap = snap;
+          if (failedErr) refillNodeEditorFromNode(failedErr);
+        }
         setLayoutBusy(false);
         setStatus("Node preview failed (reverted): " + e, "err");
+        renderLists();
+      });
+  }
+
+  function commitEdgeInspector(opts) {
+    opts = opts || {};
+    if (!singleEdit || singleEdit.kind !== "edge" || state.layoutBusy || inspectorCommitLock) return;
+    var edit = singleEdit;
+    var input = $("layout-single-label");
+    var value = String((input && input.value) || "").trim();
+    var edge = relationRecords()[edit.edgeIndex];
+    if (!edge) return;
+    var cur = edge.label != null ? String(edge.label) : "";
+    var curHas = Object.prototype.hasOwnProperty.call(edge, "label");
+    if ((!curHas && !value) || (curHas && cur === value)) {
+      finishDockedSelect(opts);
+      return;
+    }
+    inspectorCommitLock = true;
+    var snapEdit = {
+      hasLabel: edit.hasLabel,
+      snapLabel: edit.snapLabel,
+      edgeIndex: edit.edgeIndex
+    };
+    try {
+      pushHistory();
+      if (value) edge.label = value;
+      else delete edge.label;
+      state.rawDirty = false;
+    } finally {
+      inspectorCommitLock = false;
+    }
+    var committedIndex = edit.edgeIndex;
+    finishDockedSelect(opts);
+    var focusId = (!opts.nextNodeId && opts.nextEdgeIndex == null && !opts.deselect) ? (opts.focusId || null) : null;
+    setLayoutBusy(true);
+    setStatus("previewing edge label…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        var shown = relationRecords()[committedIndex] || edge;
+        if (receipt.ok) {
+          markDirty();
+          if (singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === committedIndex) {
+            var liveEdge = relationRecords()[committedIndex];
+            if (liveEdge) {
+              singleEdit.hasLabel = Object.prototype.hasOwnProperty.call(liveEdge, "label");
+              singleEdit.snapLabel = liveEdge.label;
+            }
+          }
+          var msg = "Updated edge label " + shown.from + " → " + shown.to + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { restoreFocusId: focusId }).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        var revertEdge = relationRecords()[snapEdit.edgeIndex];
+        if (revertEdge) restoreEdgeLabel(revertEdge, snapEdit);
+        revertHistoryPush();
+        if (singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === snapEdit.edgeIndex) {
+          singleEdit.hasLabel = snapEdit.hasLabel;
+          singleEdit.snapLabel = snapEdit.snapLabel;
+          var inp = $("layout-single-label");
+          if (inp) inp.value = revertEdge && revertEdge.label != null ? String(revertEdge.label) : "";
+        }
+        setLayoutBusy(false);
+        var errs = receipt.errors || [receipt.error || "preview failed"];
+        setStatus("Edge label not updated (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+      })
+      .catch(function (e) {
+        var revertEdgeErr = relationRecords()[snapEdit.edgeIndex];
+        if (revertEdgeErr) restoreEdgeLabel(revertEdgeErr, snapEdit);
+        revertHistoryPush();
+        if (singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === snapEdit.edgeIndex) {
+          singleEdit.hasLabel = snapEdit.hasLabel;
+          singleEdit.snapLabel = snapEdit.snapLabel;
+          var inpErr = $("layout-single-label");
+          if (inpErr) inpErr.value = revertEdgeErr && revertEdgeErr.label != null ? String(revertEdgeErr.label) : "";
+        }
+        setLayoutBusy(false);
+        setStatus("Edge label preview failed (reverted): " + e, "err");
         renderLists();
       });
   }
@@ -9705,12 +10840,26 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     return uniqueNodeId("node");
   }
 
-  function openNodeEditorById(nodeId) {
+  function openNodeEditorById(nodeId, opts) {
     var iframe = $("layout-frame");
     var doc = iframe && iframe.contentDocument;
     if (!doc) return;
     var handle = doc.querySelector('rect.bw-handle[data-node-id="' + nodeId + '"]');
-    if (handle) openNodeEditor(handle);
+    if (handle) openNodeEditor(handle, opts || { focus: true });
+  }
+
+  function selectLayoutNode(id, opts) {
+    opts = opts || {};
+    if (!id) return;
+    var iframe = $("layout-frame");
+    var doc = iframe && iframe.contentDocument;
+    var handle = doc && doc.querySelector('rect.bw-handle[data-node-id="' + id + '"]');
+    if (handle) openNodeEditor(handle, opts);
+    else {
+      if (isArchitecture()) state.selectedComponentId = String(id);
+      else state.selectedNodeId = String(id);
+      updateConnectHighlight();
+    }
   }
 
   function componentBoxes() {
@@ -9901,6 +11050,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function duplicateLayoutComponent() {
     if (!nodeEdit || !state.doc || state.layoutBusy) return;
+    if (inspectorBufferDirty() && !applyDockedBufferSync()) return;
     var sourceId = nodeEdit.nodeId;
     var source = findDocNode(sourceId);
     if (!source) {
@@ -9984,6 +11134,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       return;
     }
     if (!nodeEdit || !state.doc || state.layoutBusy) return;
+    if (inspectorBufferDirty() && !applyDockedBufferSync()) return;
     var sourceId = nodeEdit.nodeId;
     var source = findDocNode(sourceId);
     if (!source) {
@@ -10099,6 +11250,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (state.connectFrom && String(state.connectFrom) === String(nodeId)) state.connectFrom = null;
     state.selectedEdgeIndex = null;
     state.selectedComponentId = null;
+    state.selectedNodeId = null;
     state.rawDirty = false;
     updateDeleteEdgeButton();
     renderLists();
@@ -10190,6 +11342,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       state.connectFrom = null;
     }
     state.selectedEdgeIndex = null;
+    state.selectedNodeId = null;
     state.rawDirty = false;
     updateDeleteEdgeButton();
     updateConnectHighlight();
@@ -10244,8 +11397,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   }
 
   function onLayoutDblClick(ev) {
-    if (state.layoutBusy || !state.layout) return;
-    if (state.layoutMode !== "move") return;
+    if (!state.layout || state.layoutMode !== "move") return;
+    var pendingTarget = ev.target;
+    if (state.layoutBusy) {
+      if (pendingTarget && pendingTarget.classList && pendingTarget.classList.contains("bw-handle")) {
+        pendingLabelFocusId = pendingTarget.getAttribute("data-node-id");
+      } else if (pendingTarget && pendingTarget.classList && pendingTarget.classList.contains("bw-edge-hit")) {
+        pendingEdgeFocusIndex = parseInt(pendingTarget.getAttribute("data-doc-index"), 10);
+      } else if (pendingTarget && pendingTarget.classList && pendingTarget.classList.contains("bw-lane-hit")) {
+        pendingLaneIndex = pendingTarget.getAttribute("data-lane-index");
+      }
+      return;
+    }
     var t = ev.target;
     if (!t || !t.classList) return;
     if (layoutDrag) {
@@ -10257,7 +11420,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     }
     if (t.classList.contains("bw-edge-hit")) {
       ev.preventDefault();
-      openEdgeLabelEditor(t);
+      openEdgeLabelEditor(t, { focus: true });
       return;
     }
     if (t.classList.contains("bw-lane-hit")) {
@@ -10267,7 +11430,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     }
     if (!t.classList.contains("bw-handle")) return;
     ev.preventDefault();
-    openNodeEditor(t);
+    if (state.layoutBusy) {
+      pendingLabelFocusId = t.getAttribute("data-node-id");
+      return;
+    }
+    openNodeEditor(t, { focus: true });
   }
 
   function endpointSnapThreshold() {
@@ -10510,7 +11677,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function onLayoutPointerDown(ev) {
     if (state.layoutBusy || !state.layout) return;
-    if (nodeEdit || singleEdit) cancelInlineEditors();
+    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
     var t = ev.target;
 
     // Endpoint handles first — never trigger add-edge / edge-select.
@@ -10586,23 +11753,31 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (t && t.classList && t.classList.contains("bw-edge-hit")) {
       // Do not preventDefault — that suppresses dblclick (edge label edit).
       var edgeIdx = parseInt(t.getAttribute("data-doc-index"), 10);
-      selectLayoutEdge(edgeIdx);
+      var sameEdge = singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === edgeIdx;
+      if (!sameEdge && (inspectorBufferDirty() || nodeEdit || (singleEdit && singleEdit.kind === "edge"))) {
+        commitDockedInspector({ nextEdgeIndex: edgeIdx });
+      } else {
+        selectLayoutEdge(edgeIdx);
+      }
       return;
     }
 
     if (t && t.classList && t.classList.contains("bw-lane-hit")) {
-      if (state.selectedEdgeIndex != null) {
+      if (inspectorBufferDirty()) commitDockedInspector({});
+      else if (state.selectedEdgeIndex != null) {
         clearEdgeSelection(true);
+        if (singleEdit && singleEdit.kind === "edge") {
+          singleEdit = null;
+          hideSingleEditor();
+          syncInspectorPanes();
+        }
         setStatus("Edge selection cleared", "");
       }
       return;
     }
 
     if (!t || !t.classList || !t.classList.contains("bw-handle")) {
-      if (state.selectedEdgeIndex != null) {
-        clearEdgeSelection(true);
-        setStatus("Edge selection cleared", "");
-      }
+      commitDockedInspector({ deselect: true });
       return;
     }
 
@@ -10748,8 +11923,22 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!drag.moved) {
       drag.rect.setAttribute("x", String(drag.origX));
       drag.rect.setAttribute("y", String(drag.origY));
-      if (isArchitecture()) selectArchitectureComponent(drag.id);
+      var sameNode = nodeEdit && String(nodeEdit.nodeId) === String(drag.id);
+      if (inspectorBufferDirty()) {
+        commitDockedInspector(sameNode ? {} : { nextNodeId: drag.id });
+      } else if (!sameNode) selectLayoutNode(drag.id);
+      else updateConnectHighlight();
       return;
+    }
+    if (inspectorBufferDirty()) {
+      drag.rect.setAttribute("x", String(drag.origX));
+      drag.rect.setAttribute("y", String(drag.origY));
+      commitDockedInspector({});
+      return;
+    }
+    if (!nodeEdit) {
+      if (isArchitecture()) state.selectedComponentId = String(drag.id);
+      else state.selectedNodeId = String(drag.id);
     }
     if (isArchitecture()) {
       finishArchitectureDrag(drag);
@@ -10909,12 +12098,34 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   function setLayoutBusy(busy) {
     state.layoutBusy = busy;
+    syncDockedFieldsDisabled(busy);
     applyOverlayInteractionStyles();
     syncQualityToggle();
     updateDirtyUI();
     setEdgeAdvancedDisabled(busy);
     syncDiagramStrip();
     updateHistoryButtons();
+    if (!busy) {
+      syncNodeEditorButtons();
+      if (pendingLabelFocusId) {
+        var wantFocus = pendingLabelFocusId;
+        pendingLabelFocusId = null;
+        pendingLaneIndex = null;
+        pendingEdgeFocusIndex = null;
+        openNodeEditorById(wantFocus, { focus: true });
+      } else if (pendingEdgeFocusIndex != null) {
+        var wantEdge = pendingEdgeFocusIndex;
+        pendingEdgeFocusIndex = null;
+        pendingLaneIndex = null;
+        selectLayoutEdge(wantEdge, { focus: true });
+      } else if (pendingLaneIndex != null) {
+        var wantLane = pendingLaneIndex;
+        pendingLaneIndex = null;
+        var laneDoc = $("layout-frame") && $("layout-frame").contentDocument;
+        var laneHit = laneDoc && laneDoc.querySelector('rect.bw-lane-hit[data-lane-index="' + wantLane + '"]');
+        if (laneHit) openLaneLabelEditor(laneHit);
+      }
+    }
   }
 
   function saveLayoutDrop(drag, snap) {
@@ -10970,10 +12181,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (state.layoutLoaded && !force && state.tab !== "layout") {
       return Promise.resolve();
     }
-    // Field preview remounts the iframe. Keep the edge popup across that remount only.
-    var keepEdge = !!(opts.keepSingleEditor && singleEdit && singleEdit.kind === "edge");
-    if (keepEdge) cancelNodeEditor();
-    else cancelInlineEditors();
+    // Docked inspector sessions survive the remount and refill from the doc.
+    // The lane popup is anchored to a hit rect that this remount destroys.
+    if (quickType) closeQuickType(true);
+    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
+    if (opts.dismissEditors) cancelInlineEditors();
     var stash = null;
     var iframePre = $("layout-frame");
     if (
@@ -11014,11 +12226,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
             try {
               prepareDiagramViewport(iframe.contentDocument);
               restoreLayoutViewport(stash);
-              // Selection is layout-index based; clear across remount so stale indexes cannot delete wrong edges.
-              state.selectedEdgeIndex = null;
+              if (state.selectedEdgeIndex != null && !relationRecords()[state.selectedEdgeIndex]) {
+                state.selectedEdgeIndex = null;
+              }
               state.connectFrom = null;
               mountLayoutOverlays();
-              if (keepEdge) restoreEdgePopupAfterRemount();
+              if (singleEdit && singleEdit.kind === "edge") restoreEdgePopupAfterRemount();
+              if (nodeEdit) restoreNodeEditorAfterRemount();
+              if (opts.restoreFocusId) {
+                var focusEl = $(opts.restoreFocusId);
+                if (focusEl && !focusEl.disabled) {
+                  focusEl.focus();
+                  if (focusEl.select) focusEl.select();
+                }
+              }
               updateModeButtons();
               updateDeleteEdgeButton();
               updateLayoutHint();
@@ -11039,6 +12260,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
           hintErr.title = msg;
         }
         setStatus(msg, "err");
+        publishLayoutHint(msg, false);
       });
   }
 
@@ -11312,6 +12534,67 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       delete node.brand;
     }
     finishNodeBrandEdit();
+  }
+
+  function rememberLayoutBrandSnap(node) {
+    if (!nodeEdit || !nodeEdit.snap || !node) return;
+    var snap = nodeEdit.snap;
+    snap.hasBrand = Object.prototype.hasOwnProperty.call(node, "brand");
+    snap.brand = isObjectBrand(node.brand) ? clone(node.brand) : node.brand;
+    snap.hasWidth = Object.prototype.hasOwnProperty.call(node, "width");
+    snap.width = node.width;
+    snap.hasSize = Array.isArray(node.size) && node.size.length >= 2;
+    snap.size = snap.hasSize ? node.size.slice() : null;
+  }
+
+  function finishLayoutBrandEdit(node, positionClean) {
+    rememberLayoutBrandSnap(node);
+    if (positionClean) refillPositionEditor(node);
+    refillBrandEditor(node);
+    state.rawDirty = false;
+    previewStale = true;
+    markDirty();
+    renderLists();
+    renderForm(isArchitecture() ? "components" : "nodes");
+    renderRaw();
+    updateDirtyUI();
+  }
+
+  function onLayoutBrandCatalog(raw) {
+    if (!nodeEdit || state.layoutBusy) return;
+    var node = findDocNode(nodeEdit.nodeId);
+    if (!node || isForeignObjectBrand(node.brand)) return;
+    var next = String(raw || "").trim();
+    if (typeof node.brand === "string" && node.brand === next) return;
+    if (!next && (node.brand == null || node.brand === "")) return;
+    var positionClean = positionUnchanged(node, readNodeEditorValues());
+    pushHistory();
+    if (next) applyBrandOnNode(node, next);
+    else delete node.brand;
+    finishLayoutBrandEdit(node, positionClean);
+  }
+
+  function onLayoutBrandPick(name) {
+    if (!nodeEdit || state.layoutBusy) return;
+    var node = findDocNode(nodeEdit.nodeId);
+    if (!node || isForeignObjectBrand(node.brand)) return;
+    name = String(name || "");
+    var currentName = (isObjectBrand(node.brand) && isOurBrandUrl(node.brand.url))
+      ? brandNameFromUrl(node.brand.url) : "";
+    var currentCatalog = typeof node.brand === "string" ? node.brand : "";
+    var positionClean = positionUnchanged(node, readNodeEditorValues());
+    if (name) {
+      if (currentName === name && !currentCatalog) return;
+      var found = brandByName(name);
+      if (!found) return;
+      pushHistory();
+      applyBrandOnNode(node, { url: found.url, sha256: found.sha256 });
+    } else {
+      if (!currentName && !currentCatalog && (node.brand == null || node.brand === "")) return;
+      pushHistory();
+      delete node.brand;
+    }
+    finishLayoutBrandEdit(node, positionClean);
   }
 
   function onFieldChange(kind, fieldEl) {
@@ -11817,6 +13100,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         state.doc = data.doc || null;
         state.enums = data.enums || {};
         state.archify = data.archify || null;
+        rememberDiagnostics(data);
         state.sidecar = (data.sidecar && typeof data.sidecar === "object" && !Array.isArray(data.sidecar))
           ? clone(data.sidecar) : emptySidecar();
         state.typeLibrary = (data.type_library && typeof data.type_library === "object")
@@ -11938,6 +13222,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.doc = data.doc || null;
     state.enums = data.enums || {};
     state.archify = data.archify || null;
+    rememberDiagnostics(data);
     state.sidecar = (data.sidecar && typeof data.sidecar === "object" && !Array.isArray(data.sidecar))
       ? clone(data.sidecar) : emptySidecar();
     if (data && data.type_library && typeof data.type_library === "object") {
@@ -11951,6 +13236,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     state.selected = emptySelection();
     state.selectedEdgeIndex = null;
     state.selectedComponentId = null;
+    state.selectedNodeId = null;
     state.connectFrom = null;
     state.layoutMode = "move";
     state.layout = null;
@@ -12173,7 +13459,53 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       closeOpenPanel();
     }
   });
+  function isOverflowOpen() {
+    var menu = $("overflow-menu");
+    return !!(menu && !menu.hidden);
+  }
+
+  function closeOverflow() {
+    var menu = $("overflow-menu");
+    var btn = $("btn-overflow");
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleOverflow() {
+    var menu = $("overflow-menu");
+    var btn = $("btn-overflow");
+    if (!menu) return;
+    if (isOverflowOpen()) {
+      closeOverflow();
+      return;
+    }
+    menu.hidden = false;
+    if (btn) btn.setAttribute("aria-expanded", "true");
+  }
+
+  var overflowBtn = $("btn-overflow");
+  if (overflowBtn) overflowBtn.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    toggleOverflow();
+  });
+  var overflowMenu = $("overflow-menu");
+  if (overflowMenu) overflowMenu.addEventListener("click", function () {
+    closeOverflow();
+  });
+  var overflowSource = $("btn-overflow-source");
+  if (overflowSource) overflowSource.addEventListener("click", function () {
+    switchTab("raw");
+  });
+  var overflowTypes = $("btn-overflow-types");
+  if (overflowTypes) overflowTypes.addEventListener("click", function () {
+    switchTab("types");
+  });
+
   document.addEventListener("mousedown", function (ev) {
+    if (isOverflowOpen()) {
+      var wrap = $("overflow-wrap");
+      if (wrap && !wrap.contains(ev.target)) closeOverflow();
+    }
     if (isStatusOverlayActive()) {
       var statusPanel = $("status-overlay");
       var statusBar = $("status-bar");
@@ -12200,7 +13532,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     closeOpenPanel();
   });
 
-  $("btn-status-close").addEventListener("click", closeStatusOverlay);
+  $("btn-status-close").addEventListener("click", dismissStatusError);
+  var statusChip = $("status-chip");
+  if (statusChip) {
+    statusChip.addEventListener("mousedown", function (ev) {
+      ev.stopPropagation();
+    });
+    statusChip.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      openStatusErrorOverlay();
+    });
+  }
   $("status").addEventListener("click", function () {
     if ($("status-bar") && $("status-bar").classList.contains("status-clipped")) {
       openStatusOverlay();
@@ -12261,7 +13603,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
 
   $("btn-mode-move").addEventListener("click", function () {
     setLayoutMode("move");
-    setStatus("Layout mode: Move", "");
+    setStatus("Layout mode: Select", "");
   });
   $("btn-mode-connect").addEventListener("click", function () {
     setLayoutMode("connect");
@@ -12471,21 +13813,45 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     if (!$("layout-frame").contentDocument || !$("layout-frame").contentDocument.querySelector("svg")) return;
     applyLayoutZoom(1);
   });
+  var zoomPct = $("layout-zoom-pct");
+  if (zoomPct) zoomPct.addEventListener("click", function () {
+    var zoom100 = $("btn-zoom-100");
+    if (zoom100) zoom100.click();
+  });
 
   function onNodeEditorKeydown(ev) {
     if (ev.key === "Enter") {
       ev.preventDefault();
-      commitNodeEditor();
+      var target = ev.target;
+      if (target && target.getAttribute && target.getAttribute("data-field") === "brandCatalog") {
+        onLayoutBrandCatalog(target.value);
+      }
+      commitDockedInspector({ focusId: target && target.id });
     } else if (ev.key === "Escape" || ev.key === "Esc") {
       ev.preventDefault();
-      cancelNodeEditor();
-      setStatus("Node edit cancelled", "");
+      ev.stopPropagation();
+      if (inspectorBufferDirty()) {
+        revertInspectorBuffer();
+        setStatus("Edits reverted", "");
+      } else {
+        showDocumentInspector();
+        setStatus("Selection cleared", "");
+      }
     }
   }
-  ["layout-edit-label", "layout-edit-sublabel", "layout-edit-tag", "layout-edit-brand", "layout-edit-type", "layout-edit-color"].forEach(function (id) {
+  ["layout-edit-label", "layout-edit-sublabel", "layout-edit-tag", "layout-edit-type", "layout-edit-color"].forEach(function (id) {
     var el = $(id);
     if (el) el.addEventListener("keydown", onNodeEditorKeydown);
   });
+  var nodeEditorPanel = $("layout-node-editor");
+  if (nodeEditorPanel) {
+    nodeEditorPanel.addEventListener("keydown", function (ev) {
+      var target = ev.target;
+      if (!target || !target.closest) return;
+      if (!target.closest("#layout-edit-position") && !target.closest("#layout-edit-brand-slot")) return;
+      onNodeEditorKeydown(ev);
+    });
+  }
   var layoutTypeEl = $("layout-edit-type");
   if (layoutTypeEl) {
     layoutTypeEl.addEventListener("change", function () {
@@ -12517,64 +13883,29 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       if (nodeEdit) nodeEdit.colorTouched = true;
     });
   }
-  var layoutBrandPicker = $("layout-edit-brand-picker");
-  if (layoutBrandPicker) {
-    layoutBrandPicker.addEventListener("click", function (ev) {
-      var btn = ev.target.closest("button[data-brand-name]");
-      if (!btn || btn.disabled || !nodeEdit || nodeEdit.brandLocked) return;
+  var layoutBrandSlot = $("layout-edit-brand-slot");
+  if (layoutBrandSlot) {
+    layoutBrandSlot.addEventListener("mousedown", function (ev) {
+      var btn = ev.target.closest("button.brand-pick");
+      if (!btn || btn.disabled) return;
+      // Keep focus in the label buffer. A pick must not blur-commit it.
       ev.preventDefault();
-      var name = btn.getAttribute("data-brand-name") || "";
-      var buttons = layoutBrandPicker.querySelectorAll("button[data-brand-name]");
-      for (var i = 0; i < buttons.length; i++) {
-        buttons[i].setAttribute("aria-pressed", buttons[i] === btn ? "true" : "false");
-      }
-      if (nodeEdit) nodeEdit.brandTouched = true;
-      if (name) {
-        var input = $("layout-edit-brand");
-        if (input && !input.disabled) input.value = "";
-      }
-      // Pick writes the buffer immediately. No deliver — M23 previewStale only.
-      var node = findDocNode(nodeEdit.nodeId);
-      if (!node || isForeignObjectBrand(node.brand)) return;
-      var next = null;
-      if (name) {
-        var found = brandByName(name);
-        if (!found) return;
-        next = { url: found.url, sha256: found.sha256 };
-      }
-      if (brandValuesEqual(node.brand, next)) return;
-      pushHistory();
-      applyBrandOnNode(node, next);
-      if (nodeEdit.snap) {
-        nodeEdit.snap.hasBrand = Object.prototype.hasOwnProperty.call(node, "brand");
-        nodeEdit.snap.brand = isObjectBrand(node.brand) ? clone(node.brand) : node.brand;
-        nodeEdit.snap.hasWidth = Object.prototype.hasOwnProperty.call(node, "width");
-        nodeEdit.snap.width = node.width;
-      }
-      state.rawDirty = false;
-      previewStale = true;
-      markDirty();
-      renderLists();
-      renderForm("nodes");
-      renderRaw();
-      updateDirtyUI();
     });
-  }
-  var layoutBrandInput = $("layout-edit-brand");
-  if (layoutBrandInput) {
-    layoutBrandInput.addEventListener("input", function () {
-      if (layoutBrandInput.disabled) return;
-      if (nodeEdit) nodeEdit.brandTouched = true;
-      if (!String(layoutBrandInput.value || "").trim()) return;
-      var picker = $("layout-edit-brand-picker");
-      if (!picker) return;
-      var buttons = picker.querySelectorAll("button[data-brand-name]");
-      for (var i = 0; i < buttons.length; i++) buttons[i].setAttribute("aria-pressed", "false");
+    layoutBrandSlot.addEventListener("click", function (ev) {
+      var btn = ev.target.closest("button[data-brand-name]");
+      if (!btn || btn.disabled || !nodeEdit) return;
+      ev.preventDefault();
+      onLayoutBrandPick(btn.getAttribute("data-brand-name") || "");
+    });
+    layoutBrandSlot.addEventListener("change", function (ev) {
+      var el = ev.target;
+      if (!el || !el.getAttribute || el.getAttribute("data-field") !== "brandCatalog") return;
+      onLayoutBrandCatalog(el.value);
     });
   }
   $("layout-edit-save").addEventListener("click", function (ev) {
     ev.preventDefault();
-    commitNodeEditor();
+    commitDockedInspector({ focusId: "layout-edit-label" });
   });
   $("layout-edit-duplicate").addEventListener("click", function (ev) {
     ev.preventDefault();
@@ -12588,11 +13919,23 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
   function onSingleEditorKeydown(ev) {
     if (ev.key === "Enter") {
       ev.preventDefault();
-      commitSingleEditor();
+      if (singleEdit && singleEdit.kind === "lane") commitSingleEditor();
+      else commitDockedInspector({ focusId: "layout-single-label" });
     } else if (ev.key === "Escape" || ev.key === "Esc") {
       ev.preventDefault();
-      cancelSingleEditor();
-      setStatus("Label edit cancelled", "");
+      ev.stopPropagation();
+      if (singleEdit && singleEdit.kind === "lane") {
+        cancelSingleEditor();
+        setStatus("Label edit cancelled", "");
+        return;
+      }
+      if (inspectorBufferDirty()) {
+        revertInspectorBuffer();
+        setStatus("Edits reverted", "");
+      } else {
+        showDocumentInspector();
+        setStatus("Selection cleared", "");
+      }
     }
   }
   var singleInput = $("layout-single-label");
@@ -12610,30 +13953,42 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       clampSingleEditorToWrap();
     });
   }
-  var singleAdvancedBody = $("layout-single-advanced-body");
-  if (singleAdvancedBody) {
-    singleAdvancedBody.addEventListener("change", function (ev) {
+  var singlePanel = $("layout-single-editor");
+  if (singlePanel) {
+    singlePanel.addEventListener("change", function (ev) {
       var el = ev.target;
       if (!el || !el.getAttribute) return;
       var field = el.getAttribute("data-field");
       if (!field || !singleEdit || singleEdit.kind !== "edge") return;
+      if (field === "bwColor") syncEdgeColorSwatch(el);
       if (field === "bwColor" || field === "bwDash") {
         applyEdgeStyleLive(singleEdit.edgeIndex, field, el.value);
         return;
       }
       applyEdgeField(singleEdit.edgeIndex, field, el.value);
     });
-  }
-  var singlePanel = $("layout-single-editor");
-  if (singlePanel) {
     singlePanel.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && ev.target && ev.target.id !== "layout-single-label") {
+        onSingleEditorKeydown(ev);
+        return;
+      }
       if (ev.key !== "Escape" && ev.key !== "Esc") return;
       if (ev.target && ev.target.id === "layout-single-label") return;
       if (!singleEdit) return;
       ev.preventDefault();
       ev.stopPropagation();
-      cancelSingleEditor();
-      setStatus("Label edit cancelled", "");
+      if (singleEdit.kind === "lane") {
+        cancelSingleEditor();
+        setStatus("Label edit cancelled", "");
+        return;
+      }
+      if (inspectorBufferDirty()) {
+        revertInspectorBuffer();
+        setStatus("Edits reverted", "");
+      } else {
+        showDocumentInspector();
+        setStatus("Selection cleared", "");
+      }
     });
   }
 
@@ -12650,19 +14005,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       }
       return;
     }
-    if (nodeEdit) {
-      var panel = $("layout-node-editor");
-      if (panel && panel.classList.contains("active") && !panel.contains(ev.target)) {
-        cancelNodeEditor();
-        setStatus("Node edit cancelled", "");
-      }
-    }
-    if (singleEdit) {
+    if (singleEdit && singleEdit.kind === "lane") {
       var spanel = $("layout-single-editor");
       if (spanel && spanel.classList.contains("active") && !spanel.contains(ev.target)) {
         cancelSingleEditor();
         setStatus("Label edit cancelled", "");
       }
+      return;
+    }
+    if (focusInsideInspectorUi(ev.target)) return;
+    if (nodeEdit || (singleEdit && singleEdit.kind === "edge")) {
+      commitDockedInspector({});
     }
   });
 
@@ -12686,7 +14039,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
     var tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : "";
     var typing = tag === "input" || tag === "textarea" || tag === "select" || (ev.target && ev.target.isContentEditable);
 
+    if (!typing && (ev.key === "v" || ev.key === "V" || ev.key === "c" || ev.key === "C")) {
+      onModeShortcut(ev);
+    }
+
     if (!typing && (ev.key === "Escape" || ev.key === "Esc")) {
+      if (isOverflowOpen()) {
+        ev.preventDefault();
+        closeOverflow();
+        return;
+      }
       if (quickType) {
         ev.preventDefault();
         var qpopEsc = $("qtype-icon-pop");
@@ -12720,6 +14082,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
         setStatus("Connect cancelled", "");
         return;
       }
+      if (inspectorBufferDirty()) {
+        ev.preventDefault();
+        revertInspectorBuffer();
+        setStatus("Edits reverted", "");
+        return;
+      }
+      if (nodeEdit || (singleEdit && singleEdit.kind === "edge") ||
+          state.selectedNodeId || state.selectedComponentId || state.selectedEdgeIndex != null) {
+        ev.preventDefault();
+        showDocumentInspector();
+        setStatus("Selection cleared", "");
+        return;
+      }
     }
     if (!typing && (ev.key === "Delete" || ev.key === "Backspace")) {
       if (quickType) return;
@@ -12750,6 +14125,36 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(61,139,253,0.45); }
       ev.preventDefault();
       redo();
     }
+  });
+
+  var inspectorRoot = $("inspector");
+  if (inspectorRoot) {
+    inspectorRoot.addEventListener("focusout", function (ev) {
+      if (inspectorCommitLock || state.layoutBusy || diagramStripSyncDepth || diagramCommitLock) return;
+      var target = ev.target;
+      if (target && (target.id === "layout-meta-title" || target.id === "layout-meta-subtitle")) return;
+      var next = ev.relatedTarget;
+      if (!next || focusInsideInspectorUi(next)) return;
+      commitDockedInspector({});
+    });
+  }
+  var inspectorBrowse = $("inspector-browse");
+  if (inspectorBrowse) {
+    inspectorBrowse.addEventListener("click", function (ev) {
+      var btn = ev.target.closest("button[data-tab]");
+      if (!btn) return;
+      switchTab(btn.getAttribute("data-tab"));
+    });
+  }
+  ["nodes", "edges", "lanes", "cards", "components", "connections", "boundaries", "types", "raw"].forEach(function (name) {
+    var pane = $("pane-" + name);
+    if (!pane || pane.querySelector(".back-to-diagram")) return;
+    var back = document.createElement("button");
+    back.type = "button";
+    back.className = "back-to-diagram";
+    back.textContent = "Back to diagram";
+    back.addEventListener("click", function () { preferLayoutTab(); });
+    pane.insertBefore(back, pane.firstChild);
   });
 
   loadState().catch(function (e) {
