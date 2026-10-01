@@ -3644,17 +3644,70 @@ def deliver_to_path(
             pass
 
 
+_HTML_OPEN_RE = re.compile(rb"<html\b([^>]*)>", re.IGNORECASE)
+_CARDS_OPEN_RE = re.compile(
+    rb'<div\b[^>]*\bclass=(["\'])(?:[^"\']*\s)?cards(?:\s[^"\']*)?\1[^>]*>',
+    re.IGNORECASE,
+)
+_DIV_TAG_RE = re.compile(rb"</?div\b[^>]*>", re.IGNORECASE)
+
+
+def _preview_html_attr(preview: bytes, name: str) -> bytes | None:
+    """Return one attribute value from the delivered <html> tag, or None."""
+    m = _HTML_OPEN_RE.search(preview)
+    if not m:
+        return None
+    attr_re = re.compile(
+        rb"\b" + re.escape(name.encode("ascii")) + rb'\s*=\s*(["\'])(.*?)\1',
+        re.IGNORECASE,
+    )
+    am = attr_re.search(m.group(1))
+    return am.group(2) if am else None
+
+
+def _cards_bytes(preview: bytes) -> bytes | None:
+    """Archify's top-level div.cards block (nested divs allowed), or None."""
+    m = _CARDS_OPEN_RE.search(preview)
+    if not m:
+        return None
+    depth = 1
+    for tm in _DIV_TAG_RE.finditer(preview, m.end()):
+        token = tm.group(0)
+        if token.startswith(b"</"):
+            depth -= 1
+            if depth == 0:
+                return preview[m.start() : tm.end()]
+        elif not token.endswith(b"/>"):
+            depth += 1
+    return None
+
+
 def extract_diagram_html(preview: bytes) -> bytes | None:
-    """Build a minimal same-origin diagram doc: page <style> blocks + <svg>, no scripts."""
+    """Build a minimal same-origin diagram doc: styles + svg + cards, no scripts.
+
+    Copies data-theme and data-preset from the delivered page so card colors
+    resolve. Does not set data-embed (that hides .cards).
+    """
     svg_m = _SVG_RE.search(preview)
     if not svg_m:
         return None
+    html_attrs = b""
+    theme = _preview_html_attr(preview, "data-theme")
+    if theme is not None:
+        html_attrs += b' data-theme="' + theme + b'"'
+    preset = _preview_html_attr(preview, "data-preset")
+    if preset is not None:
+        html_attrs += b' data-preset="' + preset + b'"'
     parts: list[bytes] = [
-        b"<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\">\n",
+        b"<!DOCTYPE html>\n<html" + html_attrs + b"><head><meta charset=\"utf-8\">\n",
     ]
     parts.extend(_STYLE_BLOCK_RE.findall(preview))
     parts.append(b"\n</head><body style=\"margin:0;background:#0b0f14;\">\n")
     parts.append(svg_m.group(0))
+    cards = _cards_bytes(preview)
+    if cards:
+        parts.append(b"\n")
+        parts.append(cards)
     legend = _legend_bytes(preview)
     if legend:
         parts.append(b"\n")
@@ -4799,13 +4852,13 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 .field { display: flex; flex-direction: column; gap: 4px; max-width: 420px; }
 .field[hidden] { display: none; }
 .icon-picker { position: relative; max-width: 420px; }
-#type-mgr-icon-btn, #qtype-icon-btn {
+#type-mgr-icon-btn, #qtype-icon-btn, #node-icon-btn {
   display: flex; align-items: center; gap: 8px; width: 100%; min-width: 180px;
   background: var(--input); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 9px; font-size: 13px; text-align: left;
 }
-#type-mgr-icon-btn:focus, #qtype-icon-btn:focus { outline: none; border-color: var(--focus); }
-#type-mgr-icon-btn:disabled, #qtype-icon-btn:disabled { opacity: 0.55; }
+#type-mgr-icon-btn:focus, #qtype-icon-btn:focus, #node-icon-btn:focus { outline: none; border-color: var(--focus); }
+#type-mgr-icon-btn:disabled, #qtype-icon-btn:disabled, #node-icon-btn:disabled { opacity: 0.55; }
 .icon-art {
   width: 18px; height: 18px; flex: 0 0 18px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -4823,13 +4876,13 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   border-radius: 8px; box-shadow: 0 12px 36px rgba(0,0,0,0.55); padding: 8px;
 }
 .icon-picker-pop[hidden] { display: none; }
-#type-mgr-icon-search {
+#type-mgr-icon-search, #qtype-icon-search, #node-icon-search {
   width: 100%; box-sizing: border-box; margin-bottom: 6px;
   background: var(--input); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px;
 }
-#type-mgr-icon-search:focus { outline: none; border-color: var(--focus); }
-#type-mgr-icon-list { overflow: auto; min-height: 0; }
+#type-mgr-icon-search:focus, #qtype-icon-search:focus, #node-icon-search:focus { outline: none; border-color: var(--focus); }
+#type-mgr-icon-list, #qtype-icon-list, #node-icon-list { overflow: auto; min-height: 0; }
 .icon-group {
   font-size: 11px; color: var(--muted); text-transform: uppercase;
   letter-spacing: 0.04em; padding: 8px 6px 2px;
@@ -5157,6 +5210,15 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   cursor: pointer; border-radius: 6px; padding: 6px 4px;
 }
 #layout-zoom-pct:hover { color: var(--accent); }
+#layout-floatbar a {
+  background: var(--tab); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer;
+  text-decoration: none; display: inline-flex; align-items: center;
+}
+#layout-floatbar a:hover { border-color: var(--accent); }
+#layout-floatbar button.mode-active {
+  border-color: var(--accent); color: #12171C; background: var(--accent);
+}
 #layout-mode-toggle, #layout-quality-toggle {
   display: flex; gap: 4px; align-items: center;
 }
@@ -5255,7 +5317,6 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       <button type="button" id="btn-overflow" title="More" aria-haspopup="menu" aria-expanded="false" aria-controls="overflow-menu">⋯</button>
       <div id="overflow-menu" role="menu" hidden>
         <button type="button" id="btn-export" role="menuitem" title="Export rendered HTML beside the JSON" disabled>Export HTML</button>
-        <a href="/preview" id="link-full-preview" role="menuitem" target="_blank" rel="noopener">Open full preview</a>
         <button type="button" id="btn-overflow-source" role="menuitem">Source JSON</button>
         <button type="button" id="btn-overflow-types" role="menuitem">Custom types library</button>
         <button type="button" id="btn-type-refresh" role="menuitem" title="Rescan bendwright-data/icons">Refresh icons</button>
@@ -5341,6 +5402,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   <input type="search" id="qtype-icon-search" aria-label="Search icons" aria-autocomplete="list" aria-controls="qtype-icon-list" autocomplete="off" spellcheck="false">
   <div id="qtype-icon-list" role="listbox" aria-label="Icons"></div>
 </div>
+<div id="node-icon-pop" class="icon-picker-pop" hidden>
+  <input type="search" id="node-icon-search" aria-label="Search icons" aria-autocomplete="list" aria-controls="node-icon-list" autocomplete="off" spellcheck="false">
+  <div id="node-icon-list" role="listbox" aria-label="Icons"></div>
+</div>
 <div id="status-toast" role="status" aria-live="polite" hidden></div>
 <div id="status-overlay" role="dialog" aria-label="Full status message" aria-hidden="true">
   <div class="open-head">
@@ -5383,6 +5448,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           <button type="button" id="btn-zoom-fit" title="Fit to window">Fit</button>
           <button type="button" id="btn-zoom-100" title="100%" hidden>100%</button>
         </div>
+        <a href="/preview" id="link-full-preview" target="_blank" rel="noopener">Preview</a>
+        <button type="button" id="btn-layout-cards" title="Show or hide info cards" aria-pressed="true" hidden>Cards</button>
       </div>
       </div>
     </div>
@@ -5610,6 +5677,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   // Server preview cache lags the buffer after form/raw edits until a deliver.
   var previewStale = false;
+  // In-memory only (like zoom). Default shown; never dirties or re-delivers.
+  var layoutCardsShown = true;
 
   var MAX_HISTORY = 100;
   var LAYOUT_DRAG_THRESHOLD_PX = 4;
@@ -6420,6 +6489,39 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     };
   }
 
+  function iconArtAndLabel(value) {
+    var art = blankIconHtml();
+    var label = "none";
+    var title = "";
+    if (value && value !== "none") {
+      var mark = null;
+      var marks = state.catalog || [];
+      for (var i = 0; i < marks.length; i++) {
+        if (marks[i] && marks[i].id === value) { mark = marks[i]; break; }
+      }
+      if (mark) {
+        art = catalogIconHtml(mark);
+        label = mark.id;
+        title = mark.title && mark.title !== mark.id ? String(mark.title) : "";
+      } else {
+        var brand = null;
+        var brands = state.brands || [];
+        for (var b = 0; b < brands.length; b++) {
+          if (brands[b] && brands[b].name === value) { brand = brands[b]; break; }
+        }
+        if (brand) {
+          art = pngIconHtml(brand.name);
+          label = brand.name;
+          title = brand.label && brand.label !== brand.name ? String(brand.label) : "";
+        } else {
+          art = '<span class="icon-ph" aria-hidden="true"></span>';
+          label = value;
+        }
+      }
+    }
+    return { art: art, label: label, title: title };
+  }
+
   function renderIconPickerList(root) {
     var els = iconPickerEls(root);
     var list = els.list;
@@ -6427,8 +6529,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var query = String((els.search && els.search.value) || "");
     var current = String((els.hidden && els.hidden.value) || "none");
     var html = "";
-    if (iconSearchHit(query, ["none"])) html += iconOptionHtml("none", blankIconHtml(), "none", "");
-    var taken = { none: true };
+    var taken = {};
+    // Inspector brand picker: current value first, then the normal groups (skip duplicate).
+    if ((root || "type-mgr") === "node") {
+      var curMeta = iconArtAndLabel(current);
+      if (iconSearchHit(query, [current, curMeta.label, curMeta.title])) {
+        html += iconOptionHtml(current, curMeta.art, curMeta.label, curMeta.title);
+        taken[current] = true;
+      }
+    }
+    if (!taken.none && iconSearchHit(query, ["none"])) {
+      html += iconOptionHtml("none", blankIconHtml(), "none", "");
+      taken.none = true;
+    }
     if (state.catalogOk) {
       var buckets = [];
       var bucketIndex = {};
@@ -6485,7 +6598,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     var search = els.search;
     if (search) {
-      if (picked >= 0) search.setAttribute("aria-activedescendant", opts[picked].id);
+      if (picked >= 0 && opts[picked]) search.setAttribute("aria-activedescendant", opts[picked].id);
       else search.removeAttribute("aria-activedescendant");
     }
   }
@@ -6496,33 +6609,28 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var hidden = els.hidden;
     if (!btn || !hidden) return;
     var value = String(hidden.value || "none");
-    var art = blankIconHtml();
-    var label = "none";
+    var meta = iconArtAndLabel(value);
+    var label = meta.label;
     if (value && value !== "none") {
-      var mark = null;
-      var marks = state.catalog || [];
-      for (var i = 0; i < marks.length; i++) {
-        if (marks[i] && marks[i].id === value) { mark = marks[i]; break; }
-      }
-      if (mark) {
-        art = catalogIconHtml(mark);
-        label = mark.title || mark.id;
+      if (catalogHas(value)) {
+        var marks = state.catalog || [];
+        for (var i = 0; i < marks.length; i++) {
+          if (marks[i] && marks[i].id === value) {
+            label = marks[i].title || marks[i].id;
+            break;
+          }
+        }
       } else {
-        var brand = null;
         var brands = state.brands || [];
         for (var b = 0; b < brands.length; b++) {
-          if (brands[b] && brands[b].name === value) { brand = brands[b]; break; }
-        }
-        if (brand) {
-          art = pngIconHtml(brand.name);
-          label = brand.label || brand.name;
-        } else {
-          art = '<span class="icon-ph" aria-hidden="true"></span>';
-          label = value;
+          if (brands[b] && brands[b].name === value) {
+            label = brands[b].label || brands[b].name;
+            break;
+          }
         }
       }
     }
-    btn.innerHTML = art + '<span class="icon-picker-name">' + esc(label) + "</span>";
+    btn.innerHTML = meta.art + '<span class="icon-picker-name">' + esc(label) + "</span>";
   }
 
   function placeIconPicker(root) {
@@ -6557,18 +6665,39 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var btn = els.btn;
     var pop = els.pop;
     if (!btn || !pop || btn.disabled) return;
-    var other = (root || "type-mgr") === "qtype" ? "type-mgr" : "qtype";
-    closeIconPicker(false, other);
+    var self = root || "type-mgr";
+    ["type-mgr", "qtype", "node"].forEach(function (r) {
+      if (r !== self) closeIconPicker(false, r);
+    });
     var search = els.search;
     if (search) search.value = "";
     pop.hidden = false;
     btn.setAttribute("aria-expanded", "true");
     renderIconPickerList(root);
     placeIconPicker(root);
+    if (self === "node") {
+      var selected = els.list && els.list.querySelector('[role="option"][aria-selected="true"]');
+      if (selected && selected.scrollIntoView) selected.scrollIntoView({ block: "nearest" });
+    }
     if (search) search.focus();
   }
 
   function chooseIconValue(value, root) {
+    root = root || "type-mgr";
+    if (root === "node") {
+      closeIconPicker(false, "node");
+      value = String(value == null ? "none" : value);
+      if (value === "none" || value === "") {
+        onLayoutBrandPick("");
+      } else if (catalogHas(value) || !brandByName(value)) {
+        onLayoutBrandCatalog(value);
+      } else {
+        onLayoutBrandPick(value);
+      }
+      var btn = $("node-icon-btn");
+      if (btn) btn.focus();
+      return;
+    }
     var hidden = iconPickerEls(root).hidden;
     if (hidden) hidden.value = value || "none";
     syncIconPickerButton(root);
@@ -6693,6 +6822,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (noDoc || state.layoutBusy) {
       closeIconPicker(false);
       closeIconPicker(false, "qtype");
+      closeIconPicker(false, "node");
     }
     if (noDoc && quickType) closeQuickType(true);
     ["type-mgr-id", "type-mgr-label", "type-mgr-base", "type-mgr-color", "type-mgr-icon", "type-mgr-icon-btn",
@@ -7376,6 +7506,35 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       '" placeholder="catalog id"' + (locked ? " disabled" : "") + ">";
     if (locked) {
       var shown = item.brand && item.brand.url != null ? String(item.brand.url) : "(object brand)";
+      html += '<input type="text" value="' + esc(shown) + '" disabled>';
+    }
+    html += '<div class="bw-brand-hint">' + esc(hint) + "</div></div>";
+    return html;
+  }
+
+  function layoutBrandIconValue(node) {
+    if (!node || node.brand == null || node.brand === "") return "none";
+    if (isForeignObjectBrand(node.brand)) return "none";
+    if (typeof node.brand === "string") return String(node.brand);
+    if (isObjectBrand(node.brand) && isOurBrandUrl(node.brand.url)) {
+      return brandNameFromUrl(node.brand.url) || "none";
+    }
+    return "none";
+  }
+
+  function inspectorBrandFieldHtml(node) {
+    var locked = isForeignObjectBrand(node.brand);
+    var value = layoutBrandIconValue(node);
+    var hint = locked ? "Object brand — edit in Raw JSON" : BRAND_PORTABILITY_HINT;
+    var html = '<div class="field"><label for="node-icon-btn">brand</label>';
+    html += '<input type="hidden" id="node-icon" value="' + esc(value) + '">';
+    html += '<div class="icon-picker">';
+    html += '<button type="button" id="node-icon-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="node-icon-list"' +
+      (locked ? " disabled" : "") + ">";
+    html += '<span class="icon-art" aria-hidden="true"></span><span class="icon-picker-name">none</span>';
+    html += "</button></div>";
+    if (locked) {
+      var shown = node.brand && node.brand.url != null ? String(node.brand.url) : "(object brand)";
       html += '<input type="text" value="' + esc(shown) + '" disabled>';
     }
     html += '<div class="bw-brand-hint">' + esc(hint) + "</div></div>";
@@ -8964,15 +9123,53 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return { w: 800, h: 600 };
   }
 
+  function layoutCardsEl(doc) {
+    if (!doc) return null;
+    var scroll = doc.getElementById("bw-scroll");
+    if (scroll) {
+      for (var i = 0; i < scroll.children.length; i++) {
+        var child = scroll.children[i];
+        if (child && child.classList && child.classList.contains("cards")) return child;
+      }
+    }
+    return doc.querySelector("div.cards");
+  }
+
+  function syncLayoutCardsUi(doc) {
+    doc = doc || ($("layout-frame") && $("layout-frame").contentDocument);
+    var btn = $("btn-layout-cards");
+    var cards = layoutCardsEl(doc);
+    var hasCards = !!(cards && cards.querySelector(".card"));
+    if (cards) {
+      // Empty div.cards still has margin — hide it (and skip the gap) when empty
+      // or when the in-memory toggle is off.
+      cards.style.display = hasCards && layoutCardsShown ? "" : "none";
+    }
+    if (btn) {
+      btn.hidden = !hasCards;
+      btn.classList.toggle("mode-active", !!(hasCards && layoutCardsShown));
+      btn.setAttribute("aria-pressed", hasCards && layoutCardsShown ? "true" : "false");
+    }
+  }
+
   function prepareDiagramViewport(doc) {
     if (!doc) return null;
     var existing = doc.getElementById("bw-scroll");
-    if (existing) return existing;
+    if (existing) {
+      var existingCards = doc.querySelector("div.cards");
+      if (existingCards && existingCards.parentNode !== existing) {
+        existing.appendChild(existingCards);
+      }
+      syncLayoutCardsUi(doc);
+      return existing;
+    }
     var style = doc.createElement("style");
     style.setAttribute("data-bw-viewport", "1");
     style.textContent =
       "html,body{height:100%;margin:0;overflow:hidden;background:#0b0f14}" +
       "#bw-scroll{overflow:auto;width:100%;height:100%}" +
+      /* Border/shadow sit 1-2px outside the svg-width cards box; keep them inside. */
+      "div.cards{box-sizing:border-box;padding:2px}" +
       "svg{display:block;max-width:none !important}" +
       /* Original diagram content must not steal hits from overlays (edge labels, paths). */
       "svg *{pointer-events:none}" +
@@ -8988,6 +9185,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     wrap.id = "bw-scroll";
     svg.parentNode.insertBefore(wrap, svg);
     wrap.appendChild(svg);
+    // Cards after the svg inside #bw-scroll (never a clipped body sibling).
+    var cards = doc.querySelector("div.cards");
+    if (cards) wrap.appendChild(cards);
+    syncLayoutCardsUi(doc);
     return wrap;
   }
 
@@ -9010,8 +9211,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var svg = doc.querySelector("svg");
     if (!svg) { updateZoomLabel(); return z; }
     var vb = getSvgViewBoxSize(svg);
-    svg.style.width = (vb.w * z) + "px";
+    var pixelW = vb.w * z;
+    svg.style.width = pixelW + "px";
     svg.style.height = (vb.h * z) + "px";
+    var cards = layoutCardsEl(doc);
+    if (cards && layoutCardsShown && cards.querySelector(".card") && cards.style.display !== "none") {
+      cards.style.boxSizing = "border-box";
+      cards.style.padding = "2px";
+      cards.style.width = pixelW + "px";
+    }
     updateZoomLabel();
     return z;
   }
@@ -9031,7 +9239,50 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var paneH = iframe.clientHeight || 1;
     var fit = Math.min(paneW / vb.w, paneH / vb.h);
     // Never zoom in past 100% on first mount or Fit. +/- and 100% still use clampLayoutZoom.
-    return clampLayoutZoom(Math.min(fit, 1));
+    fit = clampLayoutZoom(Math.min(fit, 1));
+    var cards = layoutCardsEl(doc);
+    var showCards = !!(layoutCardsShown && cards && cards.querySelector(".card") &&
+      cards.style.display !== "none");
+    if (!showCards) return fit;
+    // Cards reflow taller after the width is set, so one offsetHeight read is stale.
+    // Lower only, at most 6 times, and never below 25% (manual minus still uses 0.1).
+    // Fit against the scrollport itself: iframe client size ignores #bw-scroll padding,
+    // the cards margin, and the floatbar inset (a constant ~40px clip).
+    var scroll = doc.getElementById("bw-scroll");
+    var z = fit;
+    var floorZ = 0.25;
+    for (var pass = 0; pass < 6; pass++) {
+      var pixelW = vb.w * z;
+      var svgPixelH = vb.h * z;
+      svg.style.width = pixelW + "px";
+      svg.style.height = svgPixelH + "px";
+      cards.style.boxSizing = "border-box";
+      cards.style.padding = "2px";
+      cards.style.width = pixelW + "px";
+      // Read layout after the candidate zoom so scrollHeight includes the settled cards.
+      if (scroll) void scroll.offsetHeight;
+      var availH = scroll ? scroll.clientHeight : paneH;
+      var availW = scroll ? scroll.clientWidth : paneW;
+      var scrollH = scroll ? scroll.scrollHeight : (svgPixelH + (cards.offsetHeight || 0));
+      var scrollW = scroll ? scroll.scrollWidth : pixelW;
+      var heightOk = scrollH <= availH;
+      var widthOk = scrollW <= availW;
+      if (heightOk && widthOk) break;
+      if (z <= floorZ + 1e-9) break;
+      var next = z;
+      if (!heightOk) {
+        var nextH = Math.max(floorZ, (availH - (scrollH - svgPixelH)) / vb.h);
+        if (nextH < next) next = nextH;
+      }
+      if (!widthOk) {
+        var nextW = Math.max(floorZ, (availW - (scrollW - pixelW)) / vb.w);
+        if (nextW < next) next = nextW;
+      }
+      // Monotonic: never raise, and stop when the step is noise.
+      if (!(next < z - 0.005)) break;
+      z = next;
+    }
+    return z;
   }
 
   function stashLayoutViewport() {
@@ -9385,6 +9636,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (posSlot) posSlot.innerHTML = "";
     var brandSlot = $("layout-edit-brand-slot");
     if (brandSlot) {
+      closeIconPicker(false, "node");
       brandSlot.innerHTML = "";
       brandSlot.dataset.locked = "0";
     }
@@ -9613,6 +9865,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (node.closest("#inspector")) return true;
     if (node.closest("#quick-type-modal")) return true;
     if (node.closest("#qtype-icon-pop")) return true;
+    if (node.closest("#node-icon-pop")) return true;
     if (node.closest("#layout-single-editor")) return true;
     return false;
   }
@@ -9671,8 +9924,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function refillBrandEditor(node) {
     var slot = $("layout-edit-brand-slot");
     if (!slot || !node) return;
+    closeIconPicker(false, "node");
     slot.dataset.locked = isForeignObjectBrand(node.brand) ? "1" : "0";
-    slot.innerHTML = brandFieldHtml(node);
+    slot.innerHTML = inspectorBrandFieldHtml(node);
+    syncIconPickerButton("node");
   }
 
   function refillNodeEditorFromNode(node) {
@@ -10578,6 +10833,43 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     panel.classList.add("active");
     syncNodeEditorButtons();
     syncInspectorPanes();
+  }
+
+  function keepNodeEditorAcrossRemount() {
+    if (!nodeEdit) return;
+    var node = findDocNode(nodeEdit.nodeId);
+    var panel = $("layout-node-editor");
+    if (!node || !panel) {
+      nodeEdit = null;
+      hideNodeEditor();
+      syncInspectorPanes();
+      return;
+    }
+    panel.classList.add("active");
+    syncNodeEditorButtons();
+    syncInspectorPanes();
+  }
+
+  function captureInspectorFocus() {
+    var el = document.activeElement;
+    if (!el || el === document.body) return null;
+    if (el.closest && el.closest("#node-icon-pop")) return { id: "node-icon-btn" };
+    if (el.id) return { id: el.id };
+    var field = el.getAttribute && el.getAttribute("data-field");
+    if (field && el.closest && el.closest("#layout-edit-position")) return { field: field };
+    return null;
+  }
+
+  function restoreKeptFocus(token) {
+    if (!token) return;
+    var el = null;
+    if (token.id) el = $(token.id);
+    else if (token.field) {
+      var root = $("layout-edit-position");
+      el = root && root.querySelector('[data-field="' + token.field + '"]');
+    }
+    if (!el || el.disabled) return;
+    el.focus();
   }
 
   function commitNodeEditor(opts) {
@@ -12232,7 +12524,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
               state.connectFrom = null;
               mountLayoutOverlays();
               if (singleEdit && singleEdit.kind === "edge") restoreEdgePopupAfterRemount();
-              if (nodeEdit) restoreNodeEditorAfterRemount();
+              if (nodeEdit) {
+                // Icon preview remounts the canvas only. Refill would wipe the
+                // dirty label / sublabel / tag / position buffer and its snap.
+                if (opts.keepNodeEditor) keepNodeEditorAcrossRemount();
+                else restoreNodeEditorAfterRemount();
+              }
               if (opts.restoreFocusId) {
                 var focusEl = $(opts.restoreFocusId);
                 if (focusEl && !focusEl.disabled) {
@@ -12547,17 +12844,117 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     snap.size = snap.hasSize ? node.size.slice() : null;
   }
 
-  function finishLayoutBrandEdit(node, positionClean) {
-    rememberLayoutBrandSnap(node);
-    if (positionClean) refillPositionEditor(node);
-    refillBrandEditor(node);
-    state.rawDirty = false;
-    previewStale = true;
-    markDirty();
+  function brandLayoutFieldsOf(node) {
+    if (!node) {
+      return { hasBrand: false, brand: null, hasWidth: false, width: undefined, hasSize: false, size: null };
+    }
+    var hasSize = Array.isArray(node.size) && node.size.length >= 2;
+    return {
+      hasBrand: Object.prototype.hasOwnProperty.call(node, "brand"),
+      brand: isObjectBrand(node.brand) ? clone(node.brand) : node.brand,
+      hasWidth: Object.prototype.hasOwnProperty.call(node, "width"),
+      width: node.width,
+      hasSize: hasSize,
+      size: hasSize ? node.size.slice() : null
+    };
+  }
+
+  function applyBrandLayoutFields(node, fields) {
+    if (!node || !fields) return;
+    if (fields.hasBrand) node.brand = isObjectBrand(fields.brand) ? clone(fields.brand) : fields.brand;
+    else delete node.brand;
+    if (fields.hasWidth) node.width = fields.width;
+    else delete node.width;
+    if (fields.hasSize && Array.isArray(fields.size)) node.size = fields.size.slice();
+    else delete node.size;
+  }
+
+  function findSnapshotNode(doc, id) {
+    if (!doc) return null;
+    var lists = [doc.nodes, doc.components];
+    for (var li = 0; li < lists.length; li++) {
+      var list = lists[li];
+      if (!Array.isArray(list)) continue;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] && list[i].id === id) return list[i];
+      }
+    }
+    return null;
+  }
+
+  function revertLayoutBrandPick(nodeId, priorFields, wasStale) {
+    var node = findDocNode(nodeId);
+    if (node) applyBrandLayoutFields(node, priorFields);
+    revertHistoryPush();
+    previewStale = wasStale;
+    if (node && nodeEdit && String(nodeEdit.nodeId) === String(nodeId)) {
+      rememberLayoutBrandSnap(node);
+      refillBrandEditor(node);
+    }
+    syncDirtyFromDoc();
     renderLists();
     renderForm(isArchitecture() ? "components" : "nodes");
     renderRaw();
     updateDirtyUI();
+  }
+
+  function previewLayoutBrandPick(node, focusToken) {
+    var nodeId = node && node.id;
+    var wasStale = previewStale;
+    previewStale = true;
+    markDirty();
+    updateDirtyUI();
+    if (!state.archify) return;
+    var priorEntry = state.undo.length ? state.undo[state.undo.length - 1] : null;
+    var priorFields = brandLayoutFieldsOf(findSnapshotNode(priorEntry && priorEntry.doc, nodeId));
+    var gen = remountGen;
+    // Busy before the pick handler returns so Enter cannot commit the text buffer
+    // as a second history entry until this one preview finishes.
+    setLayoutBusy(true);
+    setStatus("previewing icon… " + nodeId, "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (gen !== remountGen) return;
+        if (receipt && receipt.ok) {
+          var msg = "Updated icon " + nodeId + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { keepNodeEditor: true }).then(function () {
+            if (gen !== remountGen) return;
+            setLayoutBusy(false);
+            renderAll();
+            restoreKeptFocus(focusToken);
+          }, function () {
+            if (gen !== remountGen) return;
+            setLayoutBusy(false);
+            restoreKeptFocus(focusToken);
+          });
+        }
+        revertLayoutBrandPick(nodeId, priorFields, wasStale);
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Icon not updated (reverted):\n- " + errs.join("\n- "), "err");
+        restoreKeptFocus(focusToken);
+      })
+      .catch(function (e) {
+        if (gen !== remountGen) return;
+        revertLayoutBrandPick(nodeId, priorFields, wasStale);
+        setLayoutBusy(false);
+        setStatus("Icon preview failed (reverted): " + e, "err");
+        restoreKeptFocus(focusToken);
+      });
+  }
+
+  function finishLayoutBrandEdit(node, positionClean) {
+    var focusToken = captureInspectorFocus();
+    rememberLayoutBrandSnap(node);
+    if (positionClean) refillPositionEditor(node);
+    refillBrandEditor(node);
+    state.rawDirty = false;
+    renderLists();
+    renderForm(isArchitecture() ? "components" : "nodes");
+    renderRaw();
+    previewLayoutBrandPick(node, focusToken);
   }
 
   function onLayoutBrandCatalog(raw) {
@@ -13690,7 +14087,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
   document.addEventListener("pointerdown", function (ev) {
     [["type-mgr", "type-mgr-icon-pop", "type-mgr-icon-btn"],
-      ["qtype", "qtype-icon-pop", "qtype-icon-btn"]].forEach(function (row) {
+      ["qtype", "qtype-icon-pop", "qtype-icon-btn"],
+      ["node", "node-icon-pop", "node-icon-btn"]].forEach(function (row) {
       var pop = $(row[1]);
       if (!pop || pop.hidden) return;
       var btn = $(row[2]);
@@ -13698,6 +14096,32 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       closeIconPicker(false, row[0]);
     });
   });
+
+  var nodeIconSearch = $("node-icon-search");
+  if (nodeIconSearch) {
+    nodeIconSearch.addEventListener("input", function () { renderIconPickerList("node"); });
+    nodeIconSearch.addEventListener("keydown", function (ev) {
+      if (ev.key === "ArrowDown") { ev.preventDefault(); moveIconPicker(1, "node"); }
+      else if (ev.key === "ArrowUp") { ev.preventDefault(); moveIconPicker(-1, "node"); }
+      else if (ev.key === "Enter") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        pickSelectedIcon("node");
+      } else if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeIconPicker(true, "node");
+      }
+    });
+  }
+  var nodeIconList = $("node-icon-list");
+  if (nodeIconList) {
+    nodeIconList.addEventListener("click", function (ev) {
+      var opt = ev.target.closest('[role="option"]');
+      if (!opt) return;
+      chooseIconValue(opt.getAttribute("data-value") || "none", "node");
+    });
+  }
 
   function liveQuickTypeHint() {
     var fields = quickTypeFields();
@@ -13813,6 +14237,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (!$("layout-frame").contentDocument || !$("layout-frame").contentDocument.querySelector("svg")) return;
     applyLayoutZoom(1);
   });
+  var layoutCardsBtn = $("btn-layout-cards");
+  if (layoutCardsBtn) {
+    layoutCardsBtn.addEventListener("click", function () {
+      layoutCardsShown = !layoutCardsShown;
+      syncLayoutCardsUi();
+    });
+  }
   var zoomPct = $("layout-zoom-pct");
   if (zoomPct) zoomPct.addEventListener("click", function () {
     var zoom100 = $("btn-zoom-100");
@@ -13886,21 +14317,25 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   var layoutBrandSlot = $("layout-edit-brand-slot");
   if (layoutBrandSlot) {
     layoutBrandSlot.addEventListener("mousedown", function (ev) {
-      var btn = ev.target.closest("button.brand-pick");
+      var btn = ev.target.closest("button.brand-pick, #node-icon-btn");
       if (!btn || btn.disabled) return;
       // Keep focus in the label buffer. A pick must not blur-commit it.
       ev.preventDefault();
     });
     layoutBrandSlot.addEventListener("click", function (ev) {
+      var iconBtn = ev.target.closest("#node-icon-btn");
+      if (iconBtn) {
+        if (iconBtn.disabled || !nodeEdit) return;
+        ev.preventDefault();
+        var pop = $("node-icon-pop");
+        if (pop && !pop.hidden) closeIconPicker(false, "node");
+        else openIconPicker("node");
+        return;
+      }
       var btn = ev.target.closest("button[data-brand-name]");
       if (!btn || btn.disabled || !nodeEdit) return;
       ev.preventDefault();
       onLayoutBrandPick(btn.getAttribute("data-brand-name") || "");
-    });
-    layoutBrandSlot.addEventListener("change", function (ev) {
-      var el = ev.target;
-      if (!el || !el.getAttribute || el.getAttribute("data-field") !== "brandCatalog") return;
-      onLayoutBrandCatalog(el.value);
     });
   }
   $("layout-edit-save").addEventListener("click", function (ev) {
@@ -14047,6 +14482,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (isOverflowOpen()) {
         ev.preventDefault();
         closeOverflow();
+        return;
+      }
+      var nodePopEsc = $("node-icon-pop");
+      if (nodePopEsc && !nodePopEsc.hidden) {
+        ev.preventDefault();
+        closeIconPicker(true, "node");
         return;
       }
       if (quickType) {

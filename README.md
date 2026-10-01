@@ -71,6 +71,9 @@ machine.
   unsaved-changes warning are all included.
 - **Lossless save** - key order, unknown fields, and the trailing newline are preserved.
   Files are written with 2-space indentation.
+- **Cards** - the diagram's cards show under the drawing while you edit. **Cards** on
+  the bottom tool bar hides them when they get in the way.
+- **Preview** - **Preview** on the bottom tool bar opens the full rendered page in a new tab.
 - **Export HTML** - from the **⋯** menu, one click saves the JSON and writes the rendered `.html` (via Archify) right next to it, always in sync. No CLI needed.
 - **Native file picker** - open a diagram through your OS file dialog.
 - **Auto-shutdown** - close the browser and the server (and its console window)
@@ -212,8 +215,9 @@ and color are saved beside the diagram, so the Archify JSON stays valid.
 
 ![Style an edge](gifs/style-edges.gif)
 
-**Icons and custom types** - give a node a logo from the icon row, then pick
-**+ New custom type...** in the Type list to name a type and apply it on the spot.
+**Icons and custom types** - search the icon picker in the inspector and pick a logo; it
+shows on the node right away. Then pick **+ New custom type...** in the Type list to name
+a type and apply it on the spot.
 
 ![Icons and custom types](gifs/icons-and-types.gif)
 
@@ -235,7 +239,7 @@ the dark and light themes. Rendered by bendwright.
 ![Edge styles](gifs/edge-styles.gif)
 
 Duplicate and delete live in the node inspector, **New** starts a blank workflow or
-architecture diagram, and cards are edited from **Browse > Cards**.
+architecture diagram, and cards are edited from **Browse > Cards** (toggle them on the canvas with **Cards**).
 
 ## License
 
