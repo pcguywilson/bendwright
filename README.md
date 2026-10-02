@@ -58,6 +58,8 @@ machine.
   infrastructure (Windows, Linux, Ubuntu, nginx, Apache, AWS, Azure, VM, web server,
   database), and your own PNGs. The catalog is read from your Archify install, so
   logos Archify adds later show up automatically.
+- **Shortcuts** - **V** Select, **C** Connect, **B** Boundary, **Delete** removes the
+  selection, **Ctrl+S** / **Ctrl+Z** / **Ctrl+Y** save, undo, redo.
 - **Connections** - press **C** for Connect, click a source node, then a target; drag an
   endpoint to reroute. Press **V** to go back to Select. Click an edge to edit its label,
   line style, color, and Archify settings, or delete it.
@@ -71,8 +73,14 @@ machine.
   unsaved-changes warning are all included.
 - **Lossless save** - key order, unknown fields, and the trailing newline are preserved.
   Files are written with 2-space indentation.
-- **Cards** - the diagram's cards show under the drawing while you edit. **Cards** on
-  the bottom tool bar hides them when they get in the way.
+- **Cards** - the diagram's cards show under the drawing while you edit. Click one to
+  edit its title, dot color, and items in the inspector, or add one with **+ Card**.
+  **Cards** on the bottom tool bar hides them when they get in the way.
+- **Boundaries** - in an architecture diagram, click a boundary's border or label to edit
+  its kind, label, padding, and members; click components to add or remove them. Press
+  **B** and drag a rectangle to draw a new boundary around the components inside it.
+- **Legend** - with nothing selected, the inspector's Legend section sets the legend mode
+  (auto, all, or hidden) and renames or hides each built-in type.
 - **Preview** - **Preview** on the bottom tool bar opens the full rendered page in a new tab.
 - **Export HTML** - from the **⋯** menu, one click saves the JSON and writes the rendered `.html` (via Archify) right next to it, always in sync. No CLI needed.
 - **Native file picker** - open a diagram through your OS file dialog.
@@ -226,6 +234,11 @@ grows to fit), then drag another component's corner grip to resize it.
 
 ![Architecture diagrams](gifs/architecture.gif)
 
+**Boundaries** - click a boundary to edit it in place, then press **B** and drag a
+rectangle around components to draw a new one.
+
+![Boundaries](gifs/boundaries.gif)
+
 ![Architecture diagram with a connection selected: line style, color, and Archify settings in the inspector](docs/img/screenshot-architecture.png)
 
 **Safe by default** - an edit Archify rejects is put back right away and the reason stays
@@ -239,7 +252,7 @@ the dark and light themes. Rendered by bendwright.
 ![Edge styles](gifs/edge-styles.gif)
 
 Duplicate and delete live in the node inspector, **New** starts a blank workflow or
-architecture diagram, and cards are edited from **Browse > Cards** (toggle them on the canvas with **Cards**).
+architecture diagram, and cards are edited by clicking them on the canvas (toggle them with **Cards**).
 
 ## License
 

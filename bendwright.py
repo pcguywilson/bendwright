@@ -4750,6 +4750,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.45);
   padding: 8px 12px; font-size: 12px; line-height: 1.4; white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 #status-toast[hidden] { display: none; }
 #status-toast.ok { border-color: var(--ok); color: var(--ok); }
@@ -5147,7 +5148,9 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 }
 #inspector-document[hidden],
 #inspector-node[hidden],
-#inspector-edge[hidden] { display: none; }
+#inspector-edge[hidden],
+#inspector-card[hidden],
+#inspector-boundary[hidden] { display: none; }
 .inspector-kicker {
   margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--muted);
@@ -5188,6 +5191,92 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 }
 #inspector #layout-node-editor.active,
 #inspector #layout-single-editor.bw-docked.active { display: block; }
+#layout-card-editor .bw-ed-field,
+#inspector-legend .bw-ed-field {
+  display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px;
+}
+#layout-card-editor .bw-ed-field label,
+#inspector-legend .bw-ed-field label,
+#inspector-legend .legend-row > label {
+  font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em;
+}
+#layout-card-editor .bw-ed-field input,
+#layout-card-editor .bw-ed-field select,
+#inspector-legend .bw-ed-field input,
+#inspector-legend .bw-ed-field select,
+#inspector-legend .legend-row input[type="text"] {
+  background: var(--input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 5px 7px; font-size: 13px; font-family: inherit;
+  width: 100%; box-sizing: border-box;
+}
+#layout-card-editor .bw-ed-field input:focus,
+#layout-card-editor .bw-ed-field select:focus,
+#inspector-legend .bw-ed-field select:focus,
+#inspector-legend .legend-row input[type="text"]:focus {
+  outline: none; border-color: var(--focus);
+}
+#layout-card-editor .bw-ed-field input:disabled,
+#layout-card-editor .bw-ed-field select:disabled,
+#inspector-legend input:disabled,
+#inspector-legend select:disabled {
+  opacity: 0.65; cursor: not-allowed;
+}
+#layout-card-editor .bw-ed-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: 4px;
+}
+#layout-card-editor .bw-ed-actions .meta,
+#inspector-legend .bw-ed-hint {
+  font-size: 11px; color: var(--muted);
+}
+#layout-card-items .card-item-row { margin-bottom: 6px; }
+#layout-card-items .card-item-row button.card-item-icon {
+  flex: 0 0 26px; width: 26px; height: 26px; padding: 0; line-height: 1; font-size: 14px;
+}
+#layout-boundary-editor .bw-ed-field {
+  display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px;
+}
+#layout-boundary-editor .bw-ed-field > label {
+  font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em;
+}
+#layout-boundary-editor .bw-ed-field input,
+#layout-boundary-editor .bw-ed-field select {
+  background: var(--input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 5px 7px; font-size: 13px; font-family: inherit;
+  width: 100%; box-sizing: border-box;
+}
+#layout-boundary-editor .bw-ed-field input:focus,
+#layout-boundary-editor .bw-ed-field select:focus { outline: none; border-color: var(--focus); }
+#layout-boundary-editor .bw-ed-field input:disabled,
+#layout-boundary-editor .bw-ed-field select:disabled { opacity: 0.65; cursor: not-allowed; }
+#layout-boundary-editor .boundary-wraps {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: calc(12 * 22px); overflow: auto;
+}
+#layout-boundary-editor .boundary-wraps label {
+  display: flex; flex-direction: row; align-items: center; justify-content: flex-start;
+  gap: 6px; margin: 0; min-width: 0; height: 20px;
+  font-size: 12px; line-height: 20px; font-weight: 500;
+  letter-spacing: 0; text-transform: none; color: var(--text);
+}
+#layout-boundary-editor .bw-ed-field .boundary-wraps input[type="checkbox"] {
+  width: auto; flex: 0 0 auto; margin: 0;
+}
+#layout-boundary-editor .boundary-wraps .boundary-wrap-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#layout-boundary-editor .bw-ed-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: 4px;
+}
+#layout-boundary-editor .bw-ed-actions .meta { font-size: 11px; color: var(--muted); }
+#inspector-legend {
+  margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+#inspector-legend .legend-row { margin-bottom: 10px; }
+#inspector-legend .legend-vis {
+  display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  font-size: 12px; color: var(--text); font-weight: 500; text-transform: none;
+  letter-spacing: 0;
+}
 .bw-visually-hidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); border: 0;
@@ -5440,6 +5529,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         <div id="layout-mode-toggle">
           <button type="button" id="btn-mode-move" class="mode-active" title="Select (V). Move nodes / rename">Select</button>
           <button type="button" id="btn-mode-connect" title="Connect (C). Click a source node then a target to add; drag endpoints to reroute; click an edge to select or delete.">Connect</button>
+          <button type="button" id="btn-mode-boundary" hidden title="Boundary (B). Drag a rectangle around components.">Boundary</button>
         </div>
         <div id="layout-zoom-controls">
           <button type="button" id="btn-zoom-out" title="Zoom out">−</button>
@@ -5469,7 +5559,22 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           </div>
           <p id="inspector-kindline"></p>
           <button type="button" id="btn-add-node" title="Add node at first free cell">+ Node</button>
+          <button type="button" id="btn-add-card" title="Add an info card">+ Card</button>
+          <button type="button" id="btn-add-boundary" hidden title="Switch to the Boundary tool and drag a rectangle around components">+ Boundary</button>
         </div>
+        <section id="inspector-legend" aria-label="Legend">
+          <div class="inspector-kicker">Legend</div>
+          <div class="bw-ed-field">
+            <label for="layout-legend-mode">Mode</label>
+            <select id="layout-legend-mode">
+              <option value="auto">auto</option>
+              <option value="all">all</option>
+              <option value="hidden">hidden</option>
+            </select>
+          </div>
+          <div id="layout-legend-rows"></div>
+          <p class="bw-ed-hint">Enter=apply · Esc=cancel. Canvas style colors stay separate.</p>
+        </section>
         <nav id="inspector-browse" aria-label="Diagram lists"></nav>
         <div id="inspector-diagnostics"></div>
       </div>
@@ -5538,6 +5643,58 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         </div>
         <div class="bw-ed-actions">
           <button type="button" id="btn-delete-edge" disabled title="Delete selected edge">Delete edge</button>
+        </div>
+      </div>
+      <div id="inspector-card" hidden>
+        <div class="inspector-kicker">Card</div>
+        <div id="layout-card-editor" role="dialog" aria-label="Edit card">
+          <div class="bw-ed-field">
+            <label for="layout-card-title">Title</label>
+            <input type="text" id="layout-card-title" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="bw-ed-field">
+            <label for="layout-card-dot">Dot</label>
+            <select id="layout-card-dot"></select>
+          </div>
+          <div class="bw-ed-field">
+            <label>Items</label>
+            <div id="layout-card-items"></div>
+            <div class="row-actions">
+              <button type="button" id="layout-card-add-item">Add item</button>
+            </div>
+          </div>
+          <div class="bw-ed-actions">
+            <button type="button" id="layout-card-delete" title="Delete card">Delete card</button>
+            <span class="meta">Enter=apply · Esc=cancel</span>
+          </div>
+        </div>
+      </div>
+      <div id="inspector-boundary" hidden>
+        <div class="inspector-kicker">Boundary</div>
+        <div id="layout-boundary-editor" role="dialog" aria-label="Edit boundary">
+          <div class="bw-ed-field">
+            <label for="layout-boundary-kind">Kind</label>
+            <select id="layout-boundary-kind">
+              <option value="region">region</option>
+              <option value="security-group">security-group</option>
+            </select>
+          </div>
+          <div class="bw-ed-field">
+            <label for="layout-boundary-label">Label</label>
+            <input type="text" id="layout-boundary-label" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="bw-ed-field">
+            <label for="layout-boundary-pad">Pad</label>
+            <input type="number" id="layout-boundary-pad" min="0" step="any" autocomplete="off">
+          </div>
+          <div class="bw-ed-field">
+            <label>Wraps</label>
+            <div id="layout-boundary-wraps" class="boundary-wraps"></div>
+          </div>
+          <div class="bw-ed-actions">
+            <button type="button" id="layout-boundary-delete" title="Delete boundary">Delete</button>
+            <span class="meta">Enter=apply · Esc=cancel</span>
+          </div>
         </div>
       </div>
     </aside>
@@ -5690,6 +5847,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   var resizeDrag = null;
   var nodeEdit = null;
   var singleEdit = null;
+  var cardEdit = null;
+  var boundaryEdit = null;
+  var boundaryLasso = null;
+  var boundarySyncDepth = 0;
   var typeMgrId = "";
   // Session-only: next edge popup reopens Advanced if it was left open.
   var edgeAdvancedOpen = false;
@@ -5783,6 +5944,29 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     toast.className = "";
   }
 
+  // Keep #status-toast off #layout-floatbar. Side-by-side max-width is the
+  // space left of the bar minus 16px (toast is already inset 16px). Under
+  // 260px, sit above the bar at the stylesheet width instead.
+  function placeStatusToast() {
+    var toast = $("status-toast");
+    if (!toast) return;
+    var bar = $("layout-floatbar");
+    var rect = bar ? bar.getBoundingClientRect() : null;
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      toast.style.maxWidth = "";
+      toast.style.bottom = "";
+      return;
+    }
+    var maxW = rect.left - 16;
+    if (maxW < 260) {
+      toast.style.maxWidth = "";
+      toast.style.bottom = (bar.offsetHeight + 12) + "px";
+    } else {
+      toast.style.maxWidth = maxW + "px";
+      toast.style.bottom = "16px";
+    }
+  }
+
   function showStatusToast(text, kind) {
     var toast = $("status-toast");
     if (!toast) return;
@@ -5797,6 +5981,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     toast.textContent = text;
     toast.className = kind === "ok" ? "ok" : "";
     toast.hidden = false;
+    placeStatusToast();
     statusToastTimer = setTimeout(function () {
       statusToastTimer = null;
       toast.hidden = true;
@@ -5945,6 +6130,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         exportBtn.title = "open a file first";
       }
       if (addBtn) addBtn.disabled = true;
+      var addCardBtn = $("btn-add-card");
+      if (addCardBtn) addCardBtn.disabled = true;
+      var addBoundaryBtn = $("btn-add-boundary");
+      if (addBoundaryBtn) addBoundaryBtn.disabled = true;
       syncArchitectureChrome();
       return;
     }
@@ -5983,6 +6172,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
     }
     if (addBtn) addBtn.disabled = !state.doc || !!state.layoutBusy;
+    var addCardBtn = $("btn-add-card");
+    if (addCardBtn) addCardBtn.disabled = !state.doc || !!state.layoutBusy;
+    var addBoundaryBtn = $("btn-add-boundary");
+    if (addBoundaryBtn) addBoundaryBtn.disabled = !state.doc || !!state.layoutBusy;
     syncArchitectureChrome();
   }
 
@@ -6062,6 +6255,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         : "Add node at first free cell";
       addBtn.disabled = !state.doc || !!state.layoutBusy;
     }
+    var addCardBtn = $("btn-add-card");
+    if (addCardBtn) addCardBtn.disabled = !state.doc || !!state.layoutBusy;
+    var boundaryBtn = $("btn-mode-boundary");
+    if (boundaryBtn) {
+      boundaryBtn.hidden = !arch;
+      boundaryBtn.disabled = !arch || !state.doc || !!state.layoutBusy;
+      boundaryBtn.title = "Boundary (B). Drag a rectangle around components.";
+    }
+    var addBoundaryBtn = $("btn-add-boundary");
+    if (addBoundaryBtn) {
+      addBoundaryBtn.hidden = !arch;
+      addBoundaryBtn.disabled = !arch || !state.doc || !!state.layoutBusy;
+    }
     if (delBtn) {
       delBtn.title = arch ? "Delete selected connection" : "Delete selected edge";
       delBtn.disabled = state.selectedEdgeIndex == null || !!state.layoutBusy;
@@ -6116,6 +6322,35 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     ["messagebus", "Message bus"],
     ["external", "External"]
   ];
+  var CARD_DOTS = ["cyan", "emerald", "violet", "amber", "rose", "orange", "slate"];
+  var LEGEND_KINDS = ["frontend", "backend", "database", "cloud", "security", "messagebus", "external"];
+  // Archify i18n defaults (en / zh-CN). Placeholder only; omitted when the row is default.
+  var LEGEND_DEFAULT_LABELS = {
+    en: {
+      workflow: {
+        frontend: "User UI", backend: "Agent logic", database: "Context / trace",
+        cloud: "Cloud service", security: "Policy", messagebus: "Tool action",
+        external: "External system"
+      },
+      architecture: {
+        frontend: "Frontend", backend: "Backend", database: "Database",
+        cloud: "Cloud", security: "Security", messagebus: "Message bus",
+        external: "External"
+      }
+    },
+    "zh-CN": {
+      workflow: {
+        frontend: "用户界面", backend: "Agent 逻辑", database: "上下文 / 追踪",
+        cloud: "云服务", security: "策略", messagebus: "工具操作",
+        external: "外部系统"
+      },
+      architecture: {
+        frontend: "前端", backend: "后端", database: "数据库",
+        cloud: "云服务", security: "安全", messagebus: "消息总线",
+        external: "外部系统"
+      }
+    }
+  };
   var TYPE_ID_RE = /^[a-z][a-z0-9_-]*$/;
 
   function isBuiltinType(value) {
@@ -8120,6 +8355,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     } finally {
       diagramStripSyncDepth -= 1;
     }
+    syncLegendForm(force);
   }
 
   function previewDiagramField(label, restore) {
@@ -8511,7 +8747,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function clearLayoutOverlays(svg) {
     if (!svg) return;
     var old = svg.querySelectorAll(
-      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, circle.bw-endpoint"
+      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, circle.bw-endpoint, rect.bw-boundary, rect.bw-boundary-tab, rect.bw-boundary-outline, rect.bw-lasso"
     );
     for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
   }
@@ -8519,8 +8755,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function updateModeButtons() {
     var moveBtn = $("btn-mode-move");
     var connBtn = $("btn-mode-connect");
+    var boundaryBtn = $("btn-mode-boundary");
     if (moveBtn) moveBtn.classList.toggle("mode-active", state.layoutMode === "move");
     if (connBtn) connBtn.classList.toggle("mode-active", state.layoutMode === "connect");
+    if (boundaryBtn) boundaryBtn.classList.toggle("mode-active", state.layoutMode === "boundary");
   }
 
   function updateDeleteEdgeButton() {
@@ -8550,8 +8788,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         text = state.connectFrom
           ? ("Source " + state.connectFrom + " → click a target component to connect. Click a connection to select/delete. Drag endpoints to reroute. Esc cancels.")
           : "Click a source component, then a target to connect. Click a connection to select/delete. Drag endpoints to reroute. Esc cancels.";
+      } else if (state.layoutMode === "boundary") {
+        active = true;
+        text = "Drag a rectangle around components. Release creates a region boundary. Esc cancels.";
       } else {
-        text = "Drag a component; drop snaps to 10px and writes pos (unsaved until Save). A row/col component converts to pos on the first drag. Drag the corner handle to resize (floor 120×60).";
+        text = "Drag a component; drop snaps to 10px and writes pos (unsaved until Save). A row/col component converts to pos on the first drag. Drag the corner handle to resize (floor 120×60). Click a boundary border or its label to edit it.";
       }
       publishLayoutHint(text, active);
       return;
@@ -8580,8 +8821,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function setLayoutMode(mode) {
-    if (mode !== "move" && mode !== "connect") return;
+    if (mode !== "move" && mode !== "connect" && mode !== "boundary") return;
+    if (mode === "boundary" && !isArchitecture()) return;
     cancelLanePopup();
+    cancelBoundaryLasso();
     if (singleEdit && singleEdit.kind === "edge") {
       if (inspectorBufferDirty()) applyDockedBufferSync();
       singleEdit = null;
@@ -8609,7 +8852,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   function handleCursor() {
     if (state.layoutBusy) return "wait";
-    return state.layoutMode === "connect" ? "crosshair" : "grab";
+    if (state.layoutMode === "connect" || state.layoutMode === "boundary") return "crosshair";
+    return "grab";
   }
 
   function findNthDocEdgeIndex(from, to, nth) {
@@ -8710,6 +8954,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     for (var r = 0; r < resizers.length; r++) {
       resizers[r].style.pointerEvents = state.layoutBusy ? "none" : "all";
       resizers[r].style.cursor = state.layoutBusy ? "wait" : "nwse-resize";
+    }
+    var boundaryHits = doc.querySelectorAll("rect.bw-boundary, rect.bw-boundary-tab");
+    for (var bh = 0; bh < boundaryHits.length; bh++) {
+      var band = boundaryHits[bh].classList.contains("bw-boundary");
+      boundaryHits[bh].style.pointerEvents = state.layoutBusy ? "none" : (band ? "stroke" : "all");
+      boundaryHits[bh].style.cursor = state.layoutBusy ? "wait" : "pointer";
     }
     updateConnectHighlight();
     refreshEdgeSelectionStyles();
@@ -9150,6 +9400,24 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       btn.classList.toggle("mode-active", !!(hasCards && layoutCardsShown));
       btn.setAttribute("aria-pressed", hasCards && layoutCardsShown ? "true" : "false");
     }
+    syncStyleLegend(doc);
+  }
+
+  function syncStyleLegend(doc) {
+    doc = doc || ($("layout-frame") && $("layout-frame").contentDocument);
+    if (!doc) return;
+    var el = doc.getElementById("bw-style-legend");
+    if (!el) return;
+    var meta = diagramMetaObject();
+    var legend = meta && meta.legend;
+    var hidden = !!(legend && typeof legend === "object" && !Array.isArray(legend) && legend.mode === "hidden");
+    el.style.display = hidden ? "none" : "";
+  }
+
+  function revealLayoutCards() {
+    if (layoutCardsShown) return;
+    layoutCardsShown = true;
+    syncLayoutCardsUi();
   }
 
   function prepareDiagramViewport(doc) {
@@ -9170,6 +9438,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       "#bw-scroll{overflow:auto;width:100%;height:100%}" +
       /* Border/shadow sit 1-2px outside the svg-width cards box; keep them inside. */
       "div.cards{box-sizing:border-box;padding:2px}" +
+      "div.cards .card{cursor:pointer}" +
+      "div.cards .card.bw-card-selected{outline:2px solid rgba(61,139,253,0.95);outline-offset:2px}" +
       "svg{display:block;max-width:none !important}" +
       /* Original diagram content must not steal hits from overlays (edge labels, paths). */
       "svg *{pointer-events:none}" +
@@ -9177,7 +9447,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       "svg .bw-resize{pointer-events:all}" +
       "svg .bw-edge-hit{pointer-events:stroke}" +
       "svg .bw-lane-hit{pointer-events:all}" +
-      "svg .bw-endpoint{pointer-events:all}";
+      "svg .bw-endpoint{pointer-events:all}" +
+      "svg .bw-boundary{pointer-events:stroke;cursor:pointer}" +
+      "svg .bw-boundary-tab{pointer-events:all;cursor:pointer}" +
+      "svg .bw-boundary-outline{pointer-events:none}" +
+      "svg .bw-lasso{pointer-events:none}" +
+      "svg [data-legend],svg [data-legend] *{pointer-events:all;cursor:pointer}";
     (doc.head || doc.documentElement).appendChild(style);
     var svg = doc.querySelector("svg");
     if (!svg) return null;
@@ -9391,6 +9666,194 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
   }
 
+  function boundaryAt(index) {
+    var list = state.doc && state.doc.boundaries;
+    if (!Array.isArray(list) || index < 0 || index >= list.length) return null;
+    return list[index];
+  }
+
+  function cancelBoundaryLasso() {
+    if (!boundaryLasso) return;
+    var lasso = boundaryLasso;
+    boundaryLasso = null;
+    unbindBoundaryLassoWindow();
+    if (lasso.rect && lasso.rect.parentNode) lasso.rect.parentNode.removeChild(lasso.rect);
+    try {
+      if (lasso.svg && lasso.pointerId != null) lasso.svg.releasePointerCapture(lasso.pointerId);
+    } catch (eRel) {}
+  }
+
+  function bindBoundaryLassoWindow() {
+    if (window._bwLassoBound) return;
+    window._bwLassoBound = true;
+    window.addEventListener("pointermove", onBoundaryLassoWindowEvent, true);
+    window.addEventListener("pointerup", onBoundaryLassoWindowEvent, true);
+    window.addEventListener("pointercancel", onBoundaryLassoWindowEvent, true);
+  }
+
+  function unbindBoundaryLassoWindow() {
+    if (!window._bwLassoBound) return;
+    window._bwLassoBound = false;
+    window.removeEventListener("pointermove", onBoundaryLassoWindowEvent, true);
+    window.removeEventListener("pointerup", onBoundaryLassoWindowEvent, true);
+    window.removeEventListener("pointercancel", onBoundaryLassoWindowEvent, true);
+  }
+
+  function onBoundaryLassoWindowEvent(ev) {
+    if (!boundaryLasso) return;
+    try {
+      if (boundaryLasso.svg && boundaryLasso.pointerId != null) {
+        boundaryLasso.svg.releasePointerCapture(boundaryLasso.pointerId);
+      }
+    } catch (eRel) {}
+    if (ev.type === "pointermove") onLayoutPointerMove(ev);
+    else onLayoutPointerUp(ev);
+  }
+
+  function boundaryLayoutMatches(docB, layB) {
+    if (!docB || !layB) return false;
+    if (String(docB.kind || "") !== String(layB.kind || "")) return false;
+    if (String(docB.label || "") !== String(layB.label || "")) return false;
+    var dw = Array.isArray(docB.wraps) ? docB.wraps : [];
+    var lw = Array.isArray(layB.wraps) ? layB.wraps : [];
+    if (dw.length !== lw.length) return false;
+    for (var i = 0; i < dw.length; i++) {
+      if (String(dw[i]) !== String(lw[i])) return false;
+    }
+    return true;
+  }
+
+  function mountBoundaryOverlays(doc, svg) {
+    var boxes = (state.layout && state.layout.boundaries) || [];
+    var docs = (state.doc && state.doc.boundaries) || [];
+    var used = {};
+    var ns = "http://www.w3.org/2000/svg";
+    for (var i = 0; i < boxes.length; i++) {
+      var b = boxes[i];
+      if (!b) continue;
+      var docIndex = -1;
+      for (var d = 0; d < docs.length; d++) {
+        if (used[d]) continue;
+        if (boundaryLayoutMatches(docs[d], b)) { docIndex = d; break; }
+      }
+      if (docIndex < 0 && docs[i] && !used[i]) docIndex = i;
+      if (docIndex < 0) continue;
+      used[docIndex] = true;
+      var x = Number(b.x);
+      var y = Number(b.y);
+      var w = Number(b.width);
+      var h = Number(b.height);
+      if (!(w > 0) || !(h > 0) || !isFinite(x) || !isFinite(y)) continue;
+      var hit = doc.createElementNS(ns, "rect");
+      hit.setAttribute("class", "bw-boundary");
+      hit.setAttribute("data-doc-index", String(docIndex));
+      hit.setAttribute("x", String(x));
+      hit.setAttribute("y", String(y));
+      hit.setAttribute("width", String(w));
+      hit.setAttribute("height", String(h));
+      hit.setAttribute("fill", "none");
+      hit.setAttribute("stroke", "rgba(143,180,201,0.01)");
+      hit.setAttribute("stroke-width", "16");
+      hit.setAttribute("vector-effect", "non-scaling-stroke");
+      svg.appendChild(hit);
+      var mask = doc.querySelector(
+        'g[data-graph-role="structural-frame-label"][data-composition-frame-id="' + i + '"] rect'
+      );
+      if (mask) {
+        var tab = doc.createElementNS(ns, "rect");
+        tab.setAttribute("class", "bw-boundary-tab");
+        tab.setAttribute("data-doc-index", String(docIndex));
+        tab.setAttribute("x", mask.getAttribute("x"));
+        tab.setAttribute("y", mask.getAttribute("y"));
+        tab.setAttribute("width", mask.getAttribute("width"));
+        tab.setAttribute("height", mask.getAttribute("height"));
+        tab.setAttribute("fill", "rgba(143,180,201,0.01)");
+        tab.setAttribute("stroke", "none");
+        svg.appendChild(tab);
+      }
+      if (boundaryEdit && boundaryEdit.index === docIndex) {
+        var outline = doc.createElementNS(ns, "rect");
+        outline.setAttribute("class", "bw-boundary-outline");
+        outline.setAttribute("x", String(x));
+        outline.setAttribute("y", String(y));
+        outline.setAttribute("width", String(w));
+        outline.setAttribute("height", String(h));
+        outline.setAttribute("fill", "none");
+        outline.setAttribute("stroke", "#8FB4C9");
+        outline.setAttribute("stroke-width", "2.5");
+        outline.setAttribute("vector-effect", "non-scaling-stroke");
+        svg.appendChild(outline);
+      }
+    }
+  }
+
+  function lassoRectOf(lasso) {
+    return {
+      x: Math.min(lasso.x0, lasso.x1),
+      y: Math.min(lasso.y0, lasso.y1),
+      w: Math.abs(lasso.x1 - lasso.x0),
+      h: Math.abs(lasso.y1 - lasso.y0)
+    };
+  }
+
+  function paintBoundaryLasso(lasso) {
+    var box = lassoRectOf(lasso);
+    lasso.rect.setAttribute("x", String(box.x));
+    lasso.rect.setAttribute("y", String(box.y));
+    lasso.rect.setAttribute("width", String(box.w));
+    lasso.rect.setAttribute("height", String(box.h));
+  }
+
+  function componentsFullyInside(rect) {
+    var boxes = componentBoxes();
+    var inside = {};
+    for (var i = 0; i < boxes.length; i++) {
+      var b = boxes[i];
+      if (!b || b.id == null) continue;
+      if (!(b.w > 0) || !(b.h > 0)) continue;
+      if (b.x >= rect.x && b.y >= rect.y && (b.x + b.w) <= (rect.x + rect.w) && (b.y + b.h) <= (rect.y + rect.h)) {
+        inside[String(b.id)] = true;
+      }
+    }
+    var ids = [];
+    var comps = (state.doc && state.doc.components) || [];
+    for (var c = 0; c < comps.length; c++) {
+      var id = comps[c] && comps[c].id;
+      if (id != null && inside[String(id)]) ids.push(String(id));
+    }
+    return ids;
+  }
+
+  function startBoundaryLasso(ev, svg) {
+    var pt = clientToSvg(svg, ev.clientX, ev.clientY);
+    var rect = svg.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("class", "bw-lasso");
+    rect.setAttribute("fill", "rgba(143,180,201,0.12)");
+    rect.setAttribute("stroke", "#8FB4C9");
+    rect.setAttribute("stroke-width", "2");
+    rect.setAttribute("stroke-dasharray", "6 4");
+    rect.setAttribute("vector-effect", "non-scaling-stroke");
+    rect.setAttribute("x", String(pt.x));
+    rect.setAttribute("y", String(pt.y));
+    rect.setAttribute("width", "0");
+    rect.setAttribute("height", "0");
+    svg.appendChild(rect);
+    try { svg.setPointerCapture(ev.pointerId); } catch (eCap) {}
+    boundaryLasso = {
+      svg: svg,
+      rect: rect,
+      x0: pt.x,
+      y0: pt.y,
+      x1: pt.x,
+      y1: pt.y,
+      startClientX: ev.clientX,
+      startClientY: ev.clientY,
+      pointerId: ev.pointerId,
+      moved: false
+    };
+    bindBoundaryLassoWindow();
+  }
+
   function mountLayoutOverlays() {
     var iframe = $("layout-frame");
     var doc = iframe.contentDocument;
@@ -9398,6 +9861,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var svg = doc.querySelector("svg");
     if (!svg || !state.layout) return;
     clearLayoutOverlays(svg);
+
+    // Boundary bands sit under edges and component handles so those hits win.
+    if (isArchitecture()) mountBoundaryOverlays(doc, svg);
 
     // Lane header strips (workflow only; architecture boundaries are not draggable).
     if (!isArchitecture()) mountLaneHitOverlays(doc, svg);
@@ -9539,6 +10005,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   function onLayoutKeyDown(ev) {
     if (ev.key === "Escape" || ev.key === "Esc") {
+      if (boundaryLasso) {
+        ev.preventDefault();
+        cancelBoundaryLasso();
+        setStatus("Boundary draw cancelled", "");
+        return;
+      }
       if (endpointDrag) {
         ev.preventDefault();
         endpointDrag = null;
@@ -9558,7 +10030,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         setStatus("Edits reverted", "");
         return;
       }
-      if (nodeEdit || (singleEdit && singleEdit.kind === "edge") ||
+      if (nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge") ||
           state.selectedNodeId || state.selectedComponentId || state.selectedEdgeIndex != null) {
         ev.preventDefault();
         showDocumentInspector();
@@ -9572,6 +10044,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (nodeEdit) {
         ev.preventDefault();
         deleteLayoutNode();
+        return;
+      }
+      if (cardEdit) {
+        ev.preventDefault();
+        deleteLayoutCard();
+        return;
+      }
+      if (boundaryEdit) {
+        ev.preventDefault();
+        deleteLayoutBoundary();
         return;
       }
       if (state.selectedEdgeIndex != null) {
@@ -9589,7 +10071,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (tag === "input" || tag === "textarea" || tag === "select") return true;
       if (el.isContentEditable) return true;
     }
-    if (nodeEdit || singleEdit || quickType) return true;
+    if (nodeEdit || singleEdit || cardEdit || boundaryEdit || quickType) return true;
     if (isStatusOverlayActive()) return true;
     if (isOpenPanelActive() || isDirtyPanelActive() || isNewPanelActive()) return true;
     return false;
@@ -9598,13 +10080,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function onModeShortcut(ev) {
     if (!ev || ev.ctrlKey || ev.metaKey || ev.altKey) return;
     var key = String(ev.key || "").toLowerCase();
-    if (key !== "v" && key !== "c") return;
+    if (key !== "v" && key !== "c" && key !== "b") return;
     if (modeShortcutBlocked(ev)) return;
     if (!state.doc || state.layoutBusy) return;
+    if (key === "b" && !isArchitecture()) return;
     ev.preventDefault();
     if (key === "v") {
       setLayoutMode("move");
       setStatus("Layout mode: Select", "");
+    } else if (key === "b") {
+      setLayoutMode("boundary");
+      setStatus("Drag a rectangle around components", "");
     } else {
       setLayoutMode("connect");
       setStatus("Layout mode: Connect", "");
@@ -9781,12 +10267,377 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var nodePanel = $("layout-node-editor");
     var showNode = !!(nodeEdit && nodePanel && nodePanel.classList.contains("active"));
     var showEdge = !!(singleEdit && singleEdit.kind === "edge");
+    var showCard = !!cardEdit;
+    var showBoundary = !!boundaryEdit;
     var docPane = $("inspector-document");
     var nodePane = $("inspector-node");
     var edgePane = $("inspector-edge");
-    if (docPane) docPane.hidden = showNode || showEdge;
+    var cardPane = $("inspector-card");
+    var boundaryPane = $("inspector-boundary");
+    if (docPane) docPane.hidden = showNode || showEdge || showCard || showBoundary;
     if (nodePane) nodePane.hidden = !showNode;
     if (edgePane) edgePane.hidden = !showEdge;
+    if (cardPane) cardPane.hidden = !showCard;
+    if (boundaryPane) boundaryPane.hidden = !showBoundary;
+  }
+
+  function clearBoundarySelection() {
+    if (!boundaryEdit) return;
+    boundaryEdit = null;
+    var pane = $("inspector-boundary");
+    if (pane) pane.hidden = true;
+  }
+
+  function clearCardSelection() {
+    if (!cardEdit) {
+      refreshCardSelection();
+      return;
+    }
+    cardEdit = null;
+    var pane = $("inspector-card");
+    if (pane) pane.hidden = true;
+    refreshCardSelection();
+  }
+
+  function layoutCardElements(doc) {
+    doc = doc || ($("layout-frame") && $("layout-frame").contentDocument);
+    if (!doc) return [];
+    var scroll = doc.getElementById("bw-scroll");
+    if (!scroll || !scroll.querySelectorAll) return [];
+    return scroll.querySelectorAll(".card");
+  }
+
+  function refreshCardSelection() {
+    var cards = layoutCardElements();
+    var sel = cardEdit ? cardEdit.index : -1;
+    for (var i = 0; i < cards.length; i++) {
+      cards[i].classList.toggle("bw-card-selected", i === sel);
+    }
+  }
+
+  function scrollSelectedCardIntoView() {
+    if (!cardEdit) return;
+    var cards = layoutCardElements();
+    var el = cards[cardEdit.index];
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }
+
+  function cardAt(index) {
+    var cards = state.doc && state.doc.cards;
+    if (!Array.isArray(cards) || index < 0 || index >= cards.length) return null;
+    return cards[index];
+  }
+
+  function fillCardDotSelect(current) {
+    var sel = $("layout-card-dot");
+    if (!sel) return;
+    var html = "";
+    var known = false;
+    for (var i = 0; i < CARD_DOTS.length; i++) {
+      var dot = CARD_DOTS[i];
+      var selected = String(current || "") === dot;
+      if (selected) known = true;
+      html += '<option value="' + esc(dot) + '"' + (selected ? " selected" : "") + ">" + esc(dot) + "</option>";
+    }
+    if (current && !known) {
+      html += '<option value="' + esc(current) + '" selected>' + esc(current) + "</option>";
+    }
+    sel.innerHTML = html;
+  }
+
+  function cardItemRowHtml(value) {
+    return '<div class="card-item-row" data-card-item="1">' +
+      '<input type="text" data-card-item-text autocomplete="off" spellcheck="false" value="' +
+      esc(value == null ? "" : value) + '">' +
+      '<button type="button" class="card-item-icon" data-card-item-action="up" title="Move up" aria-label="Move up">\u2191</button>' +
+      '<button type="button" class="card-item-icon" data-card-item-action="down" title="Move down" aria-label="Move down">\u2193</button>' +
+      '<button type="button" class="card-item-icon" data-card-item-action="remove" title="Remove item" aria-label="Remove item">\u00d7</button>' +
+      "</div>";
+  }
+
+  function readCardEditorValues() {
+    var titleEl = $("layout-card-title");
+    var dotEl = $("layout-card-dot");
+    var root = $("layout-card-items");
+    var items = [];
+    if (root) {
+      var inputs = root.querySelectorAll("[data-card-item-text]");
+      for (var i = 0; i < inputs.length; i++) items.push(String(inputs[i].value == null ? "" : inputs[i].value));
+    }
+    return {
+      title: String((titleEl && titleEl.value) || "").trim(),
+      dot: String((dotEl && dotEl.value) || ""),
+      items: items
+    };
+  }
+
+  function cardValuesError(values) {
+    if (!values || !values.title) return "Card title required (minLength 1); kept previous";
+    if (CARD_DOTS.indexOf(values.dot) < 0) return "Card dot must be one of the schema colors";
+    return "";
+  }
+
+  function cardBufferUnchanged(card, values) {
+    if (!card || !values) return false;
+    if (String(card.title == null ? "" : card.title).trim() !== values.title) return false;
+    if (String(card.dot == null ? "" : card.dot) !== values.dot) return false;
+    var items = Array.isArray(card.items) ? card.items : [];
+    if (items.length !== values.items.length) return false;
+    for (var i = 0; i < items.length; i++) {
+      if (String(items[i] == null ? "" : items[i]) !== values.items[i]) return false;
+    }
+    return true;
+  }
+
+  function writeCardFields(card, values) {
+    card.title = values.title;
+    card.dot = values.dot;
+    card.items = values.items.slice();
+  }
+
+  var cardSyncDepth = 0;
+
+  function refillCardEditorFromDoc() {
+    if (!cardEdit) return;
+    var card = cardAt(cardEdit.index);
+    var titleEl = $("layout-card-title");
+    var itemsEl = $("layout-card-items");
+    if (!card || !titleEl || !itemsEl) return;
+    cardSyncDepth += 1;
+    try {
+      titleEl.value = card.title == null ? "" : String(card.title).trim();
+      fillCardDotSelect(card.dot == null ? "slate" : card.dot);
+      var items = Array.isArray(card.items) ? card.items : [];
+      var html = "";
+      for (var i = 0; i < items.length; i++) html += cardItemRowHtml(items[i]);
+      itemsEl.innerHTML = html;
+    } finally {
+      cardSyncDepth -= 1;
+    }
+  }
+
+  function focusCardTitle() {
+    var titleEl = $("layout-card-title");
+    if (titleEl && !titleEl.disabled) {
+      titleEl.focus();
+      if (titleEl.select) titleEl.select();
+    }
+  }
+
+  function selectLayoutCard(index, opts) {
+    opts = opts || {};
+    if (state.layoutBusy && !opts.allowBusy) return;
+    var card = cardAt(index);
+    if (!card) return;
+    revealLayoutCards();
+    var same = !!(cardEdit && cardEdit.index === index);
+    cardEdit = { index: index };
+    if (nodeEdit) {
+      nodeEdit = null;
+      hideNodeEditor();
+    }
+    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
+    if (singleEdit && singleEdit.kind === "edge") {
+      singleEdit = null;
+      hideSingleEditor();
+    }
+    var hadBoundary = !!boundaryEdit;
+    clearBoundarySelection();
+    state.selectedNodeId = null;
+    state.selectedComponentId = null;
+    state.selectedEdgeIndex = null;
+    updateDeleteEdgeButton();
+    state.selected.cards = index;
+    if (hadBoundary && isArchitecture() && !state.layoutBusy) mountLayoutOverlays();
+    if (!same) refillCardEditorFromDoc();
+    syncInspectorPanes();
+    refreshCardSelection();
+    if (!same) scrollSelectedCardIntoView();
+    renderLists();
+    if (opts.focus) focusCardTitle();
+  }
+
+  function legendLocale() {
+    var meta = diagramMetaObject();
+    var loc = meta && typeof meta.locale === "string" ? meta.locale : "";
+    return loc === "zh-CN" ? "zh-CN" : "en";
+  }
+
+  function legendDefaultLabel(kind) {
+    var table = LEGEND_DEFAULT_LABELS[legendLocale()] || LEGEND_DEFAULT_LABELS.en;
+    var side = isArchitecture() ? table.architecture : table.workflow;
+    return (side && side[kind]) || kind;
+  }
+
+  function legendObject(meta) {
+    var legend = meta && meta.legend;
+    if (!legend || typeof legend !== "object" || Array.isArray(legend)) return null;
+    return legend;
+  }
+
+  function legendModeOf(legend) {
+    var mode = legend && legend.mode;
+    if (mode === "all" || mode === "hidden" || mode === "auto") return mode;
+    return "auto";
+  }
+
+  function legendEntryMap(legend) {
+    var entries = legend && legend.entries;
+    if (!entries || typeof entries !== "object" || Array.isArray(entries)) return {};
+    return entries;
+  }
+
+  function legendSignature(legend) {
+    var mode = legendModeOf(legend);
+    var src = legendEntryMap(legend);
+    var entries = {};
+    for (var i = 0; i < LEGEND_KINDS.length; i++) {
+      var kind = LEGEND_KINDS[i];
+      var row = src[kind];
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      var out = {};
+      var label = typeof row.label === "string" ? row.label.trim() : "";
+      if (label && label !== legendDefaultLabel(kind)) out.label = label;
+      if (row.visible === false) out.visible = false;
+      else if (row.visible === true) out.visible = true;
+      if (out.label || Object.prototype.hasOwnProperty.call(out, "visible")) entries[kind] = out;
+    }
+    return JSON.stringify({ mode: mode, entries: entries });
+  }
+
+  function readLegendForm() {
+    var modeEl = $("layout-legend-mode");
+    var mode = modeEl ? String(modeEl.value || "") : "auto";
+    if (mode !== "auto" && mode !== "all" && mode !== "hidden") mode = "auto";
+    var rows = [];
+    var root = $("layout-legend-rows");
+    var nodes = root ? root.querySelectorAll("[data-kind]") : [];
+    for (var i = 0; i < nodes.length; i++) {
+      var kind = nodes[i].getAttribute("data-kind");
+      var labelEl = nodes[i].querySelector("[data-legend-label]");
+      var visEl = nodes[i].querySelector("[data-legend-visible]");
+      var checked = !visEl || !!visEl.checked;
+      rows.push({
+        kind: kind,
+        label: labelEl ? String(labelEl.value || "") : "",
+        visible: checked,
+        explicitVisible: checked && nodes[i].getAttribute("data-explicit-visible") === "1"
+      });
+    }
+    return { mode: mode, rows: rows };
+  }
+
+  function legendFormReady() {
+    var rows = $("layout-legend-rows");
+    return !!(rows && rows.querySelector("[data-kind]"));
+  }
+
+  function legendFormFocused() {
+    var active = document.activeElement;
+    return !!(active && active.closest && active.closest("#inspector-legend"));
+  }
+
+  function normalizedLegendFromRows(mode, rows) {
+    var entries = {};
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      if (!row || LEGEND_KINDS.indexOf(row.kind) < 0) continue;
+      var out = {};
+      var label = String(row.label || "").trim();
+      if (label && label !== legendDefaultLabel(row.kind)) out.label = label;
+      if (!row.visible) out.visible = false;
+      else if (row.explicitVisible) out.visible = true;
+      if (out.label || Object.prototype.hasOwnProperty.call(out, "visible")) entries[row.kind] = out;
+    }
+    var built = { mode: mode };
+    if (Object.keys(entries).length) built.entries = entries;
+    if (mode === "auto" && !built.entries) return null;
+    return built;
+  }
+
+  function legendFormDirty() {
+    if (!legendFormReady() || !state.doc) return false;
+    var form = readLegendForm();
+    var built = normalizedLegendFromRows(form.mode, form.rows);
+    var meta = diagramMetaObject();
+    return legendSignature(built) !== legendSignature(meta && meta.legend);
+  }
+
+  function legendFormError(rows) {
+    for (var i = 0; i < rows.length; i++) {
+      var label = String((rows[i] && rows[i].label) || "").trim();
+      if (label.length > 80) return "Legend label max length is 80; kept previous";
+    }
+    return "";
+  }
+
+  var legendSyncDepth = 0;
+  var legendUserEdit = false;
+
+  function syncLegendForm(force) {
+    var modeEl = $("layout-legend-mode");
+    var rowsEl = $("layout-legend-rows");
+    if (!modeEl || !rowsEl) return;
+    if (legendSyncDepth) return;
+    if (!force && (legendFormFocused() || legendUserEdit)) return;
+    legendSyncDepth += 1;
+    try {
+      var meta = diagramMetaObject();
+      var legend = legendObject(meta);
+      modeEl.value = legendModeOf(legend);
+      var entries = legendEntryMap(legend);
+      var html = "";
+      for (var i = 0; i < LEGEND_KINDS.length; i++) {
+        var kind = LEGEND_KINDS[i];
+        var row = entries[kind];
+        var stored = row && typeof row.label === "string" ? row.label.trim() : "";
+        var def = legendDefaultLabel(kind);
+        var shown = stored && stored !== def ? stored : "";
+        var checked = !(row && row.visible === false);
+        var explicit = !!(row && row.visible === true);
+        html += '<div class="legend-row" data-kind="' + esc(kind) + '"' +
+          (explicit ? ' data-explicit-visible="1"' : "") + ">" +
+          '<label for="layout-legend-label-' + esc(kind) + '">' + esc(kind) + "</label>" +
+          '<input type="text" id="layout-legend-label-' + esc(kind) + '" data-legend-label maxlength="80" ' +
+          'autocomplete="off" spellcheck="false" placeholder="' + esc(def) + '" value="' + esc(shown) + '">' +
+          '<label class="legend-vis"><input type="checkbox" data-legend-visible' +
+          (checked ? " checked" : "") + "> visible</label></div>";
+      }
+      rowsEl.innerHTML = html;
+      var disabled = !state.doc || !!state.layoutBusy;
+      modeEl.disabled = disabled;
+      var controls = rowsEl.querySelectorAll("input");
+      for (var c = 0; c < controls.length; c++) controls[c].disabled = disabled;
+      legendUserEdit = false;
+    } finally {
+      legendSyncDepth -= 1;
+    }
+  }
+
+  function revertLegendForm() {
+    syncLegendForm(true);
+  }
+
+  function writeLegendFromForm() {
+    var form = readLegendForm();
+    var err = legendFormError(form.rows);
+    if (err) return { ok: false, error: err };
+    var meta = diagramMetaObject();
+    if (!meta) return { ok: false, error: "meta must be an object; legend not updated" };
+    var built = normalizedLegendFromRows(form.mode, form.rows);
+    if (legendSignature(built) === legendSignature(meta.legend)) return { ok: true, unchanged: true };
+    var prevHad = Object.prototype.hasOwnProperty.call(meta, "legend");
+    var prev = prevHad ? clone(meta.legend) : undefined;
+    if (built) meta.legend = built;
+    else delete meta.legend;
+    return { ok: true, unchanged: false, prevHad: prevHad, prev: prev, built: built };
+  }
+
+  function restoreLegendWrite(applied) {
+    var meta = diagramMetaObject();
+    if (!meta || !applied) return;
+    if (applied.prevHad) meta.legend = applied.prev;
+    else delete meta.legend;
   }
 
   function syncNodeEditorButtons() {
@@ -9817,7 +10668,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var ids = [
       "layout-edit-label", "layout-edit-sublabel", "layout-edit-tag",
       "layout-edit-type", "layout-edit-color", "layout-single-label",
-      "layout-single-dash", "layout-single-color"
+      "layout-single-dash", "layout-single-color",
+      "layout-card-title", "layout-card-dot", "layout-card-add-item", "layout-card-delete",
+      "layout-boundary-kind", "layout-boundary-label", "layout-boundary-pad", "layout-boundary-delete",
+      "layout-legend-mode", "btn-add-card", "btn-add-boundary"
     ];
     for (var i = 0; i < ids.length; i++) {
       var el = $(ids[i]);
@@ -9840,6 +10694,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (dupBtn) dupBtn.disabled = true;
       if (delBtn) delBtn.disabled = true;
     }
+    ["layout-card-items", "layout-legend-rows", "layout-boundary-wraps"].forEach(function (id) {
+      var root = $(id);
+      if (!root) return;
+      var controls = root.querySelectorAll("input, button, select");
+      for (var i = 0; i < controls.length; i++) controls[i].disabled = !!disabled || !state.doc;
+    });
+    var addCard = $("btn-add-card");
+    if (addCard) addCard.disabled = !!disabled || !state.doc;
+    var cardDelete = $("layout-card-delete");
+    if (cardDelete && !disabled) cardDelete.disabled = !cardEdit || !state.doc;
   }
 
   function dockSingleEditor(docked) {
@@ -9962,7 +10826,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       var has = Object.prototype.hasOwnProperty.call(edge, "label");
       return !((!has && !next) || (has && cur === next));
     }
-    return false;
+    if (cardEdit) {
+      var card = cardAt(cardEdit.index);
+      if (!card) return false;
+      return !cardBufferUnchanged(card, readCardEditorValues());
+    }
+    if (boundaryEdit) {
+      var boundary = boundaryAt(boundaryEdit.index);
+      if (!boundary) return false;
+      return !boundaryBufferUnchanged(boundary, readBoundaryEditorValues());
+    }
+    return legendFormDirty();
   }
 
   function revertInspectorBuffer() {
@@ -9976,11 +10850,22 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       var edge = relationRecords()[singleEdit.edgeIndex];
       var input = $("layout-single-label");
       if (edge && input) input.value = edge.label != null ? String(edge.label) : "";
+      return;
     }
+    if (cardEdit) {
+      refillCardEditorFromDoc();
+      return;
+    }
+    if (boundaryEdit) {
+      refillBoundaryEditorFromDoc();
+      return;
+    }
+    if (legendFormDirty()) revertLegendForm();
   }
 
   function showDocumentInspector() {
     var hadComponent = !!state.selectedComponentId;
+    var hadBoundary = !!boundaryEdit;
     nodeEdit = null;
     hideNodeEditor();
     if (singleEdit && singleEdit.kind === "edge") {
@@ -9990,9 +10875,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     state.selectedNodeId = null;
     state.selectedComponentId = null;
     state.selectedEdgeIndex = null;
+    clearCardSelection();
+    clearBoundarySelection();
     updateDeleteEdgeButton();
     syncInspectorPanes();
-    if (hadComponent && isArchitecture() && !state.layoutBusy) mountLayoutOverlays();
+    if ((hadComponent || hadBoundary) && isArchitecture() && !state.layoutBusy) mountLayoutOverlays();
     else updateConnectHighlight();
     refreshEdgeSelectionStyles();
   }
@@ -10218,6 +11105,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       singleEdit = null;
       hideSingleEditor();
     }
+    clearCardSelection();
+    clearBoundarySelection();
     if (isArchitecture()) state.selectedComponentId = String(id);
     else state.selectedNodeId = String(id);
     state.selectedEdgeIndex = null;
@@ -10266,6 +11155,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       nodeEdit = null;
       hideNodeEditor();
     }
+    clearCardSelection();
+    var hadBoundaryEdge = !!boundaryEdit;
+    clearBoundarySelection();
     state.selectedNodeId = null;
     state.selectedComponentId = null;
     state.selectedEdgeIndex = idx;
@@ -10285,6 +11177,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     };
     panel.classList.add("active");
     syncInspectorPanes();
+    if (hadBoundaryEdge && isArchitecture() && !state.layoutBusy) mountLayoutOverlays();
     refreshEdgeSelectionStyles();
     updateConnectHighlight();
     if (opts.focus && !input.disabled) {
@@ -10303,6 +11196,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       singleEdit = null;
       hideSingleEditor();
     }
+    clearCardSelection();
+    clearBoundarySelection();
     if (state.layoutBusy || !hitEl) return;
     var idx = parseInt(hitEl.getAttribute("data-lane-index"), 10);
     if (isNaN(idx) || idx < 0 || !(state.doc.lanes && state.doc.lanes[idx])) return;
@@ -10743,10 +11638,21 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return applied;
   }
 
+  function dockedRestoreFocusId(opts) {
+    opts = opts || {};
+    if (opts.focusLegend) return "layout-legend-mode";
+    if (opts.nextNodeId || opts.nextEdgeIndex != null || opts.nextCardIndex != null ||
+        opts.nextBoundaryIndex != null || opts.deselect) return null;
+    return opts.focusId || null;
+  }
+
   function finishDockedSelect(opts) {
     opts = opts || {};
     if (opts.nextNodeId) selectLayoutNode(opts.nextNodeId, { focus: !!opts.focus });
     else if (opts.nextEdgeIndex != null) selectLayoutEdge(opts.nextEdgeIndex, { focus: !!opts.focus });
+    else if (opts.nextCardIndex != null) selectLayoutCard(opts.nextCardIndex, { focus: !!opts.focus });
+    else if (opts.nextBoundaryIndex != null) selectLayoutBoundary(opts.nextBoundaryIndex, { focus: !!opts.focus });
+    else if (opts.focusLegend) focusLegendSection();
     else if (opts.deselect) showDocumentInspector();
     else if (opts.focusId) {
       var el = $(opts.focusId);
@@ -10767,6 +11673,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     if (nodeEdit) commitNodeEditor(opts);
     else if (singleEdit && singleEdit.kind === "edge") commitEdgeInspector(opts);
+    else if (cardEdit) commitCardEditor(opts);
+    else if (boundaryEdit) commitBoundaryEditor(opts);
+    else commitLegendEditor(opts);
   }
 
   function applyDockedBufferSync() {
@@ -10814,6 +11723,64 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       markDirty();
       return true;
     }
+    if (cardEdit) {
+      var cardValues = readCardEditorValues();
+      var card = cardAt(cardEdit.index);
+      var cardErr = card ? cardValuesError(cardValues) : "Card not found";
+      if (!card || cardErr) {
+        if (card) refillCardEditorFromDoc();
+        if (cardErr) setStatus(cardErr, "");
+        return false;
+      }
+      pushHistory();
+      writeCardFields(card, cardValues);
+      state.selected.cards = cardEdit.index;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      return true;
+    }
+    if (boundaryEdit) {
+      var boundaryValues = readBoundaryEditorValues();
+      var boundary = boundaryAt(boundaryEdit.index);
+      var boundaryErr = boundary ? boundaryValuesError(boundaryValues) : "Boundary not found";
+      if (!boundary || boundaryErr) {
+        if (boundary) refillBoundaryEditorFromDoc();
+        if (boundaryErr) setStatus(boundaryErr, "");
+        return false;
+      }
+      pushHistory();
+      writeBoundaryFields(boundary, boundaryValues);
+      state.selected.boundaries = boundaryEdit.index;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      return true;
+    }
+    if (legendFormDirty()) {
+      var legendCheck = legendFormError(readLegendForm().rows);
+      if (legendCheck || !diagramMetaObject()) {
+        revertLegendForm();
+        setStatus(legendCheck || "meta must be an object; legend not updated", "");
+        return false;
+      }
+      pushHistory();
+      var legendApplied = writeLegendFromForm();
+      if (!legendApplied.ok || legendApplied.unchanged) {
+        revertHistoryPush();
+        if (!legendApplied.ok) {
+          revertLegendForm();
+          setStatus(legendApplied.error || "Legend not updated", "");
+        }
+        return false;
+      }
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      legendUserEdit = false;
+      syncStyleLegend();
+      return true;
+    }
     return false;
   }
 
@@ -10833,6 +11800,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     panel.classList.add("active");
     syncNodeEditorButtons();
     syncInspectorPanes();
+  }
+
+  function restoreCardEditorAfterRemount() {
+    if (!cardEdit) return;
+    if (!cardAt(cardEdit.index)) {
+      clearCardSelection();
+      syncInspectorPanes();
+      return;
+    }
+    refillCardEditorFromDoc();
+    syncInspectorPanes();
+    refreshCardSelection();
   }
 
   function keepNodeEditorAcrossRemount() {
@@ -10925,7 +11904,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     if (!appliedNode || !appliedNode.ok) return;
     finishDockedSelect(opts);
-    var focusId = (!opts.nextNodeId && opts.nextEdgeIndex == null && !opts.deselect) ? (opts.focusId || null) : null;
+    var focusId = dockedRestoreFocusId(opts);
     setLayoutBusy(true);
     setStatus("previewing node… " + committedId, "");
     postPreviewDoc()
@@ -11004,7 +11983,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     var committedIndex = edit.edgeIndex;
     finishDockedSelect(opts);
-    var focusId = (!opts.nextNodeId && opts.nextEdgeIndex == null && !opts.deselect) ? (opts.focusId || null) : null;
+    var focusId = dockedRestoreFocusId(opts);
     setLayoutBusy(true);
     setStatus("previewing edge label…", "");
     postPreviewDoc()
@@ -11054,6 +12033,153 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         setLayoutBusy(false);
         setStatus("Edge label preview failed (reverted): " + e, "err");
         renderLists();
+      });
+  }
+
+  function focusLegendSection() {
+    if (nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge")) showDocumentInspector();
+    var section = $("inspector-legend");
+    if (section && section.scrollIntoView) section.scrollIntoView({ block: "nearest" });
+    var mode = $("layout-legend-mode");
+    if (mode && !mode.disabled) mode.focus();
+  }
+
+  function restoreCardSnapshot(index, snap) {
+    var card = cardAt(index);
+    if (!card || !snap) return;
+    card.title = snap.title;
+    card.dot = snap.dot;
+    if (Array.isArray(snap.items)) card.items = snap.items.slice();
+    else card.items = [];
+  }
+
+  function commitCardEditor(opts) {
+    opts = opts || {};
+    if (!cardEdit || state.layoutBusy || inspectorCommitLock) return;
+    var index = cardEdit.index;
+    var card = cardAt(index);
+    if (!card) return;
+    var values = readCardEditorValues();
+    var err = cardValuesError(values);
+    if (err) {
+      setStatus(err, "");
+      refillCardEditorFromDoc();
+      return;
+    }
+    if (cardBufferUnchanged(card, values)) {
+      finishDockedSelect(opts);
+      return;
+    }
+    inspectorCommitLock = true;
+    var snap = clone(card);
+    try {
+      pushHistory();
+      writeCardFields(card, values);
+      state.selected.cards = index;
+      state.rawDirty = false;
+    } finally {
+      inspectorCommitLock = false;
+    }
+    finishDockedSelect(opts);
+    var focusId = dockedRestoreFocusId(opts);
+    setLayoutBusy(true);
+    setStatus("previewing card…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = "Updated card " + (index + 1) + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { restoreFocusId: focusId }).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        restoreCardSnapshot(index, snap);
+        revertHistoryPush();
+        if (cardEdit && cardEdit.index === index) refillCardEditorFromDoc();
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Card not updated (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+      })
+      .catch(function (e) {
+        restoreCardSnapshot(index, snap);
+        revertHistoryPush();
+        if (cardEdit && cardEdit.index === index) refillCardEditorFromDoc();
+        setLayoutBusy(false);
+        setStatus("Card preview failed (reverted): " + e, "err");
+        renderLists();
+      });
+  }
+
+  function commitLegendEditor(opts) {
+    opts = opts || {};
+    if (state.layoutBusy || inspectorCommitLock) return;
+    if (!legendFormDirty()) {
+      finishDockedSelect(opts);
+      return;
+    }
+    var check = legendFormError(readLegendForm().rows);
+    if (check || !diagramMetaObject()) {
+      revertLegendForm();
+      setStatus(check || "meta must be an object; legend not updated", "");
+      return;
+    }
+    inspectorCommitLock = true;
+    var applied = null;
+    try {
+      pushHistory();
+      applied = writeLegendFromForm();
+      if (!applied.ok || applied.unchanged) {
+        revertHistoryPush();
+        if (!applied.ok) {
+          revertLegendForm();
+          setStatus(applied.error || "Legend not updated", "");
+        }
+        return;
+      }
+      state.rawDirty = false;
+      legendUserEdit = false;
+    } finally {
+      inspectorCommitLock = false;
+    }
+    if (!applied || !applied.ok || applied.unchanged) return;
+    finishDockedSelect(opts);
+    var focusId = dockedRestoreFocusId(opts);
+    syncStyleLegend();
+    setLayoutBusy(true);
+    setStatus("previewing legend…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = "Updated legend (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { restoreFocusId: focusId }).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        restoreLegendWrite(applied);
+        revertHistoryPush();
+        revertLegendForm();
+        syncStyleLegend();
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Legend not updated (reverted):\n- " + errs.join("\n- "), "err");
+        renderRaw();
+      })
+      .catch(function (e) {
+        restoreLegendWrite(applied);
+        revertHistoryPush();
+        revertLegendForm();
+        syncStyleLegend();
+        setLayoutBusy(false);
+        setStatus("Legend preview failed (reverted): " + e, "err");
+        renderRaw();
       });
   }
 
@@ -11323,6 +12449,522 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         setLayoutBusy(false);
         setStatus("Add node preview failed (reverted): " + e, "err");
         renderLists();
+      });
+  }
+
+  function readBoundaryEditorValues() {
+    var kindEl = $("layout-boundary-kind");
+    var labelEl = $("layout-boundary-label");
+    var padEl = $("layout-boundary-pad");
+    var kind = String((kindEl && kindEl.value) || "");
+    if (kind !== "region" && kind !== "security-group") kind = "region";
+    var padRaw = String((padEl && padEl.value) || "").trim();
+    var root = $("layout-boundary-wraps");
+    var wraps = [];
+    if (root) {
+      var boxes = root.querySelectorAll("input[data-wrap-id]");
+      for (var i = 0; i < boxes.length; i++) {
+        if (boxes[i].checked) wraps.push(String(boxes[i].getAttribute("data-wrap-id")));
+      }
+    }
+    return {
+      kind: kind,
+      label: String((labelEl && labelEl.value) || "").trim(),
+      pad: padRaw,
+      wraps: wraps
+    };
+  }
+
+  function boundaryValuesError(values) {
+    if (!values || (values.kind !== "region" && values.kind !== "security-group")) {
+      return "Boundary kind must be region or security-group";
+    }
+    if (!values.label) return "Boundary label required (minLength 1); kept previous";
+    if (values.pad !== "") {
+      var n = Number(values.pad);
+      if (!isFinite(n) || n < 0) return "pad must be a number >= 0";
+    }
+    if (!values.wraps || !values.wraps.length) return "Boundary wraps needs at least one component";
+    return "";
+  }
+
+  function boundaryBufferUnchanged(boundary, values) {
+    if (!boundary || !values) return false;
+    if (String(boundary.kind || "") !== values.kind) return false;
+    if (String(boundary.label == null ? "" : boundary.label).trim() !== values.label) return false;
+    var hadPad = boundary.pad != null && boundary.pad !== "";
+    if (values.pad === "") {
+      if (hadPad) return false;
+    } else if (!hadPad || Number(boundary.pad) !== Number(values.pad)) return false;
+    var wraps = Array.isArray(boundary.wraps) ? boundary.wraps : [];
+    if (wraps.length !== values.wraps.length) return false;
+    for (var i = 0; i < wraps.length; i++) {
+      if (String(wraps[i]) !== String(values.wraps[i])) return false;
+    }
+    return true;
+  }
+
+  function writeBoundaryFields(boundary, values) {
+    boundary.kind = values.kind;
+    boundary.label = values.label;
+    if (values.pad === "") delete boundary.pad;
+    else boundary.pad = Number(values.pad);
+    boundary.wraps = values.wraps.slice();
+  }
+
+  function componentWrapLabel(comp) {
+    if (!comp) return "";
+    var label = comp.label != null ? String(comp.label).trim() : "";
+    if (label) return label;
+    return comp.id != null ? String(comp.id) : "";
+  }
+
+  function refillBoundaryEditorFromDoc() {
+    if (!boundaryEdit) return;
+    var boundary = boundaryAt(boundaryEdit.index);
+    var kindEl = $("layout-boundary-kind");
+    var labelEl = $("layout-boundary-label");
+    var padEl = $("layout-boundary-pad");
+    var wrapsEl = $("layout-boundary-wraps");
+    if (!boundary || !kindEl || !labelEl || !padEl || !wrapsEl) return;
+    boundarySyncDepth += 1;
+    try {
+      kindEl.value = boundary.kind === "security-group" ? "security-group" : "region";
+      labelEl.value = boundary.label == null ? "" : String(boundary.label);
+      padEl.value = (boundary.pad == null || boundary.pad === "") ? "" : String(boundary.pad);
+      var selected = {};
+      var wraps = Array.isArray(boundary.wraps) ? boundary.wraps : [];
+      for (var s = 0; s < wraps.length; s++) selected[String(wraps[s])] = true;
+      var comps = (state.doc && state.doc.components) || [];
+      var seen = {};
+      var html = "";
+      for (var i = 0; i < comps.length; i++) {
+        var cid = comps[i] && comps[i].id != null ? String(comps[i].id) : "";
+        if (!cid) continue;
+        seen[cid] = true;
+        var wrapName = componentWrapLabel(comps[i]);
+        html += '<label title="' + esc(wrapName) + '"><input type="checkbox" data-wrap-id="' + esc(cid) + '"' +
+          (selected[cid] ? " checked" : "") + '><span class="boundary-wrap-name">' +
+          esc(wrapName) + "</span></label>";
+      }
+      for (var w = 0; w < wraps.length; w++) {
+        var wid = String(wraps[w]);
+        if (seen[wid]) continue;
+        html += '<label title="' + esc(wid) + '"><input type="checkbox" data-wrap-id="' + esc(wid) +
+          '" checked><span class="boundary-wrap-name">' + esc(wid) + "</span></label>";
+      }
+      wrapsEl.innerHTML = html;
+      var disabled = !state.doc || !!state.layoutBusy;
+      kindEl.disabled = disabled;
+      labelEl.disabled = disabled;
+      padEl.disabled = disabled;
+      var boxes = wrapsEl.querySelectorAll("input");
+      for (var c = 0; c < boxes.length; c++) boxes[c].disabled = disabled;
+      var delBtn = $("layout-boundary-delete");
+      if (delBtn) delBtn.disabled = disabled;
+    } finally {
+      boundarySyncDepth -= 1;
+    }
+  }
+
+  function focusBoundaryLabel() {
+    var labelEl = $("layout-boundary-label");
+    if (labelEl && !labelEl.disabled) {
+      labelEl.focus();
+      if (labelEl.select) labelEl.select();
+    }
+  }
+
+  function selectLayoutBoundary(index, opts) {
+    opts = opts || {};
+    if (state.layoutBusy && !opts.allowBusy) return;
+    var boundary = boundaryAt(index);
+    if (!boundary) return;
+    var same = !!(boundaryEdit && boundaryEdit.index === index);
+    if (nodeEdit) {
+      nodeEdit = null;
+      hideNodeEditor();
+    }
+    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
+    if (singleEdit && singleEdit.kind === "edge") {
+      singleEdit = null;
+      hideSingleEditor();
+    }
+    clearCardSelection();
+    boundaryEdit = { index: index };
+    state.selectedNodeId = null;
+    state.selectedComponentId = null;
+    state.selectedEdgeIndex = null;
+    updateDeleteEdgeButton();
+    state.selected.boundaries = index;
+    if (!same) refillBoundaryEditorFromDoc();
+    syncInspectorPanes();
+    if (!state.layoutBusy) mountLayoutOverlays();
+    renderLists();
+    if (opts.focus) focusBoundaryLabel();
+  }
+
+  function toggleBoundaryWrap(id) {
+    if (!boundaryEdit || id == null) return;
+    var root = $("layout-boundary-wraps");
+    if (!root) return;
+    var boxes = root.querySelectorAll("input[data-wrap-id]");
+    var target = null;
+    var checked = 0;
+    var want = String(id);
+    for (var i = 0; i < boxes.length; i++) {
+      if (boxes[i].checked) checked += 1;
+      if (String(boxes[i].getAttribute("data-wrap-id")) === want) target = boxes[i];
+    }
+    if (!target || target.disabled) return;
+    if (target.checked && checked <= 1) {
+      setStatus("Boundary wraps needs at least one component", "");
+      return;
+    }
+    target.checked = !target.checked;
+  }
+
+  function guardLastBoundaryWrap(box) {
+    if (!box || box.checked || boundarySyncDepth) return;
+    var root = $("layout-boundary-wraps");
+    if (!root) return;
+    var boxes = root.querySelectorAll("input[data-wrap-id]");
+    var checked = 0;
+    for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) checked += 1;
+    if (checked >= 1) return;
+    box.checked = true;
+    setStatus("Boundary wraps needs at least one component", "");
+  }
+
+  function snapshotBoundary(boundary) {
+    return {
+      kind: boundary.kind,
+      label: boundary.label,
+      hadPad: Object.prototype.hasOwnProperty.call(boundary, "pad"),
+      pad: boundary.pad,
+      wraps: Array.isArray(boundary.wraps) ? boundary.wraps.slice() : []
+    };
+  }
+
+  function restoreBoundarySnapshot(index, snap) {
+    var boundary = boundaryAt(index);
+    if (!boundary || !snap) return;
+    boundary.kind = snap.kind;
+    boundary.label = snap.label;
+    if (snap.hadPad) boundary.pad = snap.pad;
+    else delete boundary.pad;
+    boundary.wraps = Array.isArray(snap.wraps) ? snap.wraps.slice() : [];
+  }
+
+  function commitBoundaryEditor(opts) {
+    opts = opts || {};
+    if (!boundaryEdit || state.layoutBusy || inspectorCommitLock) return;
+    var index = boundaryEdit.index;
+    var boundary = boundaryAt(index);
+    if (!boundary) return;
+    var values = readBoundaryEditorValues();
+    var err = boundaryValuesError(values);
+    if (err) {
+      setStatus(err, "");
+      refillBoundaryEditorFromDoc();
+      return;
+    }
+    if (boundaryBufferUnchanged(boundary, values)) {
+      finishDockedSelect(opts);
+      return;
+    }
+    inspectorCommitLock = true;
+    var snap = snapshotBoundary(boundary);
+    try {
+      pushHistory();
+      writeBoundaryFields(boundary, values);
+      state.selected.boundaries = index;
+      state.rawDirty = false;
+    } finally {
+      inspectorCommitLock = false;
+    }
+    finishDockedSelect(opts);
+    var focusId = dockedRestoreFocusId(opts);
+    setLayoutBusy(true);
+    setStatus("previewing boundary…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = "Updated boundary " + values.label + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { restoreFocusId: focusId }).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        restoreBoundarySnapshot(index, snap);
+        revertHistoryPush();
+        if (boundaryEdit && boundaryEdit.index === index) refillBoundaryEditorFromDoc();
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Boundary not updated (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+      })
+      .catch(function (e) {
+        restoreBoundarySnapshot(index, snap);
+        revertHistoryPush();
+        if (boundaryEdit && boundaryEdit.index === index) refillBoundaryEditorFromDoc();
+        setLayoutBusy(false);
+        setStatus("Boundary preview failed (reverted): " + e, "err");
+        renderLists();
+      });
+  }
+
+  function restoreBoundaryEditorAfterRemount(opts) {
+    opts = opts || {};
+    if (!boundaryEdit) return;
+    if (!boundaryAt(boundaryEdit.index)) {
+      clearBoundarySelection();
+      syncInspectorPanes();
+      return;
+    }
+    if (!opts.keepBoundaryBuffer) refillBoundaryEditorFromDoc();
+    syncInspectorPanes();
+  }
+
+  function armBoundaryTool() {
+    if (!isArchitecture() || !state.doc || state.layoutBusy) return;
+    if (inspectorBufferDirty() && !applyDockedBufferSync()) return;
+    setLayoutMode("boundary");
+    setStatus("Drag a rectangle around components", "");
+  }
+
+  function createBoundaryFromWraps(ids) {
+    if (!state.doc || state.layoutBusy || !ids || !ids.length) return;
+    if (inspectorBufferDirty() && !applyDockedBufferSync()) return;
+    var had = Array.isArray(state.doc.boundaries);
+    if (!had) state.doc.boundaries = [];
+    var item = { kind: "region", label: "New boundary", wraps: ids.slice() };
+    pushHistory();
+    state.doc.boundaries.push(item);
+    var idx = state.doc.boundaries.length - 1;
+    state.selected.boundaries = idx;
+    boundaryEdit = { index: idx };
+    state.selectedComponentId = null;
+    state.selectedNodeId = null;
+    state.selectedEdgeIndex = null;
+    updateDeleteEdgeButton();
+    state.rawDirty = false;
+    refillBoundaryEditorFromDoc();
+    syncInspectorPanes();
+    renderLists();
+    setLayoutBusy(true);
+    setStatus("previewing new boundary…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          state.layoutMode = "move";
+          updateModeButtons();
+          markDirty();
+          var msg = "Added boundary (" + ids.length + " component" + (ids.length === 1 ? "" : "s") + ") (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { restoreFocusId: "layout-boundary-label" }).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+            selectLayoutBoundary(idx, { focus: true });
+          });
+        }
+        if (Array.isArray(state.doc.boundaries)) state.doc.boundaries.pop();
+        if (!had) delete state.doc.boundaries;
+        revertHistoryPush();
+        clearBoundarySelection();
+        syncInspectorPanes();
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Boundary not added (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+        mountLayoutOverlays();
+      })
+      .catch(function (e) {
+        if (Array.isArray(state.doc.boundaries) && state.doc.boundaries.length) {
+          var last = state.doc.boundaries[state.doc.boundaries.length - 1];
+          if (last && last.label === "New boundary" && last.kind === "region") state.doc.boundaries.pop();
+        }
+        if (!had && state.doc.boundaries && !state.doc.boundaries.length) delete state.doc.boundaries;
+        revertHistoryPush();
+        clearBoundarySelection();
+        syncInspectorPanes();
+        setLayoutBusy(false);
+        setStatus("Boundary preview failed (reverted): " + e, "err");
+        renderLists();
+        mountLayoutOverlays();
+      });
+  }
+
+  function deleteLayoutBoundary() {
+    if (!boundaryEdit || !state.doc || state.layoutBusy) return;
+    var idx = boundaryEdit.index;
+    var boundary = boundaryAt(idx);
+    if (!boundary) return;
+    var label = boundary.label || "boundary";
+    clearBoundarySelection();
+    showDocumentInspector();
+    pushHistory();
+    state.doc.boundaries.splice(idx, 1);
+    if (!state.doc.boundaries.length) delete state.doc.boundaries;
+    var left = state.doc.boundaries || [];
+    state.selected.boundaries = left.length ? Math.min(idx, left.length - 1) : -1;
+    state.rawDirty = false;
+    renderLists();
+    setLayoutBusy(true);
+    setStatus("previewing delete boundary…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = "Deleted boundary " + label + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        if (state.undo.length) {
+          var prevDel = state.undo.pop();
+          if (prevDel && prevDel.doc) {
+            state.doc = prevDel.doc;
+            state.sidecar = prevDel.sidecar;
+            ensureSidecar();
+          }
+          updateHistoryButtons();
+        }
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Delete boundary failed (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+        return loadLayoutPane(true).then(function () { renderAll(); });
+      })
+      .catch(function (e) {
+        if (state.undo.length) {
+          var prevDelErr = state.undo.pop();
+          if (prevDelErr && prevDelErr.doc) {
+            state.doc = prevDelErr.doc;
+            state.sidecar = prevDelErr.sidecar;
+            ensureSidecar();
+          }
+          updateHistoryButtons();
+        }
+        setLayoutBusy(false);
+        setStatus("Delete boundary preview failed (reverted): " + e, "err");
+        renderLists();
+        return loadLayoutPane(true).then(function () { renderAll(); });
+      });
+  }
+
+  function addLayoutCard() {
+    if (!state.doc || state.layoutBusy) return;
+    if (inspectorBufferDirty() && !applyDockedBufferSync()) return;
+    ensureArrays();
+    var hadCards = Array.isArray(state.doc.cards);
+    if (!hadCards) state.doc.cards = [];
+    var item = { dot: "slate", title: "New card", items: [] };
+    pushHistory();
+    state.doc.cards.push(item);
+    var idx = state.doc.cards.length - 1;
+    state.selected.cards = idx;
+    state.rawDirty = false;
+    revealLayoutCards();
+    renderLists();
+    setLayoutBusy(true);
+    setStatus("previewing new card…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = "Added card (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+            selectLayoutCard(idx, { focus: true });
+          });
+        }
+        if (Array.isArray(state.doc.cards)) state.doc.cards.pop();
+        if (!hadCards && state.doc.cards && !state.doc.cards.length) delete state.doc.cards;
+        revertHistoryPush();
+        state.selected.cards = -1;
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Add card failed (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+      })
+      .catch(function (e) {
+        if (Array.isArray(state.doc.cards)) state.doc.cards.pop();
+        if (!hadCards && state.doc.cards && !state.doc.cards.length) delete state.doc.cards;
+        revertHistoryPush();
+        state.selected.cards = -1;
+        setLayoutBusy(false);
+        setStatus("Add card preview failed (reverted): " + e, "err");
+        renderLists();
+      });
+  }
+
+  function deleteLayoutCard() {
+    if (!cardEdit || !state.doc || state.layoutBusy) return;
+    var idx = cardEdit.index;
+    if (!cardAt(idx)) return;
+    clearCardSelection();
+    showDocumentInspector();
+    pushHistory();
+    state.doc.cards.splice(idx, 1);
+    if (isArchitecture() && state.doc.cards && !state.doc.cards.length) delete state.doc.cards;
+    var left = state.doc.cards || [];
+    state.selected.cards = left.length ? Math.min(idx, left.length - 1) : -1;
+    state.rawDirty = false;
+    renderLists();
+    setLayoutBusy(true);
+    setStatus("previewing delete card…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = "Deleted card (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        if (state.undo.length) {
+          var prevDel = state.undo.pop();
+          if (prevDel && prevDel.doc) {
+            state.doc = prevDel.doc;
+            state.sidecar = prevDel.sidecar;
+            ensureSidecar();
+          }
+          updateHistoryButtons();
+        }
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Delete card failed (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+        return loadLayoutPane(true).then(function () { renderAll(); });
+      })
+      .catch(function (e) {
+        if (state.undo.length) {
+          var prevDelErr = state.undo.pop();
+          if (prevDelErr && prevDelErr.doc) {
+            state.doc = prevDelErr.doc;
+            state.sidecar = prevDelErr.sidecar;
+            ensureSidecar();
+          }
+          updateHistoryButtons();
+        }
+        setLayoutBusy(false);
+        setStatus("Delete card preview failed (reverted): " + e, "err");
+        renderLists();
+        return loadLayoutPane(true).then(function () { renderAll(); });
       });
   }
 
@@ -11972,6 +13614,31 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
     var t = ev.target;
 
+    // Cards are HTML under #bw-scroll, outside the SVG. Index matches doc.cards order.
+    var cardEl = t && t.closest && t.closest(".card");
+    if (cardEl && cardEl.closest && cardEl.closest("#bw-scroll")) {
+      var cardNodes = cardEl.closest("#bw-scroll").querySelectorAll(".card");
+      var cardIndex = -1;
+      for (var ci = 0; ci < cardNodes.length; ci++) {
+        if (cardNodes[ci] === cardEl) { cardIndex = ci; break; }
+      }
+      if (cardIndex >= 0 && cardAt(cardIndex)) {
+        var sameCard = cardEdit && cardEdit.index === cardIndex;
+        if (!sameCard && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit ||
+            (singleEdit && singleEdit.kind === "edge"))) {
+          commitDockedInspector({ nextCardIndex: cardIndex });
+        } else if (!sameCard) selectLayoutCard(cardIndex);
+        return;
+      }
+    }
+    var legendHit = t && t.closest && t.closest("[data-legend]");
+    if (legendHit) {
+      if (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge")) {
+        commitDockedInspector({ focusLegend: true });
+      } else focusLegendSection();
+      return;
+    }
+
     // Endpoint handles first — never trigger add-edge / edge-select.
     if (t && t.classList && t.classList.contains("bw-endpoint")) {
       ev.preventDefault();
@@ -12046,12 +13713,28 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       // Do not preventDefault — that suppresses dblclick (edge label edit).
       var edgeIdx = parseInt(t.getAttribute("data-doc-index"), 10);
       var sameEdge = singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === edgeIdx;
-      if (!sameEdge && (inspectorBufferDirty() || nodeEdit || (singleEdit && singleEdit.kind === "edge"))) {
+      if (!sameEdge && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit ||
+          (singleEdit && singleEdit.kind === "edge"))) {
         commitDockedInspector({ nextEdgeIndex: edgeIdx });
       } else {
         selectLayoutEdge(edgeIdx);
       }
       return;
+    }
+
+    if (t && t.classList && (t.classList.contains("bw-boundary") || t.classList.contains("bw-boundary-tab"))) {
+      // Boundary mode draws a lasso from anywhere that is not a component handle,
+      // including an existing boundary's border band or label tab.
+      if (!(isArchitecture() && state.layoutMode === "boundary")) {
+        var bIdx = parseInt(t.getAttribute("data-doc-index"), 10);
+        if (isNaN(bIdx)) return;
+        var sameBoundary = boundaryEdit && boundaryEdit.index === bIdx;
+        if (!sameBoundary && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit ||
+            (singleEdit && singleEdit.kind === "edge"))) {
+          commitDockedInspector({ nextBoundaryIndex: bIdx });
+        } else if (!sameBoundary) selectLayoutBoundary(bIdx);
+        return;
+      }
     }
 
     if (t && t.classList && t.classList.contains("bw-lane-hit")) {
@@ -12069,7 +13752,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
 
     if (!t || !t.classList || !t.classList.contains("bw-handle")) {
+      if (isArchitecture() && state.layoutMode === "boundary") {
+        var iframeL = $("layout-frame");
+        var svgL = iframeL.contentDocument && iframeL.contentDocument.querySelector("svg");
+        if (!svgL) return;
+        ev.preventDefault();
+        startBoundaryLasso(ev, svgL);
+        return;
+      }
       commitDockedInspector({ deselect: true });
+      return;
+    }
+
+    if (state.layoutMode === "boundary") {
+      ev.preventDefault();
       return;
     }
 
@@ -12107,6 +13803,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function onLayoutPointerMove(ev) {
+    if (boundaryLasso) {
+      var ldx = ev.clientX - boundaryLasso.startClientX;
+      var ldy = ev.clientY - boundaryLasso.startClientY;
+      if (!boundaryLasso.moved) {
+        if ((ldx * ldx + ldy * ldy) < (LAYOUT_DRAG_THRESHOLD_PX * LAYOUT_DRAG_THRESHOLD_PX)) return;
+        boundaryLasso.moved = true;
+        ev.preventDefault();
+      }
+      var lpt = clientToSvg(boundaryLasso.svg, ev.clientX, ev.clientY);
+      boundaryLasso.x1 = lpt.x;
+      boundaryLasso.y1 = lpt.y;
+      paintBoundaryLasso(boundaryLasso);
+      return;
+    }
     if (resizeDrag) {
       var rdx = ev.clientX - resizeDrag.startClientX;
       var rdy = ev.clientY - resizeDrag.startClientY;
@@ -12160,6 +13870,34 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function onLayoutPointerUp(ev) {
+    if (boundaryLasso) {
+      if (ev.type === "pointercancel" && ev.currentTarget !== window && window._bwLassoBound) return;
+      var lasso = boundaryLasso;
+      var upLdx = ev.clientX - lasso.startClientX;
+      var upLdy = ev.clientY - lasso.startClientY;
+      if (!lasso.moved && (upLdx * upLdx + upLdy * upLdy) >= (LAYOUT_DRAG_THRESHOLD_PX * LAYOUT_DRAG_THRESHOLD_PX)) {
+        lasso.moved = true;
+      }
+      if (lasso.moved && typeof ev.clientX === "number") {
+        var upLpt = clientToSvg(lasso.svg, ev.clientX, ev.clientY);
+        lasso.x1 = upLpt.x;
+        lasso.y1 = upLpt.y;
+      }
+      var lassoBox = lassoRectOf(lasso);
+      var lassoMoved = lasso.moved;
+      cancelBoundaryLasso();
+      if (!lassoMoved) {
+        commitDockedInspector({ deselect: true });
+        return;
+      }
+      var insideIds = componentsFullyInside(lassoBox);
+      if (!insideIds.length) {
+        setStatus("No components inside", "");
+        return;
+      }
+      createBoundaryFromWraps(insideIds);
+      return;
+    }
     if (resizeDrag) {
       // Iframe pointercancel fires when the pointer leaves the frame and drops
       // the gesture. Parent-window pointerup/pointercancel still commits it.
@@ -12215,6 +13953,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (!drag.moved) {
       drag.rect.setAttribute("x", String(drag.origX));
       drag.rect.setAttribute("y", String(drag.origY));
+      if (boundaryEdit && isArchitecture() && state.layoutMode === "move") {
+        toggleBoundaryWrap(drag.id);
+        return;
+      }
       var sameNode = nodeEdit && String(nodeEdit.nodeId) === String(drag.id);
       if (inspectorBufferDirty()) {
         commitDockedInspector(sameNode ? {} : { nextNodeId: drag.id });
@@ -12222,13 +13964,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       else updateConnectHighlight();
       return;
     }
-    if (inspectorBufferDirty()) {
+    if (inspectorBufferDirty() && !boundaryEdit) {
       drag.rect.setAttribute("x", String(drag.origX));
       drag.rect.setAttribute("y", String(drag.origY));
       commitDockedInspector({});
       return;
     }
-    if (!nodeEdit) {
+    if (!nodeEdit && !boundaryEdit) {
       if (isArchitecture()) state.selectedComponentId = String(drag.id);
       else state.selectedNodeId = String(drag.id);
     }
@@ -12313,7 +14055,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       delete node.row;
       delete node.col;
     }
-    state.selectedComponentId = drag.id;
+    if (!boundaryEdit) state.selectedComponentId = drag.id;
     state.rawDirty = false;
     renderLists();
     saveArchitectureGeometry(node, prev, {
@@ -12365,7 +14107,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           }
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
-          return loadLayoutPane(true).then(function () {
+          return loadLayoutPane(true, {
+            keepBoundaryBuffer: !!(boundaryEdit && inspectorBufferDirty())
+          }).then(function () {
             setLayoutBusy(false);
             renderAll();
           });
@@ -12530,6 +14274,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
                 if (opts.keepNodeEditor) keepNodeEditorAcrossRemount();
                 else restoreNodeEditorAfterRemount();
               }
+              if (cardEdit) restoreCardEditorAfterRemount();
+              if (boundaryEdit) restoreBoundaryEditorAfterRemount(opts);
               if (opts.restoreFocusId) {
                 var focusEl = $(opts.restoreFocusId);
                 if (focusEl && !focusEl.disabled) {
@@ -13051,6 +14797,44 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       var color = field === "bwColor" ? String(val || "") : storedColor(styled.entry);
       var dash = field === "bwDash" ? String(val || "") : storedDash(styled.entry);
       if (!writeEdgeStyle(idx, color, dash)) return;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      renderLists();
+      updateDirtyUI();
+      return;
+    }
+    if (kind === "cards" && field === "title") {
+      var nextTitle = String(val || "").trim();
+      var titleErr = cardValuesError({ title: nextTitle, dot: CARD_DOTS[0], items: [] });
+      if (!nextTitle) {
+        setStatus(titleErr, "");
+        renderForm(kind);
+        return;
+      }
+      if (String(item.title == null ? "" : item.title).trim() === nextTitle) {
+        fieldEl.value = nextTitle;
+        return;
+      }
+      pushHistory();
+      item.title = nextTitle;
+      fieldEl.value = nextTitle;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      renderLists();
+      updateDirtyUI();
+      return;
+    }
+    if (kind === "cards" && field === "dot") {
+      if (CARD_DOTS.indexOf(String(val || "")) < 0) {
+        setStatus("Card dot must be one of the schema colors", "err");
+        renderForm(kind);
+        return;
+      }
+      if (String(item.dot || "") === String(val)) return;
+      pushHistory();
+      item.dot = val;
       state.rawDirty = false;
       previewStale = true;
       markDirty();
@@ -13951,6 +15735,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   });
   window.addEventListener("resize", function () {
     if ($("status") && ($("status").textContent || "")) measureStatusClip();
+    placeStatusToast();
   });
 
   $("btn-dirty-close").addEventListener("click", closeDirtyPanel);
@@ -14006,6 +15791,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     setLayoutMode("connect");
     setStatus("Layout mode: Connect", "");
   });
+  var boundaryModeBtn = $("btn-mode-boundary");
+  if (boundaryModeBtn) boundaryModeBtn.addEventListener("click", function () {
+    if (!isArchitecture()) return;
+    setLayoutMode("boundary");
+    setStatus("Drag a rectangle around components", "");
+  });
   ["layout-meta-title", "layout-meta-subtitle"].forEach(function (id) {
     var el = $(id);
     if (!el) return;
@@ -14034,6 +15825,108 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   $("btn-add-node").addEventListener("click", function () {
     addLayoutNode();
   });
+  var addCardBtn = $("btn-add-card");
+  if (addCardBtn) addCardBtn.addEventListener("click", function () {
+    addLayoutCard();
+  });
+  var addBoundaryBtn = $("btn-add-boundary");
+  if (addBoundaryBtn) addBoundaryBtn.addEventListener("click", function () {
+    armBoundaryTool();
+  });
+  var cardEditorEl = $("layout-card-editor");
+  if (cardEditorEl) {
+    cardEditorEl.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        commitDockedInspector({});
+      } else if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (inspectorBufferDirty()) {
+          revertInspectorBuffer();
+          setStatus("Edits reverted", "");
+        } else {
+          showDocumentInspector();
+          setStatus("Selection cleared", "");
+        }
+      }
+    });
+    cardEditorEl.addEventListener("click", function (ev) {
+      var btn = ev.target.closest && ev.target.closest("[data-card-item-action]");
+      if (!btn || !cardEdit) return;
+      ev.preventDefault();
+      var row = btn.closest("[data-card-item]");
+      var action = btn.getAttribute("data-card-item-action");
+      if (!row || !row.parentNode) return;
+      if (action === "remove") row.parentNode.removeChild(row);
+      else if (action === "up" && row.previousElementSibling) {
+        row.parentNode.insertBefore(row, row.previousElementSibling);
+      } else if (action === "down" && row.nextElementSibling) {
+        row.parentNode.insertBefore(row.nextElementSibling, row);
+      }
+    });
+  }
+  var addCardItemBtn = $("layout-card-add-item");
+  if (addCardItemBtn) addCardItemBtn.addEventListener("click", function () {
+    if (!cardEdit) return;
+    var root = $("layout-card-items");
+    if (!root) return;
+    root.insertAdjacentHTML("beforeend", cardItemRowHtml(""));
+    var inputs = root.querySelectorAll("[data-card-item-text]");
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+  var deleteCardBtn = $("layout-card-delete");
+  if (deleteCardBtn) deleteCardBtn.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    deleteLayoutCard();
+  });
+  var boundaryEditorEl = $("layout-boundary-editor");
+  if (boundaryEditorEl) {
+    boundaryEditorEl.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        commitDockedInspector({});
+      } else if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (inspectorBufferDirty()) {
+          revertInspectorBuffer();
+          setStatus("Edits reverted", "");
+        } else {
+          showDocumentInspector();
+          setStatus("Selection cleared", "");
+        }
+      }
+    });
+    boundaryEditorEl.addEventListener("change", function (ev) {
+      var box = ev.target;
+      if (!box || !box.getAttribute || box.getAttribute("data-wrap-id") == null) return;
+      guardLastBoundaryWrap(box);
+    });
+  }
+  var deleteBoundaryBtn = $("layout-boundary-delete");
+  if (deleteBoundaryBtn) deleteBoundaryBtn.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    deleteLayoutBoundary();
+  });
+  var legendSection = $("inspector-legend");
+  if (legendSection) {
+    legendSection.addEventListener("input", function () { legendUserEdit = true; });
+    legendSection.addEventListener("change", function () { legendUserEdit = true; });
+    legendSection.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        commitDockedInspector({ focusId: ev.target && ev.target.id });
+      } else if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (legendFormDirty()) {
+          revertLegendForm();
+          setStatus("Edits reverted", "");
+        }
+      }
+    });
+  }
 
   var typesList = $("types-list");
   if (typesList) {
@@ -14449,7 +16342,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return;
     }
     if (focusInsideInspectorUi(ev.target)) return;
-    if (nodeEdit || (singleEdit && singleEdit.kind === "edge")) {
+    if (nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge") || legendFormDirty()) {
       commitDockedInspector({});
     }
   });
@@ -14474,7 +16367,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : "";
     var typing = tag === "input" || tag === "textarea" || tag === "select" || (ev.target && ev.target.isContentEditable);
 
-    if (!typing && (ev.key === "v" || ev.key === "V" || ev.key === "c" || ev.key === "C")) {
+    if (!typing && (ev.key === "v" || ev.key === "V" || ev.key === "c" || ev.key === "C" || ev.key === "b" || ev.key === "B")) {
       onModeShortcut(ev);
     }
 
@@ -14510,6 +16403,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         closeOpenPanel();
         return;
       }
+      if (boundaryLasso) {
+        ev.preventDefault();
+        cancelBoundaryLasso();
+        setStatus("Boundary draw cancelled", "");
+        return;
+      }
       if (endpointDrag) {
         ev.preventDefault();
         endpointDrag = null;
@@ -14529,7 +16428,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         setStatus("Edits reverted", "");
         return;
       }
-      if (nodeEdit || (singleEdit && singleEdit.kind === "edge") ||
+      if (nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge") ||
           state.selectedNodeId || state.selectedComponentId || state.selectedEdgeIndex != null) {
         ev.preventDefault();
         showDocumentInspector();
@@ -14544,6 +16443,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (state.tab === "layout" && nodeEdit) {
         ev.preventDefault();
         deleteLayoutNode();
+        return;
+      }
+      if (state.tab === "layout" && cardEdit) {
+        ev.preventDefault();
+        deleteLayoutCard();
+        return;
+      }
+      if (state.tab === "layout" && boundaryEdit) {
+        ev.preventDefault();
+        deleteLayoutBoundary();
         return;
       }
       if (state.tab === "layout" && state.selectedEdgeIndex != null) {
@@ -14571,7 +16480,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   var inspectorRoot = $("inspector");
   if (inspectorRoot) {
     inspectorRoot.addEventListener("focusout", function (ev) {
-      if (inspectorCommitLock || state.layoutBusy || diagramStripSyncDepth || diagramCommitLock) return;
+      if (inspectorCommitLock || state.layoutBusy || diagramStripSyncDepth || diagramCommitLock ||
+          legendSyncDepth || cardSyncDepth || boundarySyncDepth) return;
       var target = ev.target;
       if (target && (target.id === "layout-meta-title" || target.id === "layout-meta-subtitle")) return;
       var next = ev.relatedTarget;
