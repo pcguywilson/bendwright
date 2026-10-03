@@ -19,6 +19,24 @@ stays valid Archify.
 arbitrary JSON. Point it at a `.workflow.json` or `.architecture.json` that already works
 with Archify, make your edits, and save.
 
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Setup](#setup)
+- [Running it](#running-it)
+- [Tour](#tour)
+  - [Editing nodes](#editing-nodes)
+  - [Connections](#connections)
+  - [Icons and custom types](#icons-and-custom-types)
+  - [Architecture diagrams](#architecture-diagrams)
+  - [Cards and legend](#cards-and-legend)
+  - [Safe by default](#safe-by-default)
+- [Features](#features)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Custom types, icons, and the Archify patch](#custom-types-icons-and-the-archify-patch)
+- [The IR format](#the-ir-format)
+- [License](#license)
+
 ## Why this exists
 
 I kept asking an AI to make small changes to an Archify diagram. Move one node, reroute
@@ -29,63 +47,6 @@ change exactly what you meant to change, and nothing else.
 It is a single Python file with no third-party dependencies. It runs a small loopback
 web server on `127.0.0.1` and opens the editor in your browser. Nothing leaves your
 machine.
-
-## Features
-
-- **Workflow and architecture diagrams** - open either kind. The canvas is the live
-  Archify render. Click anything and its fields open in the inspector on the right;
-  with nothing selected, the inspector shows the diagram itself and **Browse** links to
-  every node, edge, lane (or component, connection, boundary), card, and custom type.
-- **Visual layout editing** - drag nodes; in a workflow they snap to the nearest lane and
-  column, in an architecture diagram they snap to a 10 px grid.
-- **Resize** - in an architecture diagram, select a component and drag the corner grip.
-- **Nodes** - add, duplicate, and delete nodes. The inspector edits type, label,
-  sublabel, tag, position (lane and column, or position and size), color, and icon.
-  **Enter** applies your edits as one undo step; **Esc** throws them away.
-- **New diagram** - start from scratch with **New**. The first **Save** asks where to
-  write it.
-- **Diagram title** - with nothing selected, edit the title and subtitle in the inspector.
-- **Colors and line styles** - preset colors (blue, green, red, amber, purple, teal,
-  gray) for nodes and edges, plus solid, dashed, or dotted lines. Readable in both the
-  light and dark themes, and they keep working with Archify's data-flow animation.
-- **Custom types** - define your own node types (for example "VM" or "File share") with
-  a name, color, and icon in the **Custom types library** (the **⋯** menu). The name shows everywhere,
-  including the exported page. Save a type to your library to reuse it in every diagram.
-  Or pick **+ New custom type...** at the bottom of any Type list to make one on the
-  spot and apply it to that node.
-- **Icons** - a searchable picker (by name, alias, or category) with pictures of
-  Archify's built-in logo catalog, a few extras bendwright ships for common
-  infrastructure (Windows, Linux, Ubuntu, nginx, Apache, AWS, Azure, VM, web server,
-  database), and your own PNGs. The catalog is read from your Archify install, so
-  logos Archify adds later show up automatically.
-- **Shortcuts** - **V** Select, **C** Connect, **B** Boundary, **Delete** removes the
-  selection, **Ctrl+S** / **Ctrl+Z** / **Ctrl+Y** save, undo, redo.
-- **Connections** - press **C** for Connect, click a source node, then a target; drag an
-  endpoint to reroute. Press **V** to go back to Select. Click an edge to edit its label,
-  line style, color, and Archify settings, or delete it.
-- **Inline labels** - double-click a node or edge to jump straight to its label, or a
-  lane header to rename the lane.
-- **Quality profiles** - toggle between `standard` and `showcase`. Changes Archify
-  rejects are reverted on the spot and the reason stays in a red chip in the header
-  until you close it, so the file on disk is always renderable.
-- **Explicit save** - edits live in a buffer and never touch disk until you press
-  **Save**. Undo/redo, **Discard changes** (reload from disk, in the **⋯** menu), and an
-  unsaved-changes warning are all included.
-- **Lossless save** - key order, unknown fields, and the trailing newline are preserved.
-  Files are written with 2-space indentation.
-- **Cards** - the diagram's cards show under the drawing while you edit. Click one to
-  edit its title, dot color, and items in the inspector, or add one with **+ Card**.
-  **Cards** on the bottom tool bar hides them when they get in the way.
-- **Boundaries** - in an architecture diagram, click a boundary's border or label to edit
-  its kind, label, padding, and members; click components to add or remove them. Press
-  **B** and drag a rectangle to draw a new boundary around the components inside it.
-- **Legend** - with nothing selected, the inspector's Legend section sets the legend mode
-  (auto, all, or hidden) and renames or hides each built-in type.
-- **Preview** - **Preview** on the bottom tool bar opens the full rendered page in a new tab.
-- **Export HTML** - from the **⋯** menu, one click saves the JSON and writes the rendered `.html` (via Archify) right next to it, always in sync. No CLI needed.
-- **Native file picker** - open a diagram through your OS file dialog.
-- **Auto-shutdown** - close the browser and the server (and its console window)
-  shut down on their own a few seconds later.
 
 ## Setup
 
@@ -146,6 +107,154 @@ want it to stay running while you step away for a long time, launch with `--keep
 To get the rendered diagram, choose **Export HTML** from the **⋯** menu. bendwright saves
 your JSON and writes `<name>.html` next to it, ready to open or share.
 
+## Tour
+
+Every clip uses the two sample diagrams that ship with bendwright.
+
+### Editing nodes
+
+**Inspect and edit** - click a node, change its label and sublabel in the inspector, and
+press **Enter**. Archify re-renders right away; nothing touches disk until **Save**.
+
+![Inspect and edit](gifs/inspect-and-edit.gif)
+
+**Move a node** - drag it; it snaps to the nearest lane and column. **Undo** puts it back.
+
+![Move a node](gifs/move-node.gif)
+
+Duplicate and delete live in the node inspector. **New** starts a blank workflow or
+architecture diagram.
+
+### Connections
+
+**Connect and reroute** - press **C**, click a source, then a target. Drag an endpoint
+onto another node to reroute the connection.
+
+![Connect and reroute](gifs/connect-and-reroute.gif)
+
+**Style an edge** - click a connection, pick a line style and color, and rename it. Line
+and color are saved beside the diagram, so the Archify JSON stays valid.
+
+![Style an edge](gifs/style-edges.gif)
+
+**Edge styles at a glance** - every preset color as a solid, dashed, and dotted line, in
+the dark and light themes. Rendered by bendwright.
+
+![Edge styles](gifs/edge-styles.gif)
+
+### Icons and custom types
+
+Search the icon picker in the inspector and pick a logo; it shows on the node right away.
+Then pick **+ New custom type...** in the Type list to name a type and apply it on the
+spot.
+
+![Icons and custom types](gifs/icons-and-types.gif)
+
+### Architecture diagrams
+
+**Position and resize** - set a component's position in the inspector (its boundary grows
+to fit), then drag another component's corner grip to resize it.
+
+![Architecture diagrams](gifs/architecture.gif)
+
+**Boundaries** - click a boundary to edit it in place, then press **B** and drag a
+rectangle around components to draw a new one.
+
+![Boundaries](gifs/boundaries.gif)
+
+![Architecture diagram with a connection selected: line style, color, and Archify settings in the inspector](docs/img/screenshot-architecture.png)
+
+### Cards and legend
+
+Cards show under the drawing while you edit. Click one to change its title, dot color, and
+items, or add one with **+ Card**; **Cards** on the tool bar hides them. With nothing
+selected, the inspector's **Legend** section sets the legend mode (auto, all, or hidden)
+and renames or hides each built-in type.
+
+### Safe by default
+
+An edit Archify rejects is put back right away and the reason stays in the header until
+you close it. Your file is never left unrenderable.
+
+![Safe by default](gifs/safe-by-default.gif)
+
+## Features
+
+### The editor
+
+- **Workflow and architecture diagrams** - open either kind. The canvas is the live
+  Archify render. Click anything and its fields open in the inspector on the right;
+  with nothing selected, the inspector shows the diagram itself and **Browse** links to
+  every node, edge, lane (or component, connection, boundary), card, and custom type.
+- **Visual layout editing** - drag nodes; in a workflow they snap to the nearest lane and
+  column, in an architecture diagram they snap to a 10 px grid.
+- **Nodes** - add, duplicate, and delete nodes. The inspector edits type, label,
+  sublabel, tag, position (lane and column, or position and size), color, and icon.
+  **Enter** applies your edits as one undo step; **Esc** throws them away.
+- **Connections** - add, reroute, restyle, relabel, and delete edges.
+- **Inline labels** - double-click a node or edge to jump straight to its label, or a
+  lane header to rename the lane.
+- **Preview** - **Preview** on the bottom tool bar opens the full rendered page in a new tab.
+- **New diagram** - start from scratch with **New**. The first **Save** asks where to
+  write it.
+- **Native file picker** - open a diagram through your OS file dialog.
+
+### Diagram parts
+
+- **Diagram title** - with nothing selected, edit the title and subtitle in the inspector.
+- **Resize** - in an architecture diagram, select a component and drag the corner grip.
+- **Boundaries** - click a boundary's border or label to edit its kind, label, padding,
+  and members; click components to add or remove them. Press **B** and drag a rectangle
+  to draw a new boundary around the components inside it.
+- **Cards** - edit cards in place under the drawing, or hide them with **Cards**.
+- **Legend** - legend mode (auto, all, hidden) plus a label and visibility per type.
+
+### Look and feel
+
+- **Colors and line styles** - preset colors (blue, green, red, amber, purple, teal,
+  gray) for nodes and edges, plus solid, dashed, or dotted lines. Readable in both the
+  light and dark themes, and they keep working with Archify's data-flow animation.
+- **Custom types** - define your own node types (for example "VM" or "File share") with
+  a name, color, and icon in the **Custom types library** (the **⋯** menu). The name shows
+  everywhere, including the exported page. Save a type to your library to reuse it in
+  every diagram, or pick **+ New custom type...** at the bottom of any Type list to make
+  one on the spot.
+- **Icons** - a searchable picker (by name, alias, or category) with Archify's built-in
+  logo catalog, a few extras bendwright ships for common infrastructure, and your own
+  PNGs. The catalog is read from your Archify install, so logos Archify adds later show up
+  automatically.
+
+### Files and safety
+
+- **Quality profiles** - toggle between `standard` and `showcase`. Changes Archify
+  rejects are reverted on the spot and the reason stays in a red chip in the header
+  until you close it, so the file on disk is always renderable.
+- **Explicit save** - edits live in a buffer and never touch disk until you press
+  **Save**. Undo/redo, **Discard changes** (reload from disk, in the **⋯** menu), and an
+  unsaved-changes warning are all included.
+- **Lossless save** - key order, unknown fields, and the trailing newline are preserved.
+  Files are written with 2-space indentation.
+- **Export HTML** - from the **⋯** menu, one click saves the JSON and writes the rendered
+  `.html` (via Archify) right next to it, always in sync. No CLI needed.
+- **Auto-shutdown** - close the browser and the server (and its console window) shut down
+  on their own a few seconds later.
+
+## Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| **V** | Select tool |
+| **C** | Connect tool |
+| **B** | Boundary tool (architecture) |
+| **Enter** | Apply inspector edits |
+| **Esc** | Discard unapplied edits, close a panel, or clear the selection |
+| **Delete** / **Backspace** | Delete the selected node, edge, or card |
+| **Ctrl+S** | Save |
+| **Ctrl+Z** | Undo |
+| **Ctrl+Y** / **Ctrl+Shift+Z** | Redo |
+
+Tool keys are ignored while you type in a field.
+
 ## Custom types, icons, and the Archify patch
 
 **Where things live**
@@ -162,6 +271,10 @@ your JSON and writes `<name>.html` next to it, ready to open or share.
   `BENDWRIGHT_DATA_DIR` to an absolute path.
 
 **Your own icons**
+
+- Six sample icons ship in `examples/icons/` (user, server, queue, lock, cloud, file). They
+  are original artwork under this repo's MIT license. Copy them into
+  `bendwright-data/icons/` and choose **Refresh icons** from the **⋯** menu to try them.
 
 - PNG only, 64 KB or smaller. 64 to 128 px square with a transparent background works
   best; the icon is drawn at about 16 px in the node's corner.
@@ -199,60 +312,6 @@ A workflow diagram is a single JSON object: `lanes`, `nodes`, `edges`, and optio
 and `meta`. See `bendwright.example.workflow.json` and
 `bendwright.example.architecture.json` for complete, valid examples, and the Archify
 schemas for the full contract.
-
-## Demos
-
-All clips use the two sample diagrams that ship with bendwright.
-
-**Inspect and edit** - click a node, change its label and sublabel in the inspector, and
-press **Enter**. Archify re-renders right away; nothing touches disk until **Save**.
-
-![Inspect and edit](gifs/inspect-and-edit.gif)
-
-**Move a node** - drag it; it snaps to the nearest lane and column. **Undo** puts it back.
-
-![Move a node](gifs/move-node.gif)
-
-**Connect and reroute** - press **C**, click a source, then a target. Drag an endpoint
-onto another node to reroute the connection.
-
-![Connect and reroute](gifs/connect-and-reroute.gif)
-
-**Style an edge** - click a connection, pick a line style and color, and rename it. Line
-and color are saved beside the diagram, so the Archify JSON stays valid.
-
-![Style an edge](gifs/style-edges.gif)
-
-**Icons and custom types** - search the icon picker in the inspector and pick a logo; it
-shows on the node right away. Then pick **+ New custom type...** in the Type list to name
-a type and apply it on the spot.
-
-![Icons and custom types](gifs/icons-and-types.gif)
-
-**Architecture diagrams** - set a component's position in the inspector (its boundary
-grows to fit), then drag another component's corner grip to resize it.
-
-![Architecture diagrams](gifs/architecture.gif)
-
-**Boundaries** - click a boundary to edit it in place, then press **B** and drag a
-rectangle around components to draw a new one.
-
-![Boundaries](gifs/boundaries.gif)
-
-![Architecture diagram with a connection selected: line style, color, and Archify settings in the inspector](docs/img/screenshot-architecture.png)
-
-**Safe by default** - an edit Archify rejects is put back right away and the reason stays
-in the header until you close it. Your file is never left unrenderable.
-
-![Safe by default](gifs/safe-by-default.gif)
-
-**Edge styles at a glance** - every preset color as a solid, dashed, and dotted line, in
-the dark and light themes. Rendered by bendwright.
-
-![Edge styles](gifs/edge-styles.gif)
-
-Duplicate and delete live in the node inspector, **New** starts a blank workflow or
-architecture diagram, and cards are edited by clicking them on the canvas (toggle them with **Cards**).
 
 ## License
 
