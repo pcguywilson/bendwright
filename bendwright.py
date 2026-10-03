@@ -5299,6 +5299,31 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   cursor: pointer; border-radius: 6px; padding: 6px 4px;
 }
 #layout-zoom-pct:hover { color: var(--accent); }
+#bw-inline-rename {
+  position: absolute;
+  z-index: 40;
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: rgba(11, 15, 20, 0.92);
+  color: var(--text);
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.15;
+  box-sizing: border-box;
+  min-width: 2ch;
+}
+#bw-inline-rename:focus { outline: none; border-color: var(--accent); }
+#bw-inline-rename[hidden] { display: none !important; }
+#bw-inline-rename-mirror {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
 #layout-floatbar a {
   background: var(--tab); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 10px; font-size: 12px; cursor: pointer;
@@ -5542,6 +5567,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         <button type="button" id="btn-layout-cards" title="Show or hide info cards" aria-pressed="true" hidden>Cards</button>
       </div>
       </div>
+      <input type="text" id="bw-inline-rename" autocomplete="off" spellcheck="false" aria-label="Rename" hidden>
+      <span id="bw-inline-rename-mirror" aria-hidden="true"></span>
     </div>
     <aside id="inspector" aria-label="Inspector">
       <div id="inspector-document">
@@ -5839,6 +5866,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   var MAX_HISTORY = 100;
   var LAYOUT_DRAG_THRESHOLD_PX = 4;
+
+  function noteLabelDblClickBlock() {
+    blockLabelDblClick = true;
+    if (blockLabelDblClickTimer) clearTimeout(blockLabelDblClickTimer);
+    blockLabelDblClickTimer = setTimeout(function () { blockLabelDblClick = false; }, 400);
+  }
   var LAYOUT_LANE_HIT_H = 26;
   var LAYOUT_LANE_HIT_W_MAX = 280;
   var LAYOUT_ENDPOINT_R = 7;
@@ -5865,7 +5898,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   var inspectorCommitLock = false;
   var pendingLabelFocusId = null;
   var pendingLaneIndex = null;
+  var pendingLaneAttempts = 0;
+  var layoutMountSerial = 0;
   var pendingEdgeFocusIndex = null;
+  var pendingCardIndex = null;
+  var pendingBoundaryIndex = null;
+  var inlineRename = null;
+  var blockLabelDblClick = false;
+  var blockLabelDblClickTimer = null;
   var lastLayoutHintText = "";
 
   function $(id) { return document.getElementById(id); }
@@ -7390,7 +7430,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     pushHistory();
     applyTypeRecord("", fields);
     var applied = applyTypeChoice(node, fields.id);
-    if (applied.ok && node.brand != null) ensureBrandWidth(node);
+    if (applied.ok) {
+      var quickWidthOk = ensureLabelWidth(node);
+      if (node.brand != null && quickWidthOk !== false) ensureBrandWidth(node);
+    }
     if (!applied.ok) {
       state.doc = typeSnap.doc;
       state.sidecar = typeSnap.sidecar;
@@ -7709,6 +7752,103 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (!hasWidth || node.width < next) node.width = next;
   }
 
+  // Smallest integer w with units * factor <= w + slack.
+  function widthForUnits(units, factor, slack) {
+    if (!(units > 0)) return 0;
+    var limit = units * factor - slack;
+    var w = Math.ceil(limit - 1e-9);
+    if (w < 0) w = 0;
+    while (units * factor > w + slack + 1e-9) w += 1;
+    return w;
+  }
+
+  // textUnits * minimum * 0.6 <= w - 8 (text-fit padding).
+  function detailWidthForUnits(units, minimum) {
+    if (!(units > 0)) return 0;
+    var limit = units * minimum * 0.6 + 8;
+    var w = Math.ceil(limit - 1e-9);
+    if (w < 0) w = 0;
+    while (units * minimum * 0.6 > (w - 8) + 1e-9) w += 1;
+    return w;
+  }
+
+  // Same floor ensureBrandWidth writes: ceil(48 + units * fontMin * 0.6) + 1.
+  function brandRailWidth(units, fontMin) {
+    return Math.ceil(48 + units * fontMin * 0.6) + 1;
+  }
+
+  function snapWidthUp10(w) {
+    var snap = ARCH_SNAP > 0 ? ARCH_SNAP : 10;
+    return Math.ceil(w / snap) * snap;
+  }
+
+  // Schema 1 lanes stay fixed (laneX 40, laneW 640, those column centers).
+  // A grown width that would cross a neighbor or leave the lane is not written.
+  function workflowSchema1BlocksWidth(node, nextWidth) {
+    if (isArchitecture() || !state.doc || state.doc.schema_version !== 1 || !node) return false;
+    var col = node.col;
+    if (typeof col !== "number" || col !== Math.floor(col) || col < 0 || col > 5) return false;
+    var centers = [88, 220, 300, 430, 500, 625];
+    var x = centers[col] - nextWidth / 2;
+    if (x < 40 || x + nextWidth > 680) return true;
+    var h = (typeof node.height === "number" && isFinite(node.height) && node.height > 0)
+      ? node.height : (node.tag ? 68 : 52);
+    var yOff = Number(node.yOffset) || 0;
+    var box = { x: x, y: -h / 2 + yOff, w: nextWidth, h: h };
+    var nodes = state.doc.nodes || [];
+    for (var i = 0; i < nodes.length; i++) {
+      var other = nodes[i];
+      if (!other || other === node || String(other.lane) !== String(node.lane)) continue;
+      var oc = other.col;
+      if (typeof oc !== "number" || oc !== Math.floor(oc) || oc < 0 || oc > 5) continue;
+      var ow = (typeof other.width === "number" && isFinite(other.width)) ? other.width : 92;
+      var oh = (typeof other.height === "number" && isFinite(other.height) && other.height > 0)
+        ? other.height : (other.tag ? 68 : 52);
+      var oy = Number(other.yOffset) || 0;
+      var obox = { x: centers[oc] - ow / 2, y: -oh / 2 + oy, w: ow, h: oh };
+      if (boxesOverlap(obox, box, 8)) return true;
+    }
+    return false;
+  }
+
+  // Never shrinks. Returns false only when a workflow schema-1 grow was refused.
+  function ensureLabelWidth(node) {
+    if (!node) return true;
+    var label = node.label != null ? String(node.label) : "";
+    var sub = node.sublabel != null && node.sublabel !== "" ? String(node.sublabel) : "";
+    var tag = node.tag != null && node.tag !== "" ? String(node.tag) : "";
+    var labelUnits = textUnits(label);
+    var branded = node.brand != null && node.brand !== "";
+    if (isArchitecture()) {
+      var need = widthForUnits(labelUnits, 6.6, 8);
+      if (sub) need = Math.max(need, detailWidthForUnits(textUnits(sub), 6));
+      if (tag) need = Math.max(need, detailWidthForUnits(textUnits(tag), 6));
+      if (branded) need = Math.max(need, brandRailWidth(labelUnits, 8));
+      if (!(need > 0)) return true;
+      var snapped = snapWidthUp10(need);
+      var size = node.size;
+      var hasSize = Array.isArray(size) && size.length >= 2 &&
+        typeof size[0] === "number" && isFinite(size[0]);
+      var current = hasSize ? size[0] : 120;
+      if (snapped <= current) return true;
+      if (!hasSize && !(snapped > 120)) return true;
+      var height = 60;
+      if (hasSize && typeof size[1] === "number" && isFinite(size[1])) height = size[1];
+      node.size = [snapped, height];
+      return true;
+    }
+    var needW = widthForUnits(labelUnits, 6.8, 6);
+    if (sub) needW = Math.max(needW, detailWidthForUnits(textUnits(sub), 6));
+    if (tag) needW = Math.max(needW, detailWidthForUnits(textUnits(tag), 6));
+    if (branded) needW = Math.max(needW, brandRailWidth(labelUnits, 9));
+    var hasWidth = typeof node.width === "number" && isFinite(node.width);
+    var currentW = hasWidth ? node.width : 92;
+    if (!(needW > currentW && (hasWidth || needW > 92))) return true;
+    if (workflowSchema1BlocksWidth(node, needW)) return false;
+    node.width = needW;
+    return true;
+  }
+
   function brandPickerInnerHtml(selectedName, locked, nonePressed) {
     var html = '<button type="button" class="brand-pick" data-brand-name="" aria-pressed="' +
       (nonePressed ? "true" : "false") + '"' + (locked ? " disabled" : "") + ">none</button>";
@@ -7804,7 +7944,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function applyBrandOnNode(node, nextBrand) {
     if (nextBrand == null) delete node.brand;
     else node.brand = nextBrand;
-    if (nextBrand != null) ensureBrandWidth(node);
+    if (nextBrand != null) {
+      var brandWidthOk = ensureLabelWidth(node);
+      if (brandWidthOk !== false) ensureBrandWidth(node);
+    }
   }
 
   function fieldText(label, name, value) {
@@ -8578,7 +8721,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function switchTab(tab) {
-    cancelLanePopup();
+    commitInlineForViewChange();
     if (inspectorBufferDirty()) applyDockedBufferSync();
     if (tab !== "layout") {
       clearConnectFrom();
@@ -8823,7 +8966,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function setLayoutMode(mode) {
     if (mode !== "move" && mode !== "connect" && mode !== "boundary") return;
     if (mode === "boundary" && !isArchitecture()) return;
-    cancelLanePopup();
+    commitInlineForViewChange();
     cancelBoundaryLasso();
     if (singleEdit && singleEdit.kind === "edge") {
       if (inspectorBufferDirty()) applyDockedBufferSync();
@@ -8942,7 +9085,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     var laneHits = doc.querySelectorAll("rect.bw-lane-hit");
     for (var k = 0; k < laneHits.length; k++) {
-      laneHits[k].style.pointerEvents = state.layoutBusy ? "none" : "all";
+      // Stay hittable while busy so the first lane-label dblclick after mount
+      // can queue. Lane strips do not drag.
+      laneHits[k].style.pointerEvents = "all";
       laneHits[k].style.cursor = state.layoutBusy ? "wait" : "text";
     }
     var endpoints = doc.querySelectorAll("circle.bw-endpoint");
@@ -9452,7 +9597,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       "svg .bw-boundary-tab{pointer-events:all;cursor:pointer}" +
       "svg .bw-boundary-outline{pointer-events:none}" +
       "svg .bw-lasso{pointer-events:none}" +
-      "svg [data-legend],svg [data-legend] *{pointer-events:all;cursor:pointer}";
+      "svg [data-legend],svg [data-legend] *{pointer-events:all;cursor:pointer}" +
+      "svg g[data-edge-label] text,svg g[data-edge-label] rect{pointer-events:all;cursor:pointer}" +
+      "svg rect[data-composition-frame-kind=\"lane\"] + text," +
+      "svg rect[data-composition-frame-kind=\"exception-lane\"] + text{pointer-events:all;cursor:pointer}";
     (doc.head || doc.documentElement).appendChild(style);
     var svg = doc.querySelector("svg");
     if (!svg) return null;
@@ -9500,7 +9648,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function applyLayoutZoom(z) {
-    cancelLanePopup();
+    commitInlineForViewChange();
     return setLayoutZoomCss(z);
   }
 
@@ -9586,7 +9734,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function fitLayoutViewport() {
-    cancelLanePopup();
+    commitInlineForViewChange();
     setLayoutZoomCss(computeFitZoom());
     var doc = $("layout-frame").contentDocument;
     var scroll = doc && doc.getElementById("bw-scroll");
@@ -9987,9 +10135,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (scroll) {
         var baseLeft = scroll.scrollLeft;
         var baseTop = scroll.scrollTop;
+        // Fit-zoom changes size before this listener exists and the scroll event
+        // arrives on a later turn. Ignore that burst or the first label edit closes.
+        var scrollArmed = false;
+        requestAnimationFrame(function () {
+          requestAnimationFrame(function () {
+            baseLeft = scroll.scrollLeft;
+            baseTop = scroll.scrollTop;
+            scrollArmed = true;
+          });
+        });
         // Viewport restore can emit scroll after the edge popup is put back; ignore that.
         scroll.addEventListener("scroll", function () {
-          if (suppressScrollCancel) {
+          if (suppressScrollCancel || !scrollArmed) {
             baseLeft = scroll.scrollLeft;
             baseTop = scroll.scrollTop;
             return;
@@ -9997,13 +10155,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           if (scroll.scrollLeft === baseLeft && scroll.scrollTop === baseTop) return;
           baseLeft = scroll.scrollLeft;
           baseTop = scroll.scrollTop;
-          cancelLanePopup();
+          commitInlineForViewChange();
         });
       }
     }
   }
 
   function onLayoutKeyDown(ev) {
+    if (tryStartInlineRename(ev)) return;
+    if (inlineRename) {
+      if (ev.key === "Escape" || ev.key === "Esc") cancelInlineSession();
+      return;
+    }
     if (ev.key === "Escape" || ev.key === "Esc") {
       if (boundaryLasso) {
         ev.preventDefault();
@@ -10078,6 +10241,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function onModeShortcut(ev) {
+    if (inlineRename) return;
     if (!ev || ev.ctrlKey || ev.metaKey || ev.altKey) return;
     var key = String(ev.key || "").toLowerCase();
     if (key !== "v" && key !== "c" && key !== "b") return;
@@ -10840,6 +11004,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function revertInspectorBuffer() {
+    dismissInlineOverlay();
     if (nodeEdit) {
       var node = findDocNode(nodeEdit.nodeId);
       if (node) refillNodeEditorFromNode(node);
@@ -10864,6 +11029,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function showDocumentInspector() {
+    dismissInlineOverlay();
     var hadComponent = !!state.selectedComponentId;
     var hadBoundary = !!boundaryEdit;
     nodeEdit = null;
@@ -11076,16 +11242,32 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var iframe = $("layout-frame");
     var iframeRect = iframe.getBoundingClientRect();
     var hr = handle.getBoundingClientRect();
-    // Some engines report iframe-content rects in the iframe viewport; offset if needed.
-    if (hr.top >= iframeRect.top - 0.5 && hr.left >= iframeRect.left - 0.5) {
-      return { left: hr.left, top: hr.top, width: hr.width, height: hr.height };
+    var win = handle.ownerDocument && handle.ownerDocument.defaultView;
+    // Page coords = iframe border box + the element's viewport rect.
+    // getBoundingClientRect is already in CSS pixels (SVG width/height include zoom).
+    // Comparing the element itself to iframeRect.top misfires: a label below the
+    // 48px header has an iframe-local top greater than the iframe's page top, so
+    // the old test skipped the header offset and the rename box sat 48px high.
+    // Probe the iframe document origin instead. Iframe-local origins sit near 0;
+    // engines that already return top-window coords sit near the iframe border box.
+    if (win && win !== window && handle.ownerDocument.documentElement) {
+      var rootRect = handle.ownerDocument.documentElement.getBoundingClientRect();
+      var sx = win.scrollX || win.pageXOffset || 0;
+      var sy = win.scrollY || win.pageYOffset || 0;
+      var originLeft = rootRect.left + sx;
+      var originTop = rootRect.top + sy;
+      var frameSpace = Math.abs(originLeft) + Math.abs(originTop);
+      var pageSpace = Math.abs(originLeft - iframeRect.left) + Math.abs(originTop - iframeRect.top);
+      if (frameSpace <= pageSpace) {
+        return {
+          left: iframeRect.left + hr.left,
+          top: iframeRect.top + hr.top,
+          width: hr.width,
+          height: hr.height
+        };
+      }
     }
-    return {
-      left: iframeRect.left + hr.left,
-      top: iframeRect.top + hr.top,
-      width: hr.width,
-      height: hr.height,
-    };
+    return { left: hr.left, top: hr.top, width: hr.width, height: hr.height };
   }
 
   function openNodeEditor(handle, opts) {
@@ -11166,7 +11348,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     panel.setAttribute("aria-label", isArchitecture() ? "Edit connection" : "Edit edge");
     dockSingleEditor(true);
     setSingleEditorHint("Enter=apply · Esc=cancel");
-    input.value = edge.label != null ? String(edge.label) : "";
+    var sameEdgeEdit = singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === idx;
+    if (!sameEdgeEdit) input.value = edge.label != null ? String(edge.label) : "";
     showEdgeAdvanced(edge);
     singleEdit = {
       kind: "edge",
@@ -11210,19 +11393,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     panel.setAttribute("aria-label", "Edit lane label");
     setSingleEditorHint("Enter=save · Esc=cancel");
     hideEdgeAdvanced();
-    dockSingleEditor(false);
-    positionEditorPanel(panel, hitEl, 200);
-    input.value = lane.label != null ? String(lane.label) : "";
+    // Lane rename is the canvas overlay. Keep the panel docked and hidden;
+    // commitSingleEditor still reads #layout-single-label.
+    dockSingleEditor(true);
+    panel.classList.remove("active");
+    var sameLane = singleEdit && singleEdit.kind === "lane" && singleEdit.laneIndex === idx;
+    if (!sameLane) input.value = lane.label != null ? String(lane.label) : "";
     singleEdit = {
       kind: "lane",
       laneIndex: idx,
       snapLabel: lane.label,
       anchor: hitEl,
     };
-    panel.classList.add("active");
     syncInspectorPanes();
-    input.focus();
-    input.select();
     setStatus("Editing lane " + (lane.id || idx) + " label (required)", "");
   }
 
@@ -11624,11 +11807,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       node.type = values.type;
     }
     node.label = values.label;
-    if (node.brand != null) ensureBrandWidth(node);
     if (values.sublabel) node.sublabel = values.sublabel;
     else delete node.sublabel;
     if (values.tag) node.tag = values.tag;
     else delete node.tag;
+    var labelWidthOk = ensureLabelWidth(node);
+    if (node.brand != null && labelWidthOk !== false) ensureBrandWidth(node);
     var colorTouched = !!(edit && edit.colorTouched);
     if (!choiceChanged || colorTouched) {
       writeNodeColorChoice(node.id, String(values.color || ""), false);
@@ -11851,6 +12035,57 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     el.focus();
   }
 
+  function archOverlapOnly(errors) {
+    if (!errors || !errors.length) return false;
+    var saw = false;
+    var diag = null;
+    for (var i = 0; i < errors.length; i++) {
+      var line = String(errors[i] || "").trim();
+      if (!line) continue;
+      if (line.indexOf("suggested fix:") === 0) continue;
+      if (line.indexOf("diagnostics:") === 0) {
+        var n = parseInt(line.slice("diagnostics:".length), 10);
+        if (!isNaN(n)) diag = n;
+        continue;
+      }
+      if (line.indexOf("are less than 8px apart") < 0) return false;
+      saw = true;
+    }
+    if (!saw) return false;
+    if (diag != null && diag !== 1) return false;
+    return true;
+  }
+
+  function nudgeClearOfNeighbors(node) {
+    if (!isArchitecture() || !node || usesGridPlacement(node)) return false;
+    var size = Array.isArray(node.size) ? node.size : [ARCH_MIN_W, ARCH_MIN_H];
+    var w = Number(size[0]);
+    var h = Number(size[1]);
+    if (!(w > 0)) w = ARCH_MIN_W;
+    if (!(h > 0)) h = ARCH_MIN_H;
+    var pos = Array.isArray(node.pos) ? node.pos : [40, 80];
+    var boxes = [];
+    var comps = (state.doc && state.doc.components) || [];
+    for (var i = 0; i < comps.length; i++) {
+      var other = comps[i];
+      if (!other || other === node || String(other.id) === String(node.id)) continue;
+      if (usesGridPlacement(other)) continue;
+      var p = Array.isArray(other.pos) ? other.pos : [40, 80];
+      var s = Array.isArray(other.size) ? other.size : [ARCH_MIN_W, ARCH_MIN_H];
+      var ow = Number(s[0]);
+      var oh = Number(s[1]);
+      if (!(ow > 0)) ow = ARCH_MIN_W;
+      if (!(oh > 0)) oh = ARCH_MIN_H;
+      boxes.push({ x: Number(p[0]), y: Number(p[1]), w: ow, h: oh });
+    }
+    var ox = Number(pos[0]);
+    var oy = Number(pos[1]);
+    var next = placeClearOf(boxes, ox, oy, w, h);
+    if (next[0] === ox && next[1] === oy) return false;
+    node.pos = [next[0], next[1]];
+    return true;
+  }
+
   function commitNodeEditor(opts) {
     opts = opts || {};
     if (!nodeEdit || state.layoutBusy || inspectorCommitLock) return;
@@ -11909,6 +12144,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     setStatus("previewing node… " + committedId, "");
     postPreviewDoc()
       .then(function (receipt) {
+        if (receipt && receipt.ok) return receipt;
+        var grown = findDocNode(committedId);
+        if (!(grown && archOverlapOnly(receipt && receipt.errors) && nudgeClearOfNeighbors(grown))) {
+          return receipt;
+        }
+        return postPreviewDoc().then(function (retry) {
+          if (retry) retry.nudged = true;
+          return retry;
+        });
+      })
+      .then(function (receipt) {
         if (receipt.ok) {
           markDirty();
           if (nodeEdit && String(nodeEdit.nodeId) === String(committedId)) {
@@ -11917,6 +12163,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
             nodeEdit.colorTouched = false;
           }
           var msg = "Updated " + committedId + " (unsaved)";
+          if (receipt.nudged) msg += " (moved clear of a neighbor)";
           if (appliedNode.locked) msg += " (object brand left locked)";
           else if (appliedNode.kept) msg += " (brand left unchanged)";
           else if (appliedNode.unknown) msg += " (unknown icon " + appliedNode.unknown + " stored as a catalog id)";
@@ -12350,6 +12597,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       pos: pos,
       size: [ARCH_MIN_W, ARCH_MIN_H],
     };
+    ensureLabelWidth(item);
     pushHistory();
     state.doc.components.push(item);
     state.selectedComponentId = id;
@@ -12417,6 +12665,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       type: defaultType,
       label: "New node",
     };
+    ensureLabelWidth(item);
     pushHistory();
     state.doc.nodes.push(item);
     state.rawDirty = false;
@@ -13006,14 +13255,22 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (!(h >= ARCH_MIN_H)) h = ARCH_MIN_H;
     var startX = srcBox ? srcBox.x + srcBox.w + ARCH_SNAP : 80;
     var startY = srcBox ? srcBox.y : 80;
-    var pos = placeClearOf(boxes, startX, startY, w, h);
     var newId = uniqueComponentCopyId(source.id);
     var cloneNode = clone(source);
     cloneNode.id = newId;
     delete cloneNode.row;
     delete cloneNode.col;
+    var widthBefore = Array.isArray(cloneNode.size) ? Number(cloneNode.size[0]) : w;
+    ensureLabelWidth(cloneNode);
+    var placeW = w;
+    var placeH = h;
+    if (Array.isArray(cloneNode.size) && Number(cloneNode.size[0]) > widthBefore) {
+      placeW = Number(cloneNode.size[0]);
+      if (typeof cloneNode.size[1] === "number" && isFinite(cloneNode.size[1])) placeH = cloneNode.size[1];
+    }
+    var pos = placeClearOf(boxes, startX, startY, placeW, placeH);
     cloneNode.pos = pos;
-    if (!Array.isArray(cloneNode.size)) cloneNode.size = [w, h];
+    if (!Array.isArray(cloneNode.size)) cloneNode.size = [placeW, placeH];
     pushHistory();
     state.doc.components.push(cloneNode);
     ensureSidecar();
@@ -13089,6 +13346,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     cloneNode.id = newId;
     cloneNode.lane = cell.lane;
     cloneNode.col = cell.col;
+    ensureLabelWidth(cloneNode);
     pushHistory();
     state.doc.nodes.push(cloneNode);
     var copied = nodeStyleEntry(String(source.id || ""));
@@ -13330,45 +13588,724 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       });
   }
 
+  function edgeLabelGroupFromTarget(t) {
+    if (!t || !t.closest) return null;
+    var g = t.closest("g[data-edge-from][data-edge-to]");
+    if (!g || !g.querySelector("text")) return null;
+    return g;
+  }
+
+  function edgeEndpointsMatch(edge, from, to) {
+    return !!edge && String(edge.from) === String(from) && String(edge.to) === String(to);
+  }
+
+  function edgeLabelValue(edge) {
+    if (!edge || edge.label == null) return "";
+    return String(edge.label);
+  }
+
+  // data-edge-key is Archify render order, not the IR index. Match the label
+  // the way edge hits are keyed: data-edge-id, else a unique from/to/#label.
+  function reliableEdgeIndex(g) {
+    var edges = relationRecords();
+    var eid = g.getAttribute("data-edge-id");
+    if (eid) {
+      var found = -1;
+      for (var i = 0; i < edges.length; i++) {
+        if (edgeIdOf(edges[i]) !== eid) continue;
+        if (found >= 0) return null;
+        found = i;
+      }
+      if (found >= 0) return found;
+    }
+    var from = g.getAttribute("data-edge-from");
+    var to = g.getAttribute("data-edge-to");
+    if (from == null || to == null) return null;
+    var hasLabel = g.hasAttribute("data-edge-label");
+    var label = hasLabel ? (g.getAttribute("data-edge-label") || "") : "";
+    var matches = [];
+    for (var j = 0; j < edges.length; j++) {
+      var edge = edges[j];
+      if (!edge || edgeIdOf(edge)) continue;
+      if (!edgeEndpointsMatch(edge, from, to)) continue;
+      if (hasLabel) {
+        if (edgeLabelValue(edge) !== label) continue;
+      } else if (edgeLabelValue(edge)) {
+        continue;
+      }
+      matches.push(j);
+    }
+    if (matches.length === 1) return matches[0];
+    return null;
+  }
+
+  function labelSvgCenter(g) {
+    var rect = g.querySelector("rect");
+    if (rect) {
+      var x = Number(rect.getAttribute("x"));
+      var y = Number(rect.getAttribute("y"));
+      var w = Number(rect.getAttribute("width"));
+      var h = Number(rect.getAttribute("height"));
+      if (isFinite(x) && isFinite(y)) return { x: x + (isFinite(w) ? w : 0) / 2, y: y + (isFinite(h) ? h : 0) / 2 };
+    }
+    var text = g.querySelector("text");
+    if (!text) return null;
+    var tx = Number(text.getAttribute("x"));
+    var ty = Number(text.getAttribute("y"));
+    if (!isFinite(tx) || !isFinite(ty)) return null;
+    return { x: tx, y: ty };
+  }
+
+  function polylinePointsOf(hit) {
+    var raw = (hit && hit.getAttribute("points")) || "";
+    var parts = raw.trim().split(/\s+/);
+    var pts = [];
+    for (var i = 0; i < parts.length; i++) {
+      if (!parts[i]) continue;
+      var xy = parts[i].split(",");
+      if (xy.length < 2) continue;
+      var px = Number(xy[0]);
+      var py = Number(xy[1]);
+      if (isFinite(px) && isFinite(py)) pts.push([px, py]);
+    }
+    return pts;
+  }
+
+  function distToPolyline2(x, y, pts) {
+    if (!pts || !pts.length) return Infinity;
+    var best = Infinity;
+    var start = pts.length === 1 ? 0 : 1;
+    if (pts.length === 1) {
+      var dx0 = x - pts[0][0];
+      var dy0 = y - pts[0][1];
+      return dx0 * dx0 + dy0 * dy0;
+    }
+    for (var i = start; i < pts.length; i++) {
+      var ax = pts[i - 1][0];
+      var ay = pts[i - 1][1];
+      var bx = pts[i][0];
+      var by = pts[i][1];
+      var dx = bx - ax;
+      var dy = by - ay;
+      var len2 = dx * dx + dy * dy;
+      var t = len2 ? ((x - ax) * dx + (y - ay) * dy) / len2 : 0;
+      if (t < 0) t = 0;
+      else if (t > 1) t = 1;
+      var qx = ax + dx * t;
+      var qy = ay + dy * t;
+      var ddx = x - qx;
+      var ddy = y - qy;
+      var d = ddx * ddx + ddy * ddy;
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  function nearestEdgeDocIndex(g) {
+    var center = labelSvgCenter(g);
+    var doc = g.ownerDocument;
+    if (!center || !doc) return null;
+    var hits = doc.querySelectorAll("polyline.bw-edge-hit");
+    var from = g.getAttribute("data-edge-from");
+    var to = g.getAttribute("data-edge-to");
+    var bestIdx = null;
+    for (var pass = 0; pass < 2; pass++) {
+      var bestD = Infinity;
+      bestIdx = null;
+      for (var i = 0; i < hits.length; i++) {
+        var hit = hits[i];
+        if (pass === 0 && (hit.getAttribute("data-from") !== from || hit.getAttribute("data-to") !== to)) continue;
+        var idx = parseInt(hit.getAttribute("data-doc-index"), 10);
+        if (isNaN(idx) || !relationRecords()[idx]) continue;
+        var d = distToPolyline2(center.x, center.y, polylinePointsOf(hit));
+        if (d < bestD) { bestD = d; bestIdx = idx; }
+      }
+      if (bestIdx != null) return bestIdx;
+    }
+    return null;
+  }
+
+  function edgeIndexFromEventTarget(t) {
+    var g = edgeLabelGroupFromTarget(t);
+    if (!g) return null;
+    var idx = reliableEdgeIndex(g);
+    if (idx == null) idx = nearestEdgeDocIndex(g);
+    if (idx == null || !relationRecords()[idx]) return null;
+    return idx;
+  }
+
+  function edgeHitElement(docIndex) {
+    var doc = $("layout-frame") && $("layout-frame").contentDocument;
+    if (!doc) return null;
+    var hits = doc.querySelectorAll("polyline.bw-edge-hit");
+    for (var i = 0; i < hits.length; i++) {
+      if (parseInt(hits[i].getAttribute("data-doc-index"), 10) === docIndex) return hits[i];
+    }
+    return null;
+  }
+
+  function nodeLabelElement(doc, id) {
+    if (!doc) return null;
+    var groups = doc.querySelectorAll("g[data-node-id]");
+    var want = String(id);
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].getAttribute("data-node-id") !== want) continue;
+      var text = groups[i].querySelector("text[data-node-label]");
+      if (text) return text;
+    }
+    return null;
+  }
+
+  function nodeHandleElement(doc, id) {
+    if (!doc) return null;
+    var handles = doc.querySelectorAll("rect.bw-handle");
+    var want = String(id);
+    for (var i = 0; i < handles.length; i++) {
+      if (handles[i].getAttribute("data-node-id") === want) return handles[i];
+    }
+    return null;
+  }
+
+  function edgeLabelElement(doc, docIndex) {
+    if (!doc || docIndex == null) return null;
+    var groups = doc.querySelectorAll("g[data-edge-from][data-edge-to]");
+    var reliable = [];
+    var nearest = [];
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i];
+      if (!g.querySelector("text")) continue;
+      var rel = reliableEdgeIndex(g);
+      if (rel === docIndex) reliable.push(g);
+      else if (rel == null && nearestEdgeDocIndex(g) === docIndex) nearest.push(g);
+    }
+    var pool = reliable.length ? reliable : nearest;
+    if (!pool.length) return null;
+    if (pool.length === 1) return pool[0].querySelector("text");
+    var hit = edgeHitElement(docIndex);
+    var best = pool[0];
+    var bestD = Infinity;
+    var mid = hit ? polylineLengthMidpoint(polylinePointsOf(hit)) : null;
+    if (mid) {
+      for (var p = 0; p < pool.length; p++) {
+        var c = labelSvgCenter(pool[p]);
+        if (!c) continue;
+        var dx = c.x - mid.x;
+        var dy = c.y - mid.y;
+        var d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = pool[p]; }
+      }
+    }
+    return best.querySelector("text");
+  }
+
+  function laneLabelElement(doc, idx) {
+    if (!doc) return null;
+    var frames = doc.querySelectorAll('rect[data-composition-frame-kind="lane"]');
+    var want = "lane-" + idx;
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].getAttribute("data-composition-frame-id") !== want) continue;
+      var el = frames[i].nextElementSibling;
+      while (el && el.localName === "rect") el = el.nextElementSibling;
+      if (el && el.localName === "text") return el;
+    }
+    return doc.querySelector('rect.bw-lane-hit[data-lane-index="' + idx + '"]');
+  }
+
+  function laneIndexFromEventTarget(t) {
+    if (!t || !t.getAttribute) return null;
+    if (t.classList && t.classList.contains("bw-lane-hit")) {
+      var hitIdx = parseInt(t.getAttribute("data-lane-index"), 10);
+      if (isNaN(hitIdx) || hitIdx < 0) return null;
+      if (!(state.doc && state.doc.lanes && state.doc.lanes[hitIdx])) return null;
+      return hitIdx;
+    }
+    if (t.localName !== "text") return null;
+    var frame = t.previousElementSibling;
+    var guard = 0;
+    while (frame && guard < 4) {
+      guard += 1;
+      if (frame.localName === "rect" && frame.getAttribute("data-composition-frame-kind") === "lane") {
+        var m = /^lane-(\d+)$/.exec(frame.getAttribute("data-composition-frame-id") || "");
+        if (!m) return null;
+        var idx = parseInt(m[1], 10);
+        if (isNaN(idx) || !(state.doc && state.doc.lanes && state.doc.lanes[idx])) return null;
+        return idx;
+      }
+      frame = frame.previousElementSibling;
+    }
+    return null;
+  }
+
+  function boundaryLabelElement(doc, index) {
+    if (!doc) return null;
+    var tab = null;
+    var tabs = doc.querySelectorAll("rect.bw-boundary-tab");
+    for (var t = 0; t < tabs.length; t++) {
+      if (parseInt(tabs[t].getAttribute("data-doc-index"), 10) === index) { tab = tabs[t]; break; }
+    }
+    var texts = doc.querySelectorAll("text[data-boundary-label]");
+    if (tab && texts.length) {
+      var tx = Number(tab.getAttribute("x"));
+      var ty = Number(tab.getAttribute("y"));
+      var best = null;
+      var bestD = Infinity;
+      for (var i = 0; i < texts.length; i++) {
+        var d = Math.abs(Number(texts[i].getAttribute("x")) - tx) + Math.abs(Number(texts[i].getAttribute("y")) - ty);
+        if (d < bestD) { bestD = d; best = texts[i]; }
+      }
+      if (best) return best;
+    }
+    if (texts[index]) return texts[index];
+    return tab;
+  }
+
+  function cardTitleElement(index) {
+    var cards = layoutCardElements();
+    var card = cards[index];
+    if (!card) return null;
+    return card.querySelector("h3") || card.querySelector(".card-header") || card;
+  }
+
+  function cardIndexFromEventTarget(t) {
+    if (!t || !t.closest) return null;
+    var header = t.closest(".card-header");
+    var isTitle = t.tagName && String(t.tagName).toLowerCase() === "h3";
+    if (!header && !isTitle) return null;
+    var cardEl = t.closest(".card");
+    if (!cardEl || !cardEl.closest("#bw-scroll")) return null;
+    var cards = layoutCardElements(t.ownerDocument);
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i] === cardEl) return i;
+    }
+    return null;
+  }
+
+  function svgUserBoxPage(svg, x, y, w, h) {
+    var rect = svg.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", String(x));
+    rect.setAttribute("y", String(y));
+    rect.setAttribute("width", String(Math.max(w, 1)));
+    rect.setAttribute("height", String(Math.max(h, 1)));
+    rect.setAttribute("fill", "none");
+    rect.setAttribute("stroke", "none");
+    rect.setAttribute("pointer-events", "none");
+    svg.appendChild(rect);
+    var page = handleScreenRect(rect);
+    if (rect.parentNode) rect.parentNode.removeChild(rect);
+    return page;
+  }
+
+  function layoutEdgePointList(docIndex) {
+    var edge = relationRecords()[docIndex];
+    if (!edge) return null;
+    var nth = 0;
+    var records = relationRecords();
+    for (var i = 0; i < docIndex; i++) {
+      var prev = records[i];
+      if (prev && String(prev.from) === String(edge.from) && String(prev.to) === String(edge.to)) nth++;
+    }
+    var layoutEdges = layoutEdgeRecords();
+    var seen = 0;
+    for (var j = 0; j < layoutEdges.length; j++) {
+      var le = layoutEdges[j];
+      if (!le || String(le.from) !== String(edge.from) || String(le.to) !== String(edge.to)) continue;
+      if (seen === nth) return le.points || null;
+      seen++;
+    }
+    return null;
+  }
+
+  function polylineLengthMidpoint(points) {
+    var total = 0;
+    var segs = [];
+    for (var i = 1; i < points.length; i++) {
+      var a = points[i - 1];
+      var b = points[i];
+      if (!a || !b || a.length < 2 || b.length < 2) { segs.push(0); continue; }
+      var dx = Number(b[0]) - Number(a[0]);
+      var dy = Number(b[1]) - Number(a[1]);
+      var len = Math.sqrt(dx * dx + dy * dy);
+      segs.push(len);
+      total += len;
+    }
+    if (!(total > 0)) {
+      var p0 = points[0] || [0, 0];
+      return { x: Number(p0[0]) || 0, y: Number(p0[1]) || 0 };
+    }
+    var half = total / 2;
+    var acc = 0;
+    for (var j = 0; j < segs.length; j++) {
+      if (acc + segs[j] >= half && points[j] && points[j + 1]) {
+        var t = segs[j] ? (half - acc) / segs[j] : 0;
+        return {
+          x: Number(points[j][0]) + (Number(points[j + 1][0]) - Number(points[j][0])) * t,
+          y: Number(points[j][1]) + (Number(points[j + 1][1]) - Number(points[j][1])) * t
+        };
+      }
+      acc += segs[j];
+    }
+    var last = points[points.length - 1];
+    return { x: Number(last[0]) || 0, y: Number(last[1]) || 0 };
+  }
+
+  function anchorFromElement(el, align) {
+    if (!el) return null;
+    var page = handleScreenRect(el);
+    var wrap = $("layout-wrap").getBoundingClientRect();
+    var view = el.ownerDocument && el.ownerDocument.defaultView;
+    var cs = view ? view.getComputedStyle(el) : null;
+    var specified = cs ? parseFloat(cs.fontSize) : NaN;
+    var fontPx = 13;
+    if (el.namespaceURI === "http://www.w3.org/2000/svg") {
+      // getBoundingClientRect is already zoomed. SVG computed font-size stays in user units.
+      if (page.height > 4) fontPx = page.height;
+      else if (specified > 0) {
+        var svg = el.ownerSVGElement;
+        var scale = 1;
+        if (svg) {
+          var vb = getSvgViewBoxSize(svg);
+          var sr = svg.getBoundingClientRect();
+          if (vb.w > 0 && sr.width > 0) scale = sr.width / vb.w;
+        }
+        fontPx = specified * (scale > 0 ? scale : 1);
+      }
+    } else if (specified > 0) {
+      fontPx = specified;
+    }
+    if (!(fontPx > 0)) fontPx = 13;
+    var color = "#E7E4DC";
+    if (cs) {
+      if (el.namespaceURI === "http://www.w3.org/2000/svg" && cs.fill && cs.fill !== "none") color = cs.fill;
+      else if (cs.color) color = cs.color;
+    }
+    var left = page.left - wrap.left;
+    var labelH = page.height > 0 ? page.height : fontPx;
+    var boxH = Math.max(fontPx + 2, labelH);
+    // Vertical center of the rename box matches the label's center in page space.
+    var top = page.top - wrap.top + (labelH - boxH) / 2;
+    return {
+      align: align,
+      left: align === "center" ? left + page.width / 2 : left,
+      top: top,
+      minW: Math.max(24, page.width || 24),
+      fontPx: fontPx,
+      boxH: boxH,
+      fontWeight: (cs && cs.fontWeight) || "600",
+      fontFamily: (cs && cs.fontFamily) || "inherit",
+      color: color,
+      laidOut: page.width > 0 || page.height > 0
+    };
+  }
+
+  function edgeMidpointAnchor(docIndex) {
+    var doc = $("layout-frame") && $("layout-frame").contentDocument;
+    var svg = doc && doc.querySelector("svg");
+    var pts = layoutEdgePointList(docIndex);
+    if (svg && pts && pts.length) {
+      var mid = polylineLengthMidpoint(pts);
+      var probe = svgUserBoxPage(svg, mid.x - 1, mid.y - 8, 2, 10);
+      var wrap = $("layout-wrap").getBoundingClientRect();
+      var fontPx = Math.max(10, (probe.height || 10) * 0.8);
+      var labelH = probe.height > 0 ? probe.height : fontPx;
+      var boxH = Math.max(16, labelH);
+      return {
+        align: "center",
+        left: probe.left - wrap.left + probe.width / 2,
+        top: probe.top - wrap.top + (labelH - boxH) / 2,
+        minW: 48,
+        fontPx: fontPx,
+        boxH: boxH,
+        fontWeight: "400",
+        fontFamily: "inherit",
+        color: "#E7E4DC",
+        laidOut: (probe.width > 0 || probe.height > 0)
+      };
+    }
+    var hit = edgeHitElement(docIndex);
+    if (!hit) return null;
+    var box = handleScreenRect(hit);
+    var wrap2 = $("layout-wrap").getBoundingClientRect();
+    var boxH = 16;
+    return {
+      align: "center",
+      left: box.left - wrap2.left + box.width / 2,
+      top: box.top - wrap2.top + ((box.height || boxH) - boxH) / 2,
+      minW: 48,
+      fontPx: 12,
+      boxH: boxH,
+      fontWeight: "400",
+      fontFamily: "inherit",
+      color: "#E7E4DC",
+      laidOut: (box.width > 0 || box.height > 0)
+    };
+  }
+
+  function inlineFieldId(kind) {
+    if (kind === "node") return "layout-edit-label";
+    if (kind === "edge" || kind === "lane") return "layout-single-label";
+    if (kind === "boundary") return "layout-boundary-label";
+    if (kind === "card") return "layout-card-title";
+    return "";
+  }
+
+  function inlineAnchor(kind, id) {
+    var doc = $("layout-frame") && $("layout-frame").contentDocument;
+    if (kind === "node") {
+      return anchorFromElement(nodeLabelElement(doc, id) || nodeHandleElement(doc, id), "center");
+    }
+    if (kind === "edge") {
+      var text = edgeLabelElement(doc, id);
+      if (text) return anchorFromElement(text, "center");
+      return edgeMidpointAnchor(id);
+    }
+    if (kind === "lane") return anchorFromElement(laneLabelElement(doc, id), "left");
+    if (kind === "boundary") return anchorFromElement(boundaryLabelElement(doc, id), "left");
+    if (kind === "card") return anchorFromElement(cardTitleElement(id), "left");
+    return null;
+  }
+
+  function dismissInlineOverlay() {
+    if (!inlineRename) return;
+    inlineRename._closing = true;
+    inlineRename = null;
+    var input = $("bw-inline-rename");
+    if (!input) return;
+    input.hidden = true;
+    input.value = "";
+    input.style.width = "";
+  }
+
+  function layoutInlineBox() {
+    var input = $("bw-inline-rename");
+    var mirror = $("bw-inline-rename-mirror");
+    var session = inlineRename;
+    var wrap = $("layout-wrap");
+    if (!input || !mirror || !session || !wrap || input.hidden) return;
+    mirror.style.fontSize = input.style.fontSize;
+    mirror.style.fontWeight = input.style.fontWeight;
+    mirror.style.fontFamily = input.style.fontFamily;
+    mirror.textContent = input.value || " ";
+    var w = Math.max((mirror.offsetWidth || 0) + 12, session.minW || 24);
+    var maxW = Math.max(80, wrap.clientWidth - 8);
+    if (w > maxW) w = maxW;
+    input.style.width = w + "px";
+    var left = session.align === "center" ? session.anchorLeft - w / 2 : session.anchorLeft;
+    if (left < 4) left = 4;
+    if (left + w > wrap.clientWidth - 4) left = Math.max(4, wrap.clientWidth - 4 - w);
+    input.style.left = left + "px";
+    input.style.top = session.anchorTop + "px";
+  }
+
+  function commitInlineSession() {
+    if (!inlineRename || inlineRename._closing) return;
+    var session = inlineRename;
+    session._closing = true;
+    var input = $("bw-inline-rename");
+    var field = $(session.fieldId);
+    if (field && input && !input.hidden) field.value = input.value;
+    var kind = session.kind;
+    dismissInlineOverlay();
+    if (kind === "lane") {
+      if (singleEdit && singleEdit.kind === "lane") commitSingleEditor();
+      return;
+    }
+    commitDockedInspector({});
+  }
+
+  function cancelInlineSession() {
+    if (!inlineRename || inlineRename._closing) return;
+    var session = inlineRename;
+    session._closing = true;
+    var field = $(session.fieldId);
+    if (field) field.value = session.snap;
+    var kind = session.kind;
+    dismissInlineOverlay();
+    if (kind === "lane") {
+      cancelSingleEditor();
+      setStatus("Label edit cancelled", "");
+    }
+  }
+
+  function commitInlineForViewChange() {
+    if (inlineRename) commitInlineSession();
+    else if (singleEdit && singleEdit.kind === "lane") commitSingleEditor();
+  }
+
+  function openInlineRename(kind, id, attempt) {
+    if (inlineRename) {
+      commitInlineSession();
+      if (state.layoutBusy) return;
+    }
+    if (state.layoutBusy || !state.layout) return;
+    var fieldId = inlineFieldId(kind);
+    var field = $(fieldId);
+    var anchor = inlineAnchor(kind, id);
+    var input = $("bw-inline-rename");
+    if (!field || !input) return;
+    // The first frame after mount can report an empty label box.
+    if ((!anchor || !anchor.laidOut) && (attempt || 0) < 2) {
+      requestAnimationFrame(function () {
+        if (state.layoutBusy || !state.layout || inlineRename) return;
+        openInlineRename(kind, id, (attempt || 0) + 1);
+      });
+      return;
+    }
+    if (!anchor) return;
+    inlineRename = {
+      kind: kind,
+      id: id,
+      fieldId: fieldId,
+      snap: field.value,
+      align: anchor.align,
+      anchorLeft: anchor.left,
+      anchorTop: anchor.top,
+      minW: anchor.minW,
+      _closing: false
+    };
+    input.hidden = false;
+    input.value = field.value;
+    input.style.fontSize = anchor.fontPx + "px";
+    input.style.fontWeight = String(anchor.fontWeight || "600");
+    input.style.fontFamily = anchor.fontFamily || "inherit";
+    input.style.color = anchor.color || "";
+    input.style.textAlign = anchor.align === "center" ? "center" : "left";
+    input.style.height = Math.max(anchor.boxH, anchor.fontPx + 2) + "px";
+    layoutInlineBox();
+    input.focus();
+    input.select();
+  }
+
+  function queueInlineRename(target) {
+    pendingLabelFocusId = null;
+    pendingEdgeFocusIndex = null;
+    pendingLaneIndex = null;
+    pendingLaneAttempts = 0;
+    pendingCardIndex = null;
+    pendingBoundaryIndex = null;
+    if (!target || !target.classList) return;
+    var labelIdx = edgeIndexFromEventTarget(target);
+    var laneIdx = laneIndexFromEventTarget(target);
+    if (target.classList.contains("bw-handle")) {
+      pendingLabelFocusId = target.getAttribute("data-node-id");
+    } else if (target.classList.contains("bw-edge-hit") || labelIdx != null) {
+      pendingEdgeFocusIndex = target.classList.contains("bw-edge-hit")
+        ? parseInt(target.getAttribute("data-doc-index"), 10)
+        : labelIdx;
+    } else if (laneIdx != null) {
+      pendingLaneIndex = String(laneIdx);
+    } else if (target.classList.contains("bw-boundary-tab")) {
+      pendingBoundaryIndex = parseInt(target.getAttribute("data-doc-index"), 10);
+    } else {
+      var cardIdx = cardIndexFromEventTarget(target);
+      if (cardIdx != null) pendingCardIndex = cardIdx;
+    }
+  }
+
+  function tryStartInlineRename(ev) {
+    if (!ev || ev.key !== "F2" || ev.altKey || ev.ctrlKey || ev.metaKey) return false;
+    if (inlineRename) {
+      ev.preventDefault();
+      return true;
+    }
+    if (state.tab !== "layout" || !state.doc || state.layoutBusy || !state.layout) return false;
+    if (quickType || isStatusOverlayActive()) return false;
+    var kind = null;
+    var id = null;
+    if (nodeEdit) {
+      kind = "node";
+      id = nodeEdit.nodeId;
+    } else if (state.selectedComponentId || state.selectedNodeId) {
+      kind = "node";
+      id = state.selectedComponentId || state.selectedNodeId;
+    } else if (singleEdit && singleEdit.kind === "edge") {
+      kind = "edge";
+      id = singleEdit.edgeIndex;
+    } else if (state.selectedEdgeIndex != null) {
+      kind = "edge";
+      id = state.selectedEdgeIndex;
+    } else if (boundaryEdit) {
+      kind = "boundary";
+      id = boundaryEdit.index;
+    } else if (cardEdit) {
+      kind = "card";
+      id = cardEdit.index;
+    } else return false;
+    ev.preventDefault();
+    if (kind === "node") openNodeEditorById(id, { focus: false });
+    else if (kind === "edge") selectLayoutEdge(id, { focus: false });
+    else if (kind === "boundary") selectLayoutBoundary(id, { focus: false });
+    else if (kind === "card") selectLayoutCard(id, { focus: false });
+    openInlineRename(kind, id);
+    return true;
+  }
+
   function onLayoutDblClick(ev) {
     if (!state.layout || state.layoutMode !== "move") return;
+    if (blockLabelDblClick || (layoutDrag && layoutDrag.moved) || (resizeDrag && resizeDrag.moved) || (endpointDrag && endpointDrag.moved)) {
+      blockLabelDblClick = false;
+      return;
+    }
     var pendingTarget = ev.target;
     if (state.layoutBusy) {
-      if (pendingTarget && pendingTarget.classList && pendingTarget.classList.contains("bw-handle")) {
-        pendingLabelFocusId = pendingTarget.getAttribute("data-node-id");
-      } else if (pendingTarget && pendingTarget.classList && pendingTarget.classList.contains("bw-edge-hit")) {
-        pendingEdgeFocusIndex = parseInt(pendingTarget.getAttribute("data-doc-index"), 10);
-      } else if (pendingTarget && pendingTarget.classList && pendingTarget.classList.contains("bw-lane-hit")) {
-        pendingLaneIndex = pendingTarget.getAttribute("data-lane-index");
-      }
+      queueInlineRename(pendingTarget);
       return;
     }
     var t = ev.target;
     if (!t || !t.classList) return;
-    if (layoutDrag) {
+    if (inlineRename) {
+      commitInlineSession();
+      if (state.layoutBusy) {
+        queueInlineRename(t);
+        return;
+      }
+    }
+    if (layoutDrag && !layoutDrag.moved) {
       layoutDrag.rect.setAttribute("x", String(layoutDrag.origX));
       layoutDrag.rect.setAttribute("y", String(layoutDrag.origY));
       layoutDrag.rect.style.cursor = handleCursor();
-      try { layoutDrag.rect.releasePointerCapture(ev.pointerId); } catch (e) {}
+      try { layoutDrag.rect.releasePointerCapture(ev.pointerId); } catch (eDrag) {}
       layoutDrag = null;
     }
-    if (t.classList.contains("bw-edge-hit")) {
+    var labelIdx = edgeIndexFromEventTarget(t);
+    if (t.classList.contains("bw-edge-hit") || labelIdx != null) {
       ev.preventDefault();
-      openEdgeLabelEditor(t, { focus: true });
+      var edgeIdx = t.classList.contains("bw-edge-hit")
+        ? parseInt(t.getAttribute("data-doc-index"), 10)
+        : labelIdx;
+      var hit = t.classList.contains("bw-edge-hit") ? t : edgeHitElement(edgeIdx);
+      if (hit) openEdgeLabelEditor(hit, { focus: false });
+      else selectLayoutEdge(edgeIdx, { focus: false });
+      openInlineRename("edge", edgeIdx);
       return;
     }
-    if (t.classList.contains("bw-lane-hit")) {
+    var laneIdx = laneIndexFromEventTarget(t);
+    if (laneIdx != null) {
       ev.preventDefault();
-      openLaneLabelEditor(t);
+      var laneHit = t.classList.contains("bw-lane-hit")
+        ? t
+        : (t.ownerDocument && t.ownerDocument.querySelector('rect.bw-lane-hit[data-lane-index="' + laneIdx + '"]'));
+      if (laneHit) openLaneLabelEditor(laneHit);
+      openInlineRename("lane", laneIdx);
+      return;
+    }
+    if (t.classList.contains("bw-boundary-tab")) {
+      ev.preventDefault();
+      var bIdx = parseInt(t.getAttribute("data-doc-index"), 10);
+      selectLayoutBoundary(bIdx, { focus: false });
+      openInlineRename("boundary", bIdx);
+      return;
+    }
+    var cardIdx = cardIndexFromEventTarget(t);
+    if (cardIdx != null) {
+      ev.preventDefault();
+      selectLayoutCard(cardIdx, { focus: false });
+      openInlineRename("card", cardIdx);
       return;
     }
     if (!t.classList.contains("bw-handle")) return;
     ev.preventDefault();
-    if (state.layoutBusy) {
-      pendingLabelFocusId = t.getAttribute("data-node-id");
-      return;
-    }
-    openNodeEditor(t, { focus: true });
+    openNodeEditor(t, { focus: false });
+    openInlineRename("node", t.getAttribute("data-node-id"));
   }
 
   function endpointSnapThreshold() {
@@ -13610,8 +14547,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function onLayoutPointerDown(ev) {
+    if (inlineRename) commitInlineSession();
     if (state.layoutBusy || !state.layout) return;
-    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
+    if (singleEdit && singleEdit.kind === "lane") commitSingleEditor();
     var t = ev.target;
 
     // Cards are HTML under #bw-scroll, outside the SVG. Index matches doc.cards order.
@@ -13709,6 +14647,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return;
     }
 
+    var labelEdgeIdx = edgeIndexFromEventTarget(t);
+    if (labelEdgeIdx != null) {
+      // Do not preventDefault — that suppresses dblclick (inline label edit).
+      var sameLabelEdge = singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === labelEdgeIdx;
+      if (!sameLabelEdge && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit ||
+          (singleEdit && singleEdit.kind === "edge"))) {
+        commitDockedInspector({ nextEdgeIndex: labelEdgeIdx });
+      } else {
+        selectLayoutEdge(labelEdgeIdx);
+      }
+      return;
+    }
+
     if (t && t.classList && t.classList.contains("bw-edge-hit")) {
       // Do not preventDefault — that suppresses dblclick (edge label edit).
       var edgeIdx = parseInt(t.getAttribute("data-doc-index"), 10);
@@ -13737,7 +14688,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
     }
 
-    if (t && t.classList && t.classList.contains("bw-lane-hit")) {
+    if (laneIndexFromEventTarget(t) != null) {
       if (inspectorBufferDirty()) commitDockedInspector({});
       else if (state.selectedEdgeIndex != null) {
         clearEdgeSelection(true);
@@ -13809,6 +14760,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (!boundaryLasso.moved) {
         if ((ldx * ldx + ldy * ldy) < (LAYOUT_DRAG_THRESHOLD_PX * LAYOUT_DRAG_THRESHOLD_PX)) return;
         boundaryLasso.moved = true;
+        noteLabelDblClickBlock();
         ev.preventDefault();
       }
       var lpt = clientToSvg(boundaryLasso.svg, ev.clientX, ev.clientY);
@@ -13823,6 +14775,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (!resizeDrag.moved) {
         if ((rdx * rdx + rdy * rdy) < (LAYOUT_DRAG_THRESHOLD_PX * LAYOUT_DRAG_THRESHOLD_PX)) return;
         resizeDrag.moved = true;
+        noteLabelDblClickBlock();
         ev.preventDefault();
         setStatus("Resizing " + resizeDrag.id + "…", "");
       }
@@ -13841,6 +14794,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (!endpointDrag.moved) {
         if ((edx * edx + edy * edy) < (LAYOUT_DRAG_THRESHOLD_PX * LAYOUT_DRAG_THRESHOLD_PX)) return;
         endpointDrag.moved = true;
+        noteLabelDblClickBlock();
         ev.preventDefault();
         endpointDrag.circle.style.cursor = "grabbing";
         setStatus("Rerouting " + endpointDrag.end + " endpoint…", "");
@@ -13858,6 +14812,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (!layoutDrag.moved) {
       if ((dx * dx + dy * dy) < (LAYOUT_DRAG_THRESHOLD_PX * LAYOUT_DRAG_THRESHOLD_PX)) return;
       layoutDrag.moved = true;
+      noteLabelDblClickBlock();
       ev.preventDefault();
       layoutDrag.rect.style.cursor = "grabbing";
       setStatus("Dragging " + layoutDrag.id + "…", "");
@@ -14148,18 +15103,51 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         pendingLabelFocusId = null;
         pendingLaneIndex = null;
         pendingEdgeFocusIndex = null;
-        openNodeEditorById(wantFocus, { focus: true });
-      } else if (pendingEdgeFocusIndex != null) {
+        pendingCardIndex = null;
+        pendingBoundaryIndex = null;
+        openNodeEditorById(wantFocus, { focus: false });
+        openInlineRename("node", wantFocus);
+      } else if (pendingEdgeFocusIndex != null && !isNaN(pendingEdgeFocusIndex)) {
         var wantEdge = pendingEdgeFocusIndex;
         pendingEdgeFocusIndex = null;
         pendingLaneIndex = null;
-        selectLayoutEdge(wantEdge, { focus: true });
+        pendingCardIndex = null;
+        pendingBoundaryIndex = null;
+        selectLayoutEdge(wantEdge, { focus: false });
+        openInlineRename("edge", wantEdge);
       } else if (pendingLaneIndex != null) {
         var wantLane = pendingLaneIndex;
-        pendingLaneIndex = null;
         var laneDoc = $("layout-frame") && $("layout-frame").contentDocument;
         var laneHit = laneDoc && laneDoc.querySelector('rect.bw-lane-hit[data-lane-index="' + wantLane + '"]');
-        if (laneHit) openLaneLabelEditor(laneHit);
+        // Overlays can still be mounting. Keep the pending index and retry briefly.
+        if (!laneHit) {
+          if (pendingLaneAttempts < 8) {
+            pendingLaneAttempts += 1;
+            requestAnimationFrame(function () {
+              if (!state.layoutBusy && pendingLaneIndex != null) setLayoutBusy(false);
+            });
+          } else {
+            pendingLaneIndex = null;
+            pendingLaneAttempts = 0;
+          }
+        } else {
+          pendingLaneIndex = null;
+          pendingLaneAttempts = 0;
+          pendingCardIndex = null;
+          pendingBoundaryIndex = null;
+          openLaneLabelEditor(laneHit);
+          openInlineRename("lane", parseInt(wantLane, 10));
+        }
+      } else if (pendingBoundaryIndex != null && !isNaN(pendingBoundaryIndex)) {
+        var wantBoundary = pendingBoundaryIndex;
+        pendingBoundaryIndex = null;
+        selectLayoutBoundary(wantBoundary, { focus: false });
+        openInlineRename("boundary", wantBoundary);
+      } else if (pendingCardIndex != null && !isNaN(pendingCardIndex)) {
+        var wantCard = pendingCardIndex;
+        pendingCardIndex = null;
+        selectLayoutCard(wantCard, { focus: false });
+        openInlineRename("card", wantCard);
       }
     }
   }
@@ -14218,8 +15206,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return Promise.resolve();
     }
     // Docked inspector sessions survive the remount and refill from the doc.
-    // The lane popup is anchored to a hit rect that this remount destroys.
+    // The inline rename box is anchored to iframe geometry this remount destroys.
     if (quickType) closeQuickType(true);
+    if (!state.layoutBusy && (inlineRename || (singleEdit && singleEdit.kind === "lane"))) {
+      commitInlineForViewChange();
+      if (state.layoutBusy) return Promise.resolve();
+    }
+    if (inlineRename) dismissInlineOverlay();
     if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
     if (opts.dismissEditors) cancelInlineEditors();
     var stash = null;
@@ -14258,9 +15251,24 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         // Resolve only after iframe onload + overlays mount so callers
         // (setLayoutBusy false, subsequent dblclick) are not racing remount.
         return new Promise(function (resolve, reject) {
-          iframe.onload = function () {
+          var serial = ++layoutMountSerial;
+          var markerId = "bw-mount-" + serial;
+          var marked = html;
+          var markerTag = '<div id="' + markerId + '" hidden></div>';
+          var closeBody = marked.lastIndexOf("</body>");
+          if (closeBody >= 0) marked = marked.slice(0, closeBody) + markerTag + marked.slice(closeBody);
+          else marked += markerTag;
+          var settled = false;
+          function finishMount() {
+            if (settled || serial !== layoutMountSerial) return;
+            var doc = iframe.contentDocument;
+            // srcdoc can still be the previous document until parse finishes.
+            // Mutating a document that is not complete can be wiped when load fires.
+            if (!doc || doc.readyState !== "complete") return;
+            if (!doc.getElementById(markerId) || !doc.querySelector("svg")) return;
+            settled = true;
             try {
-              prepareDiagramViewport(iframe.contentDocument);
+              prepareDiagramViewport(doc);
               restoreLayoutViewport(stash);
               if (state.selectedEdgeIndex != null && !relationRecords()[state.selectedEdgeIndex]) {
                 state.selectedEdgeIndex = null;
@@ -14290,8 +15298,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
             } catch (err) {
               reject(err);
             }
-          };
-          iframe.srcdoc = html;
+          }
+          iframe.onload = finishMount;
+          iframe.srcdoc = marked;
+          // Chromium parses srcdoc before yielding. Mount before that gap so
+          // the first lane-label dblclick is not lost.
+          finishMount();
         });
       })
       .catch(function (e) {
@@ -14486,6 +15498,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var copy = clone(src);
     var fromId = String(src.id || "");
     copy.id = uniqueItemId("component", state.doc.components);
+    ensureLabelWidth(copy);
     if (Array.isArray(copy.pos) && copy.pos.length >= 2) {
       copy.pos = [Number(copy.pos[0]) + 24, Number(copy.pos[1]) + 24];
     } else if (typeof copy.col === "number") {
@@ -14926,6 +15939,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       pushHistory();
       if (trimmedOpt === "") delete item[field];
       else item[field] = trimmedOpt;
+      ensureLabelWidth(item);
       state.rawDirty = false;
       previewStale = true;
       markDirty();
@@ -14977,7 +15991,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     } else {
       item[field] = val;
     }
-    if ((kind === "nodes" || kind === "components") && field === "label" && item.brand != null) ensureBrandWidth(item);
+    if ((kind === "nodes" || kind === "components") &&
+        (field === "label" || field === "sublabel" || field === "tag")) {
+      var formWidthOk = ensureLabelWidth(item);
+      if (field === "label" && item.brand != null && formWidthOk !== false) ensureBrandWidth(item);
+    }
     if (oldNodeId && oldNodeId !== String(item.id || "")) {
       migrateNodeStyle(oldNodeId, String(item.id || ""));
       migrateAssignment(oldNodeId, String(item.id || ""));
@@ -16268,6 +17286,33 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
   var singleInput = $("layout-single-label");
   if (singleInput) singleInput.addEventListener("keydown", onSingleEditorKeydown);
+  var inlineRenameInput = $("bw-inline-rename");
+  if (inlineRenameInput) {
+    inlineRenameInput.addEventListener("input", function () {
+      if (!inlineRename || inlineRename._closing) return;
+      var field = $(inlineRename.fieldId);
+      if (field) field.value = inlineRenameInput.value;
+      layoutInlineBox();
+    });
+    inlineRenameInput.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" || ev.key === "Tab") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        commitInlineSession();
+      } else if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        cancelInlineSession();
+      } else if (ev.key === "F2") {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+    });
+    inlineRenameInput.addEventListener("blur", function () {
+      if (!inlineRename || inlineRename._closing) return;
+      commitInlineSession();
+    });
+  }
   $("layout-single-save").addEventListener("click", function (ev) {
     ev.preventDefault();
     commitSingleEditor();
@@ -16322,6 +17367,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   // Outside click cancels; do NOT commit-on-blur (Tab between fields would save early).
   document.addEventListener("mousedown", function (ev) {
+    if (ev.target && ev.target.closest && ev.target.closest("#bw-inline-rename")) return;
     if (quickType) {
       var qmodal = $("quick-type-modal");
       var qpop = $("qtype-icon-pop");
@@ -16364,6 +17410,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }, true);
 
   document.addEventListener("keydown", function (ev) {
+    if (tryStartInlineRename(ev)) return;
     var tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : "";
     var typing = tag === "input" || tag === "textarea" || tag === "select" || (ev.target && ev.target.isContentEditable);
 

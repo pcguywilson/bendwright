@@ -114,7 +114,7 @@ Every clip uses the two sample diagrams that ship with bendwright.
 ### Editing nodes
 
 **Inspect and edit** - click a node, change its label and sublabel in the inspector, and
-press **Enter**. Archify re-renders right away; nothing touches disk until **Save**.
+press **Enter**. Or double-click it and type the new name right on the diagram. Archify re-renders right away; nothing touches disk until **Save**.
 
 ![Inspect and edit](gifs/inspect-and-edit.gif)
 
@@ -192,8 +192,11 @@ you close it. Your file is never left unrenderable.
   sublabel, tag, position (lane and column, or position and size), color, and icon.
   **Enter** applies your edits as one undo step; **Esc** throws them away.
 - **Connections** - add, reroute, restyle, relabel, and delete edges.
-- **Inline labels** - double-click a node or edge to jump straight to its label, or a
-  lane header to rename the lane.
+- **Rename in place** - double-click a node, edge, lane, boundary, or card title (or
+  press **F2** on a selection) and type right on the diagram. **Enter** applies, **Esc**
+  cancels.
+- **Boxes grow to fit** - type a long label and the node or component widens on its own,
+  so you can drop in rough nodes now and fill in details later.
 - **Preview** - **Preview** on the bottom tool bar opens the full rendered page in a new tab.
 - **New diagram** - start from scratch with **New**. The first **Save** asks where to
   write it.
@@ -246,7 +249,8 @@ you close it. Your file is never left unrenderable.
 | **V** | Select tool |
 | **C** | Connect tool |
 | **B** | Boundary tool (architecture) |
-| **Enter** | Apply inspector edits |
+| **F2** | Rename the selection in place |
+| **Enter** | Apply edits |
 | **Esc** | Discard unapplied edits, close a panel, or clear the selection |
 | **Delete** / **Backspace** | Delete the selected node, edge, or card |
 | **Ctrl+S** | Save |
