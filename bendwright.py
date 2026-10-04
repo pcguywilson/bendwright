@@ -935,6 +935,462 @@ def blank_diagram(diagram_type: str) -> dict[str, Any]:
     return blank_workflow()
 
 
+_TEMPLATE_PACK_JSON = r"""{
+  "manifest": [
+    {
+      "id": "approval",
+      "label": "Request and approval",
+      "diagram_type": "workflow",
+      "blurb": "A request moves through review, rework, and fulfilment."
+    },
+    {
+      "id": "incident",
+      "label": "Incident response",
+      "diagram_type": "workflow",
+      "blurb": "Detect, respond, recover, then learn."
+    },
+    {
+      "id": "three_tier",
+      "label": "Three-tier web app",
+      "diagram_type": "architecture",
+      "blurb": "Users, web, app, and data tiers with a private network."
+    },
+    {
+      "id": "pipeline",
+      "label": "Data pipeline",
+      "diagram_type": "architecture",
+      "blurb": "Sources to ingest, transform, lake, and dashboards."
+    }
+  ],
+  "templates": {
+    "approval": {
+      "schema_version": 2,
+      "diagram_type": "workflow",
+      "meta": {
+        "title": "Request and approval",
+        "subtitle": "Starter template",
+        "quality_profile": "standard"
+      },
+      "lanes": [
+        {
+          "id": "requester",
+          "label": "Requester"
+        },
+        {
+          "id": "manager",
+          "label": "Manager"
+        },
+        {
+          "id": "ops",
+          "label": "Operations"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "submit",
+          "lane": "requester",
+          "col": 0,
+          "type": "frontend",
+          "label": "Submit request",
+          "sublabel": "form"
+        },
+        {
+          "id": "review",
+          "lane": "manager",
+          "col": 1,
+          "type": "security",
+          "label": "Review",
+          "sublabel": "approve or reject"
+        },
+        {
+          "id": "rework",
+          "lane": "requester",
+          "col": 2,
+          "type": "frontend",
+          "label": "Revise",
+          "sublabel": "add details"
+        },
+        {
+          "id": "fulfil",
+          "lane": "ops",
+          "col": 2,
+          "type": "backend",
+          "label": "Fulfil",
+          "sublabel": "do the work"
+        },
+        {
+          "id": "close",
+          "lane": "ops",
+          "col": 3,
+          "type": "messagebus",
+          "label": "Notify",
+          "sublabel": "close request"
+        }
+      ],
+      "edges": [
+        {
+          "from": "submit",
+          "to": "review",
+          "label": "submitted"
+        },
+        {
+          "from": "review",
+          "to": "fulfil",
+          "label": "approved"
+        },
+        {
+          "from": "review",
+          "to": "rework",
+          "label": "needs info",
+          "variant": "dashed"
+        },
+        {
+          "from": "fulfil",
+          "to": "close",
+          "label": "done"
+        }
+      ]
+    },
+    "incident": {
+      "schema_version": 2,
+      "diagram_type": "workflow",
+      "meta": {
+        "title": "Incident response",
+        "subtitle": "Starter template",
+        "quality_profile": "standard"
+      },
+      "lanes": [
+        {
+          "id": "detect",
+          "label": "Detect"
+        },
+        {
+          "id": "respond",
+          "label": "Respond"
+        },
+        {
+          "id": "recover",
+          "label": "Recover"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "alert",
+          "lane": "detect",
+          "col": 0,
+          "type": "external",
+          "label": "Alert fires",
+          "sublabel": "monitoring"
+        },
+        {
+          "id": "triage",
+          "lane": "respond",
+          "col": 1,
+          "type": "security",
+          "label": "Triage",
+          "sublabel": "severity"
+        },
+        {
+          "id": "mitigate",
+          "lane": "respond",
+          "col": 2,
+          "type": "backend",
+          "label": "Mitigate",
+          "sublabel": "stop the bleeding"
+        },
+        {
+          "id": "restore",
+          "lane": "recover",
+          "col": 3,
+          "type": "cloud",
+          "label": "Restore",
+          "sublabel": "service healthy"
+        },
+        {
+          "id": "postmortem",
+          "lane": "recover",
+          "col": 4,
+          "type": "database",
+          "label": "Postmortem",
+          "sublabel": "lessons learned"
+        }
+      ],
+      "edges": [
+        {
+          "from": "alert",
+          "to": "triage",
+          "label": "page on-call"
+        },
+        {
+          "from": "triage",
+          "to": "mitigate",
+          "label": "confirmed"
+        },
+        {
+          "from": "mitigate",
+          "to": "restore",
+          "label": "fixed"
+        },
+        {
+          "from": "restore",
+          "to": "postmortem",
+          "label": "review"
+        }
+      ]
+    },
+    "three_tier": {
+      "schema_version": 1,
+      "diagram_type": "architecture",
+      "meta": {
+        "title": "Three-tier web app",
+        "subtitle": "Starter template",
+        "quality_profile": "standard"
+      },
+      "components": [
+        {
+          "id": "users",
+          "type": "external",
+          "label": "Users",
+          "sublabel": "browser",
+          "pos": [
+            40,
+            180
+          ],
+          "size": [
+            130,
+            60
+          ]
+        },
+        {
+          "id": "web",
+          "type": "frontend",
+          "label": "Web tier",
+          "sublabel": "load balanced",
+          "pos": [
+            240,
+            180
+          ],
+          "size": [
+            140,
+            60
+          ]
+        },
+        {
+          "id": "app",
+          "type": "backend",
+          "label": "App tier",
+          "sublabel": "API",
+          "pos": [
+            460,
+            180
+          ],
+          "size": [
+            140,
+            60
+          ]
+        },
+        {
+          "id": "db",
+          "type": "database",
+          "label": "Database",
+          "sublabel": "primary",
+          "pos": [
+            680,
+            180
+          ],
+          "size": [
+            140,
+            60
+          ]
+        },
+        {
+          "id": "cache",
+          "type": "database",
+          "label": "Cache",
+          "sublabel": "sessions",
+          "pos": [
+            460,
+            380
+          ],
+          "size": [
+            140,
+            60
+          ]
+        }
+      ],
+      "connections": [
+        {
+          "from": "users",
+          "to": "web",
+          "label": "HTTPS"
+        },
+        {
+          "from": "web",
+          "to": "app",
+          "label": "REST"
+        },
+        {
+          "from": "app",
+          "to": "db",
+          "label": "SQL"
+        },
+        {
+          "from": "app",
+          "to": "cache",
+          "label": "get/set",
+          "labelAt": [
+            530,
+            305
+          ]
+        }
+      ],
+      "boundaries": [
+        {
+          "kind": "security-group",
+          "label": "Private network",
+          "wraps": [
+            "app",
+            "db",
+            "cache"
+          ],
+          "pad": 16
+        }
+      ]
+    },
+    "pipeline": {
+      "schema_version": 1,
+      "diagram_type": "architecture",
+      "meta": {
+        "title": "Data pipeline",
+        "subtitle": "Starter template",
+        "quality_profile": "standard"
+      },
+      "components": [
+        {
+          "id": "sources",
+          "type": "external",
+          "label": "Sources",
+          "sublabel": "apps and logs",
+          "pos": [
+            40,
+            180
+          ],
+          "size": [
+            140,
+            60
+          ]
+        },
+        {
+          "id": "ingest",
+          "type": "messagebus",
+          "label": "Ingest",
+          "sublabel": "queue",
+          "pos": [
+            250,
+            180
+          ],
+          "size": [
+            140,
+            60
+          ]
+        },
+        {
+          "id": "transform",
+          "type": "backend",
+          "label": "Transform",
+          "sublabel": "jobs",
+          "pos": [
+            460,
+            180
+          ],
+          "size": [
+            140,
+            60
+          ]
+        },
+        {
+          "id": "lake",
+          "type": "cloud",
+          "label": "Data lake",
+          "sublabel": "raw + curated",
+          "pos": [
+            670,
+            180
+          ],
+          "size": [
+            150,
+            60
+          ]
+        },
+        {
+          "id": "bi",
+          "type": "frontend",
+          "label": "Dashboards",
+          "sublabel": "reports",
+          "pos": [
+            670,
+            380
+          ],
+          "size": [
+            150,
+            60
+          ]
+        }
+      ],
+      "connections": [
+        {
+          "from": "sources",
+          "to": "ingest",
+          "label": "events"
+        },
+        {
+          "from": "ingest",
+          "to": "transform",
+          "label": "batches"
+        },
+        {
+          "from": "transform",
+          "to": "lake",
+          "label": "write"
+        },
+        {
+          "from": "lake",
+          "to": "bi",
+          "label": "query",
+          "labelAt": [
+            745,
+            305
+          ]
+        }
+      ],
+      "boundaries": [
+        {
+          "kind": "region",
+          "label": "Cloud region",
+          "wraps": [
+            "ingest",
+            "transform",
+            "lake"
+          ],
+          "pad": 16
+        }
+      ]
+    }
+  }
+}"""
+_TEMPLATE_PACK: dict[str, Any] = json.loads(_TEMPLATE_PACK_JSON)
+TEMPLATE_MANIFEST: list[dict[str, Any]] = list(_TEMPLATE_PACK["manifest"])
+_TEMPLATES: dict[str, Any] = dict(_TEMPLATE_PACK["templates"])
+
+
+def template_document(template_id: str) -> dict[str, Any] | None:
+    """Return a deep copy so session edits never mutate the embedded template."""
+    raw = _TEMPLATES.get(template_id)
+    if not isinstance(raw, dict):
+        return None
+    return copy.deepcopy(raw)
+
+
 def ir_collection_keys(diagram_type: str) -> tuple[str, ...]:
     if diagram_type == "architecture":
         return ARCHITECTURE_IR_KEYS
@@ -2460,6 +2916,7 @@ def load_sidecar(ir_path: Path, doc: dict[str, Any]) -> tuple[dict[str, Any], st
     stored = copy.deepcopy(data)
     if "bendwright_sidecar" not in stored:
         stored["bendwright_sidecar"] = 1
+    _normalize_display_flags(stored)
     renamed = _migrate_type_icons(stored.get("types"))
     note = _join_notes(
         sidecar_status_note(doc, stored),
@@ -2492,14 +2949,15 @@ def write_sidecar_for(ir_path: Path, sidecar: dict[str, Any], *, unreadable: boo
         return f"sidecar: {path.name} was not overwritten (unreadable)"
     if not isinstance(sidecar, dict):
         return "sidecar write failed: not an object"
-    if not _sidecar_has_payload(sidecar):
+    payload = copy.deepcopy(sidecar)
+    _normalize_display_flags(payload)
+    if not _sidecar_has_payload(payload):
         if path.is_file():
             try:
                 path.unlink()
             except OSError as e:
                 return f"sidecar write failed: {e}"
         return None
-    payload = copy.deepcopy(sidecar)
     if "bendwright_sidecar" not in payload:
         payload["bendwright_sidecar"] = 1
     _sync_sidecar_icons(payload)
@@ -3299,11 +3757,39 @@ def _attach_library_icon_blob(entry: dict[str, Any]) -> None:
 def _remember_sidecar(doc: dict[str, Any], sidecar: dict[str, Any]) -> None:
     global _sidecar, _sidecar_note
     _sidecar = copy.deepcopy(sidecar)
+    _normalize_display_flags(_sidecar)
     _sync_sidecar_icons(_sidecar)
     _sidecar_note = _join_notes(
         sidecar_status_note(doc, _sidecar),
         _dropped_brand_offer_note(doc),
     )
+
+
+_DISPLAY_FLAG_ENV = {
+    "brandReplacesTypeIcon": "ARCHIFY_BENDWRIGHT_BRAND_REPLACES_TYPE_ICON",
+    "hideLaneChrome": "ARCHIFY_BENDWRIGHT_HIDE_LANE_CHROME",
+}
+
+
+def _normalize_display_flags(sidecar: dict[str, Any]) -> None:
+    """Keep opt-in render flags only when true. Absent means stock archify."""
+    if not isinstance(sidecar, dict):
+        return
+    for key in _DISPLAY_FLAG_ENV:
+        if sidecar.get(key) is True:
+            continue
+        sidecar.pop(key, None)
+
+
+def _display_env(sidecar: dict[str, Any] | None) -> dict[str, str]:
+    """Env for preview and export. Empty when the sidecar flags are off."""
+    if not isinstance(sidecar, dict):
+        return {}
+    extra: dict[str, str] = {}
+    for key, env_name in _DISPLAY_FLAG_ENV.items():
+        if sidecar.get(key) is True:
+            extra[env_name] = "1"
+    return extra
 
 
 def _kind_env_map(doc: dict[str, Any], sidecar: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -3403,19 +3889,24 @@ def run_archify(
     timeout: float = 120.0,
     kind_map: dict[str, Any] | None = None,
     repo_root: str | None = None,
+    display_env: dict[str, str] | None = None,
 ) -> tuple[Any, str, str]:
     """Run `node <archify> ...`. Returns (parsed_stdout_json_or_None, stdout, stderr).
 
     ARCHIFY_BRAND_ALLOW_PRIVATE is set on this subprocess only so loopback
     brand PNGs can be fetched and inlined. ARCHIFY_BENDWRIGHT_KINDS is set
     on this child only when kind_map is non-empty, and the temp file is
-    removed before return. os.environ is not modified.
+    removed before return. display_env carries the opt-in render flags
+    (brand icon slot, lane chrome) the same way: this child only, absent
+    when the sidecar flags are off. os.environ is not modified.
     """
     cmd = ["node", archify, *argv]
     if repo_root:
         cmd.extend(["--repo-root", repo_root])
     kind_path: str | None = None
     extra: dict[str, str] = {"ARCHIFY_BRAND_ALLOW_PRIVATE": "1"}
+    if display_env:
+        extra.update(display_env)
     try:
         if kind_map:
             try:
@@ -3507,6 +3998,7 @@ def deliver_preview(
             ["deliver", diagram_type, str(ir_path), html_tmp, "--json"],
             kind_map=_kind_env_map_for_path(ir_path, sidecar),
             repo_root=repo_root,
+            display_env=_display_env(sidecar),
         )
         note: str | None = None
         if not isinstance(parsed, dict) or not parsed.get("ok", False):
@@ -3611,6 +4103,7 @@ def deliver_to_path(
             ["deliver", diagram_type, str(ir_path), tmp_name, "--json"],
             kind_map=_kind_env_map_for_path(ir_path, sidecar),
             repo_root=repo_root,
+            display_env=_display_env(sidecar),
         )
         if not isinstance(parsed, dict) or not parsed.get("ok", False):
             return {
@@ -3682,6 +4175,31 @@ def _cards_bytes(preview: bytes) -> bytes | None:
     return None
 
 
+# Editor canvas only. /preview and Export HTML keep the delivered <title>.
+_EDITOR_DIAGRAM_TITLE_RE = re.compile(
+    rb"""<title\b([^>]*?)\bid=(["'])archify-diagram-title\2([^>]*)>.*?</title>""",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _empty_editor_diagram_title(svg: bytes) -> bytes:
+    """Empty #archify-diagram-title so sublabel hover is not the diagram name.
+
+    Node-level <title> elements are left alone. Does not change meta.title.
+    """
+
+    def _repl(match: re.Match[bytes]) -> bytes:
+        return (
+            b"<title"
+            + match.group(1)
+            + b'id="archify-diagram-title"'
+            + match.group(3)
+            + b"></title>"
+        )
+
+    return _EDITOR_DIAGRAM_TITLE_RE.sub(_repl, svg, count=1)
+
+
 def extract_diagram_html(preview: bytes) -> bytes | None:
     """Build a minimal same-origin diagram doc: styles + svg + cards, no scripts.
 
@@ -3703,7 +4221,7 @@ def extract_diagram_html(preview: bytes) -> bytes | None:
     ]
     parts.extend(_STYLE_BLOCK_RE.findall(preview))
     parts.append(b"\n</head><body style=\"margin:0;background:#0b0f14;\">\n")
-    parts.append(svg_m.group(0))
+    parts.append(_empty_editor_diagram_title(svg_m.group(0)))
     cards = _cards_bytes(preview)
     if cards:
         parts.append(b"\n")
@@ -3872,6 +4390,260 @@ def deliver_saved_file(
 # ---------------------------------------------------------------------------
 # HTTP handler
 # ---------------------------------------------------------------------------
+_HELP_BODY = r"""<header class="help-head">
+  <h1>bendwright guide</h1>
+  <p class="lede">Edit Archify workflow and architecture diagrams by clicking, dragging, and typing. Nothing touches your file until you press <b>Save</b>.</p>
+  <nav class="toc">
+    <a href="#start">Getting started</a>
+    <a href="#screen">The screen</a>
+    <a href="#select">Select and edit</a>
+    <a href="#rename">Rename in place</a>
+    <a href="#connect">Connections</a>
+    <a href="#arch">Architecture diagrams</a>
+    <a href="#lanes">Lanes, cards, legend</a>
+    <a href="#icons">Icons and custom types</a>
+    <a href="#display">Display options</a>
+    <a href="#save">Save, preview, export</a>
+    <a href="#keys">Keyboard shortcuts</a>
+    <a href="#trouble">When something is put back</a>
+    <a href="#files">Where things are stored</a>
+  </nav>
+</header>
+
+<section id="start">
+  <h2>Getting started</h2>
+  <ul>
+    <li><b>New</b> starts a blank workflow or architecture diagram, or one of the starter templates. It stays unsaved until your first <b>Save</b>, which asks where to write it.</li>
+    <li><b>Open</b> loads an existing <code>.workflow.json</code> or <code>.architecture.json</code> that Archify can already render.</li>
+    <li><b>Workflow</b> diagrams are lanes and columns: every node sits in a lane and a column, and dragging snaps to that grid.</li>
+    <li><b>Architecture</b> diagrams are free placement: components go anywhere (snapped to 10 px), can be resized, and can be grouped with boundaries.</li>
+  </ul>
+</section>
+
+<section id="screen">
+  <h2>The screen</h2>
+  <ul>
+    <li><b>Header</b>: file name, the diagram kind, <b>Saved</b> or <b>Unsaved</b>, then New, Open, Undo, Redo, Save, and the <b>⋯</b> menu (Export HTML, Source JSON, Custom types library, Refresh icons, Discard changes).</li>
+    <li><b>Canvas</b>: the live Archify drawing. It redraws after every applied change.</li>
+    <li><b>Inspector</b> (right): follows your selection. With nothing selected it shows the diagram itself: title, subtitle, quality profile, Legend, Display, and <b>Browse</b> links.</li>
+    <li><b>Tool bar</b> (bottom): Select, Connect, Boundary (architecture), zoom, Fit, Preview, and Cards.</li>
+  </ul>
+</section>
+
+<section id="select">
+  <h2>Select and edit</h2>
+  <ul>
+    <li>Click a node, edge, lane, boundary, or card to open it in the inspector. Click empty canvas or press <kbd>Esc</kbd> to go back to the diagram.</li>
+    <li>Change any fields, then press <kbd>Enter</kbd> or click away to apply them. All the fields you changed apply together as one undo step. <kbd>Esc</kbd> throws them away.</li>
+    <li>Drag a node to move it. In a workflow it snaps to the nearest lane and column; in an architecture diagram to a 10 px grid.</li>
+    <li><b>+ Node</b> (or <b>+ Component</b>) adds one in the first free spot. Duplicate and Delete are in the node inspector.</li>
+    <li>Long labels are fine: the box grows to fit, so you can drop in rough nodes now and fill in details later.</li>
+  </ul>
+</section>
+
+<section id="rename">
+  <h2>Rename in place</h2>
+  <ul>
+    <li>Double-click a node, edge label, lane label, boundary label, or card title, or press <kbd>F2</kbd> on a selection, and type right on the diagram.</li>
+    <li><kbd>Enter</kbd> saves the new name, <kbd>Esc</kbd> cancels. A small hint under the box reminds you.</li>
+    <li>The inspector field updates as you type.</li>
+  </ul>
+</section>
+
+<section id="connect">
+  <h2>Connections</h2>
+  <ul>
+    <li>Press <kbd>C</kbd> (or click <b>Connect</b>), click a source node, then a target. Press <kbd>V</kbd> to go back to Select.</li>
+    <li>In Connect mode, drag an edge's endpoint onto another node to reroute it.</li>
+    <li>Click an edge to edit its label, line style (solid, dashed, dotted), and color. <b>Advanced</b> holds Archify's own settings: role, variant, route, and sides.</li>
+    <li>Line style and color are saved beside the diagram, not in the Archify file, so the file stays valid Archify.</li>
+  </ul>
+</section>
+
+<section id="arch">
+  <h2>Architecture diagrams</h2>
+  <ul>
+    <li>Set position and size in the inspector, or drag the corner grip of a selected component to resize it.</li>
+    <li><b>Boundaries</b>: click a boundary's border or label to edit its kind, label, padding, and members. While it is selected, click components to add or remove them.</li>
+    <li><b>Draw a boundary</b>: press <kbd>B</kbd> (or click <b>Boundary</b>) and drag a rectangle. Every component fully inside becomes a member. Boundaries can sit inside other boundaries.</li>
+  </ul>
+</section>
+
+<section id="lanes">
+  <h2>Lanes, cards, legend</h2>
+  <ul>
+    <li><b>Lanes</b> (workflow): click a lane to rename it, set its variant, move it up or down, delete it, or add one with <b>+ Lane</b>. A lane that still has nodes cannot be deleted until they move.</li>
+    <li><b>Cards</b> show under the drawing. Click one to edit its title, dot color, and items, or add one with <b>+ Card</b>. <b>Cards</b> on the tool bar hides them while you work.</li>
+    <li><b>Legend</b>: with nothing selected, the Legend section sets the mode (auto, all, hidden) and lets you rename or hide each built-in type.</li>
+  </ul>
+</section>
+
+<section id="icons">
+  <h2>Icons and custom types</h2>
+  <ul>
+    <li>Pick an icon for a node from the searchable picker in the inspector: Archify's logo catalog, a few extras that ship with bendwright, and your own PNGs.</li>
+    <li>Your own icons: drop PNG files (64 KB or smaller, transparent, 64 to 128 px square) into <code>bendwright-data/icons/</code> and choose <b>Refresh icons</b> from the <b>⋯</b> menu. The repo includes sample icons in <code>examples/icons/</code>.</li>
+    <li>Custom types: pick <b>+ New custom type...</b> at the bottom of any Type list, or manage them in the <b>Custom types library</b>. Save a type to the library to reuse it in every diagram.</li>
+  </ul>
+</section>
+
+<section id="display">
+  <h2>Display options</h2>
+  <ul>
+    <li><b>Icon replaces type glyph</b>: a node with an icon shows it in the top-left corner instead of the type glyph. Also available in the node inspector under the icon picker.</li>
+    <li><b>Hide lane frames</b> (workflow): no lane frames or lane headers. The lanes still exist, so you can still click and edit them.</li>
+    <li>Both are saved beside the diagram. Archify run on its own still gives its normal output.</li>
+  </ul>
+</section>
+
+<section id="save">
+  <h2>Save, preview, export</h2>
+  <ul>
+    <li><b>Save</b> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) writes the JSON, keeping key order and fields bendwright does not edit.</li>
+    <li><b>Preview</b> on the tool bar opens the full rendered page in a new tab.</li>
+    <li><b>Export HTML</b> (<b>⋯</b> menu) saves and writes the rendered <code>.html</code> next to your JSON. It opens anywhere, with no bendwright or Archify needed.</li>
+    <li><b>Discard changes</b> (<b>⋯</b> menu) reloads the file from disk.</li>
+  </ul>
+</section>
+
+<section id="keys">
+  <h2>Keyboard shortcuts</h2>
+  <table>
+    <tr><th>Key</th><th>Action</th></tr>
+    <tr><td><kbd>V</kbd></td><td>Select tool</td></tr>
+    <tr><td><kbd>C</kbd></td><td>Connect tool</td></tr>
+    <tr><td><kbd>B</kbd></td><td>Boundary tool (architecture)</td></tr>
+    <tr><td><kbd>F2</kbd></td><td>Rename the selection in place</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Apply edits</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Cancel edits, close a panel, or clear the selection</td></tr>
+    <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Delete the selected node, edge, or card</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Redo</td></tr>
+  </table>
+  <p class="note">Tool keys are ignored while you type in a field.</p>
+</section>
+
+<section id="trouble">
+  <h2>When something is put back</h2>
+  <ul>
+    <li>Every change is checked by Archify before it is kept. If Archify rejects it, the change is put back right away and a red chip appears in the header. Click it to read why.</li>
+    <li>Common reasons: two workflow nodes in the same lane and column, components overlapping, or a box pushed past a fixed <code>viewBox</code>.</li>
+    <li>The <b>showcase</b> quality profile is stricter (for example about crossing edges). Switch to <b>standard</b> if you are still drafting.</li>
+  </ul>
+</section>
+
+<section id="files">
+  <h2>Where things are stored</h2>
+  <ul>
+    <li><code>&lt;name&gt;.bendwright.json</code>, next to your diagram: colors, line styles, custom types, display options, and any of your own icons the diagram uses. Keep it with the diagram if you move or share the JSON.</li>
+    <li><code>bendwright-data/</code>, next to <code>bendwright.py</code>: your type library, your icons, and the Archify patch record.</li>
+    <li>Everything runs on <code>127.0.0.1</code>. Nothing leaves your machine.</li>
+  </ul>
+</section>
+"""
+_HELP_PAGE_HEAD = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bendwright guide</title>
+<style>
+:root {
+  --bg: #12171C;
+  --surface: #1C242C;
+  --surface2: #242C34;
+  --panel: #1C242C;
+  --border: #343C46;
+  --text: #E7E4DC;
+  --muted: #8E969E;
+  --accent: #8FB4C9;
+  --danger: #C46A6A;
+  --ok: #3dd68c;
+  --input: #12171C;
+  --row-hover: #343C46;
+  --tab: #242C34;
+  --focus: #8FB4C9;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 20px 72px;
+}
+h1 { font-size: 28px; font-weight: 650; margin: 0 0 8px; letter-spacing: 0.01em; }
+h2 { font-size: 18px; font-weight: 600; margin: 28px 0 8px; }
+.lede { font-size: 16px; color: var(--text); margin: 0 0 16px; }
+.toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0 0 8px;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.toc a { color: var(--accent); text-decoration: none; font-size: 13px; }
+.toc a:hover { text-decoration: underline; }
+ul { margin: 8px 0; padding-left: 1.2em; }
+li { margin: 6px 0; }
+code {
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.92em;
+  background: var(--surface2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+kbd {
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.85em;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  background: var(--surface2);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0 12px;
+  font-size: 14px;
+}
+th, td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th { color: var(--muted); font-weight: 600; }
+.note {
+  font-size: 13px;
+  color: var(--muted);
+  border-left: 3px solid var(--accent);
+  padding: 4px 0 4px 12px;
+  margin: 12px 0;
+}
+section { scroll-margin-top: 16px; }
+</style>
+</head>
+<body>
+<main>
+"""
+_HELP_PAGE_TAIL = """</main>\n</body>\n</html>\n"""
+
+
+def help_page_html() -> str:
+    """Offline /help page. The guide fragment is embedded verbatim."""
+    return _HELP_PAGE_HEAD + _HELP_BODY + _HELP_PAGE_TAIL
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = f"{APP}/1"
 
@@ -3953,6 +4725,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/":
                 html = SPA_HTML.encode("utf-8")
                 self._send(200, html, "text/html; charset=utf-8")
+                return
+            if path == "/help":
+                self._send(200, help_page_html().encode("utf-8"), "text/html; charset=utf-8")
                 return
             if path in ("/favicon.svg", "/favicon.ico"):
                 # .ico would 404. Same mark as SVG so the tab icon still resolves.
@@ -4467,10 +5242,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(200, result)
 
     def _handle_new(self) -> None:
-        """Replace the session with a blank seed. No path. Does not write a file."""
+        """Replace the session with a blank seed or a template. No path. Does not write a file."""
         global _file_path, _diagram_type, _doc, _had_trailing_newline
         global _sidecar, _sidecar_note, _sidecar_unreadable
         dtype = "workflow"
+        template_id = ""
         length = int(self.headers.get("Content-Length") or "0")
         if length:
             body, err = self._read_json_body()
@@ -4478,7 +5254,17 @@ class Handler(BaseHTTPRequestHandler):
                 asked = body.get("diagram_type")
                 if isinstance(asked, str) and asked in ("workflow", "architecture"):
                     dtype = asked
-        doc = blank_diagram(dtype)
+                asked_template = body.get("template")
+                if isinstance(asked_template, str):
+                    template_id = asked_template.strip()
+        if template_id:
+            doc = template_document(template_id)
+            if doc is None:
+                self._send_json(200, {"ok": False, "error": "unknown template"})
+                return
+            dtype = resolve_diagram_type(doc, dtype)
+        else:
+            doc = blank_diagram(dtype)
         sc = empty_sidecar()
         with _state_lock:
             _file_path = None
@@ -4684,11 +5470,13 @@ header h1 {
 .bw-mark svg { width: 22px; height: 22px; display: block; }
 header .meta { color: var(--text); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kind-chip {
-  flex-shrink: 0; font-size: 11px; line-height: 1.2;
-  padding: 3px 8px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--surface2); color: var(--text);
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; line-height: 1.2;
+  padding: 2px 8px 2px 6px; border-radius: 999px;
+  border: 1px solid #8FB4C9; background: var(--surface2); color: #F4F7FA;
 }
 .kind-chip[hidden] { display: none; }
+.kind-glyph { width: 11px; height: 11px; flex: 0 0 11px; display: block; }
 .save-state { flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .save-state[hidden] { display: none; }
 .save-state.is-unsaved { color: var(--accent); }
@@ -4994,6 +5782,13 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 #layout-edit-brand-slot .field label {
   text-transform: none; letter-spacing: 0.02em; font-weight: 600; font-size: 11px; color: var(--muted);
 }
+#layout-edit-brand-slot .field label.bw-icon-replaces {
+  display: flex; align-items: flex-start; gap: 6px;
+  margin: 6px 0 2px; font-size: 12px; font-weight: 400; line-height: 1.35;
+  color: var(--text); text-transform: none; letter-spacing: 0;
+}
+#layout-edit-brand-slot .field label.bw-icon-replaces input { margin-top: 2px; flex: 0 0 auto; }
+#layout-edit-brand-slot .field label.bw-icon-replaces input:disabled { opacity: 0.55; cursor: wait; }
 #layout-single-style[hidden],
 #layout-single-style-note[hidden] { display: none; }
 #layout-node-editor .bw-ed-actions {
@@ -5150,7 +5945,8 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 #inspector-node[hidden],
 #inspector-edge[hidden],
 #inspector-card[hidden],
-#inspector-boundary[hidden] { display: none; }
+#inspector-boundary[hidden],
+#inspector-lane[hidden] { display: none; }
 .inspector-kicker {
   margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--muted);
@@ -5171,6 +5967,16 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 #inspector-kindline {
   margin: 0; font-size: 12px; line-height: 1.4; color: var(--muted);
 }
+#inspector-display {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  padding: 4px 0 8px;
+}
+#inspector-display label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text);
+}
+#inspector-display .bw-ed-hint { margin: 0; font-size: 11px; color: var(--muted); }
+#inspector-display input:disabled { opacity: 0.55; cursor: wait; }
 #inspector-browse {
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   margin: 4px 0 12px;
@@ -5268,6 +6074,26 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   display: flex; align-items: center; gap: 10px; margin-top: 4px;
 }
 #layout-boundary-editor .bw-ed-actions .meta { font-size: 11px; color: var(--muted); }
+#layout-lane-editor .bw-ed-field {
+  display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px;
+}
+#layout-lane-editor .bw-ed-field > label {
+  font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em;
+}
+#layout-lane-editor .bw-ed-field input,
+#layout-lane-editor .bw-ed-field select {
+  background: var(--input); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 5px 7px; font-size: 13px; font-family: inherit;
+  width: 100%; box-sizing: border-box;
+}
+#layout-lane-editor .bw-ed-field input:focus,
+#layout-lane-editor .bw-ed-field select:focus { outline: none; border-color: var(--focus); }
+#layout-lane-editor .bw-ed-field input:disabled,
+#layout-lane-editor .bw-ed-field select:disabled { opacity: 0.65; cursor: not-allowed; }
+#layout-lane-editor .bw-ed-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px;
+}
+#layout-lane-editor .bw-ed-actions .meta { font-size: 11px; color: var(--muted); }
 #inspector-legend {
   margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border);
 }
@@ -5316,6 +6142,21 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
 }
 #bw-inline-rename:focus { outline: none; border-color: var(--accent); }
 #bw-inline-rename[hidden] { display: none !important; }
+#bw-inline-rename-hint {
+  position: absolute;
+  z-index: 40;
+  margin: 0;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#bw-inline-rename-hint[hidden] { display: none !important; }
 #bw-inline-rename-mirror {
   position: absolute;
   left: 0;
@@ -5403,13 +6244,55 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   top: 56px;
   left: 50%;
   transform: translateX(-50%);
-  width: min(420px, calc(100vw - 24px));
+  width: min(480px, calc(100vw - 24px));
+  max-height: calc(100vh - 80px);
+  overflow: auto;
   background: var(--panel);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 12px 36px rgba(0,0,0,0.55);
   padding: 12px 14px;
+}
+#new-panel .row-actions { flex-wrap: wrap; }
+.new-template-head {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+#new-template-list { display: flex; flex-direction: column; gap: 6px; }
+.new-template {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.new-template:hover { border-color: var(--accent); }
+.new-template .nt-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.new-template .nt-label { font-weight: 600; font-size: 13px; }
+.new-template .nt-kind { flex-shrink: 0; font-size: 11px; color: var(--accent); }
+.new-template .nt-blurb { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+#btn-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-weight: 700;
+  text-decoration: none;
+  line-height: 1;
 }
 button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 </style>
@@ -5430,6 +6313,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     <div class="overflow-wrap" id="overflow-wrap">
       <button type="button" id="btn-overflow" title="More" aria-haspopup="menu" aria-expanded="false" aria-controls="overflow-menu">⋯</button>
       <div id="overflow-menu" role="menu" hidden>
+        <a href="/help" target="_blank" rel="noopener" role="menuitem">Help</a>
+        <div class="overflow-sep" role="separator"></div>
         <button type="button" id="btn-export" role="menuitem" title="Export rendered HTML beside the JSON" disabled>Export HTML</button>
         <button type="button" id="btn-overflow-source" role="menuitem">Source JSON</button>
         <button type="button" id="btn-overflow-types" role="menuitem">Custom types library</button>
@@ -5438,6 +6323,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         <button type="button" id="btn-discard" class="danger" role="menuitem" title="Reload from disk" disabled>Discard changes</button>
       </div>
     </div>
+    <a class="btn" id="btn-help" href="/help" target="_blank" rel="noopener" title="Help" aria-label="Help">?</a>
   </div>
 </header>
 <div id="open-panel" aria-hidden="true">
@@ -5473,11 +6359,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     <span>New diagram</span>
     <button type="button" id="btn-new-close" title="Cancel">Close</button>
   </div>
-  <div class="dirty-msg">Workflow or architecture?</div>
+  <div class="dirty-msg">Blank diagram, or start from a template.</div>
   <div class="row-actions">
-    <button type="button" class="primary" id="btn-new-workflow">Workflow</button>
-    <button type="button" id="btn-new-architecture">Architecture</button>
+    <button type="button" class="primary" id="btn-new-workflow">Blank workflow</button>
+    <button type="button" id="btn-new-architecture">Blank architecture</button>
   </div>
+  <div class="new-template-head">Start from a template</div>
+  <div id="new-template-list"></div>
 </div>
 <div id="quick-type-modal" role="dialog" aria-label="New custom type">
   <div class="bw-ed-field">
@@ -5568,6 +6456,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       </div>
       </div>
       <input type="text" id="bw-inline-rename" autocomplete="off" spellcheck="false" aria-label="Rename" hidden>
+      <div id="bw-inline-rename-hint" hidden>Enter to save · Esc to cancel</div>
       <span id="bw-inline-rename-mirror" aria-hidden="true"></span>
     </div>
     <aside id="inspector" aria-label="Inspector">
@@ -5586,9 +6475,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           </div>
           <p id="inspector-kindline"></p>
           <button type="button" id="btn-add-node" title="Add node at first free cell">+ Node</button>
+          <button type="button" id="btn-add-lane" hidden title="Add a lane below the selection, or at the end">+ Lane</button>
           <button type="button" id="btn-add-card" title="Add an info card">+ Card</button>
           <button type="button" id="btn-add-boundary" hidden title="Switch to the Boundary tool and drag a rectangle around components">+ Boundary</button>
         </div>
+        <section id="inspector-display" aria-label="Display">
+          <div class="inspector-kicker">Display</div>
+          <label for="display-brand-replaces"><input type="checkbox" id="display-brand-replaces"> Icon replaces type glyph</label>
+          <label for="display-hide-lanes" id="display-hide-lanes-row"><input type="checkbox" id="display-hide-lanes"> Hide lane frames</label>
+          <p class="bw-ed-hint">Saved beside the diagram, not in the Archify file.</p>
+        </section>
         <section id="inspector-legend" aria-label="Legend">
           <div class="inspector-kicker">Legend</div>
           <div class="bw-ed-field">
@@ -5724,6 +6620,29 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           </div>
         </div>
       </div>
+      <div id="inspector-lane" hidden>
+        <div class="inspector-kicker" id="inspector-lane-kicker">Lane</div>
+        <div id="layout-lane-editor" role="dialog" aria-label="Edit lane">
+          <div class="bw-ed-field">
+            <label for="layout-lane-label">Label</label>
+            <input type="text" id="layout-lane-label" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="bw-ed-field">
+            <label for="layout-lane-variant">Variant</label>
+            <select id="layout-lane-variant">
+              <option value="normal">normal</option>
+              <option value="exception">exception</option>
+            </select>
+          </div>
+          <div class="bw-ed-actions">
+            <button type="button" id="layout-lane-up" title="Move this lane up">Move up</button>
+            <button type="button" id="layout-lane-down" title="Move this lane down">Move down</button>
+            <button type="button" id="layout-lane-delete" title="Delete lane">Delete lane</button>
+            <button type="button" id="layout-lane-add" title="Add a lane below this one">+ Lane</button>
+            <span class="meta">Enter=apply · Esc=cancel</span>
+          </div>
+        </div>
+      </div>
     </aside>
   </div>
   <div class="pane active" id="pane-nodes">
@@ -5817,6 +6736,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 (function () {
   "use strict";
 
+  var TEMPLATE_MANIFEST = __TEMPLATE_MANIFEST_JSON__;
+
   var state = {
     file: "",
     diagram_type: "workflow",
@@ -5882,8 +6803,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   var singleEdit = null;
   var cardEdit = null;
   var boundaryEdit = null;
+  var laneEdit = null;
   var boundaryLasso = null;
   var boundarySyncDepth = 0;
+  var laneSyncDepth = 0;
   var typeMgrId = "";
   // Session-only: next edge popup reopens Advanced if it was left open.
   var edgeAdvancedOpen = false;
@@ -5897,6 +6820,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   var statusOverlayShowsError = false;
   var inspectorCommitLock = false;
   var pendingLabelFocusId = null;
+  var pendingNodeField = null;
   var pendingLaneIndex = null;
   var pendingLaneAttempts = 0;
   var layoutMountSerial = 0;
@@ -6113,6 +7037,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return JSON.stringify(a) === JSON.stringify(b);
   }
 
+  var KIND_GLYPH_LANES = '<svg class="kind-glyph" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" d="M1.5 3h9M1.5 6h9M1.5 9h9"/></svg>';
+  var KIND_GLYPH_BOXES = '<svg class="kind-glyph" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><rect x="1.15" y="1.15" width="6.1" height="6.1" rx="0.7" fill="none" stroke="currentColor" stroke-width="1.15"/><rect x="4.75" y="4.75" width="6.1" height="6.1" rx="0.7" fill="none" stroke="currentColor" stroke-width="1.15"/></svg>';
+
   function setFileKindChip(hasDoc) {
     var kindEl = $("file-kind");
     if (!kindEl) return;
@@ -6124,10 +7051,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     kindEl.hidden = false;
     if (isArchitecture()) {
-      kindEl.textContent = "Architecture";
+      kindEl.innerHTML = KIND_GLYPH_BOXES + '<span class="kind-chip-label">Architecture</span>';
       kindEl.title = "Architecture: components and boundaries";
     } else {
-      kindEl.textContent = "Workflow";
+      kindEl.innerHTML = KIND_GLYPH_LANES + '<span class="kind-chip-label">Workflow</span>';
       kindEl.title = "Workflow: a process in lanes";
     }
   }
@@ -6170,6 +7097,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         exportBtn.title = "open a file first";
       }
       if (addBtn) addBtn.disabled = true;
+      var addLaneBtn = $("btn-add-lane");
+      if (addLaneBtn) addLaneBtn.disabled = true;
       var addCardBtn = $("btn-add-card");
       if (addCardBtn) addCardBtn.disabled = true;
       var addBoundaryBtn = $("btn-add-boundary");
@@ -6212,6 +7141,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
     }
     if (addBtn) addBtn.disabled = !state.doc || !!state.layoutBusy;
+    var addLaneBtn = $("btn-add-lane");
+    if (addLaneBtn) addLaneBtn.disabled = !state.doc || !!state.layoutBusy || isArchitecture();
     var addCardBtn = $("btn-add-card");
     if (addCardBtn) addCardBtn.disabled = !state.doc || !!state.layoutBusy;
     var addBoundaryBtn = $("btn-add-boundary");
@@ -6297,6 +7228,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     var addCardBtn = $("btn-add-card");
     if (addCardBtn) addCardBtn.disabled = !state.doc || !!state.layoutBusy;
+    var addLaneBtn = $("btn-add-lane");
+    if (addLaneBtn) {
+      addLaneBtn.hidden = arch;
+      addLaneBtn.disabled = arch || !state.doc || !!state.layoutBusy;
+      addLaneBtn.title = "Add a lane below the selection, or at the end";
+    }
     var boundaryBtn = $("btn-mode-boundary");
     if (boundaryBtn) {
       boundaryBtn.hidden = !arch;
@@ -7908,6 +8845,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       (locked ? " disabled" : "") + ">";
     html += '<span class="icon-art" aria-hidden="true"></span><span class="icon-picker-name">none</span>';
     html += "</button></div>";
+    html += '<label class="bw-icon-replaces" for="node-brand-replaces"><input type="checkbox" id="node-brand-replaces"> Show icon in place of the type glyph</label>';
     if (locked) {
       var shown = node.brand && node.brand.url != null ? String(node.brand.url) : "(object brand)";
       html += '<input type="text" value="' + esc(shown) + '" disabled>';
@@ -8456,6 +9394,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     syncDiagramStrip();
     updateHistoryButtons();
     syncQualityToggle();
+    syncDisplayToggles();
     updateDirtyUI();
     renderInspectorChrome();
   }
@@ -8661,6 +9600,85 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       showBtn.classList.toggle("mode-active", profile === "showcase");
       showBtn.disabled = !!state.layoutBusy;
     }
+  }
+
+  function displayFlagOn(name) {
+    ensureSidecar();
+    return state.sidecar[name] === true;
+  }
+
+  function syncDisplayToggles() {
+    var brand = $("display-brand-replaces");
+    var lanes = $("display-hide-lanes");
+    var laneRow = $("display-hide-lanes-row");
+    var workflow = !!state.doc && !isArchitecture();
+    if (laneRow) laneRow.hidden = !workflow;
+    if (brand) {
+      brand.checked = displayFlagOn("brandReplacesTypeIcon");
+      brand.disabled = !state.doc || !!state.layoutBusy;
+    }
+    var nodeBrand = $("node-brand-replaces");
+    if (nodeBrand) {
+      nodeBrand.checked = displayFlagOn("brandReplacesTypeIcon");
+      nodeBrand.disabled = !state.doc || !!state.layoutBusy;
+    }
+    if (lanes) {
+      lanes.checked = displayFlagOn("hideLaneChrome");
+      lanes.disabled = !workflow || !!state.layoutBusy;
+    }
+  }
+
+  function setDisplayFlag(name, on) {
+    if (name !== "brandReplacesTypeIcon" && name !== "hideLaneChrome") return;
+    if (!state.doc || state.layoutBusy || (name === "hideLaneChrome" && isArchitecture())) {
+      syncDisplayToggles();
+      return;
+    }
+    ensureSidecar();
+    var prev = state.sidecar[name] === true;
+    var next = !!on;
+    if (prev === next) return;
+    pushHistory();
+    if (next) state.sidecar[name] = true;
+    else delete state.sidecar[name];
+    state.rawDirty = false;
+    syncDisplayToggles();
+    setLayoutBusy(true);
+    var label = name === "brandReplacesTypeIcon" ? "Icon replaces type glyph" : "Hide lane frames";
+    setStatus("previewing " + label + "…", "");
+
+    function revertFlag() {
+      ensureSidecar();
+      if (prev) state.sidecar[name] = true;
+      else delete state.sidecar[name];
+      revertHistoryPush();
+      syncDisplayToggles();
+    }
+
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt.ok) {
+          syncDirtyFromDoc();
+          var msg = label + (next ? " on" : " off") + (state.dirty ? " (unsaved)" : "");
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        revertFlag();
+        setLayoutBusy(false);
+        var errs = receipt.errors || [receipt.error || "preview failed"];
+        setStatus(label + " not updated (reverted):\n- " + errs.join("\n- "), "err");
+        renderRaw();
+      })
+      .catch(function (e) {
+        revertFlag();
+        setLayoutBusy(false);
+        setStatus(label + " preview failed (reverted): " + e, "err");
+        renderRaw();
+      });
   }
 
   function setQualityProfile(next) {
@@ -8890,7 +9908,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function clearLayoutOverlays(svg) {
     if (!svg) return;
     var old = svg.querySelectorAll(
-      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, circle.bw-endpoint, rect.bw-boundary, rect.bw-boundary-tab, rect.bw-boundary-outline, rect.bw-lasso"
+      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, rect.bw-lane-outline, circle.bw-endpoint, rect.bw-boundary, rect.bw-boundary-tab, rect.bw-boundary-outline, rect.bw-lasso"
     );
     for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
   }
@@ -9086,9 +10104,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var laneHits = doc.querySelectorAll("rect.bw-lane-hit");
     for (var k = 0; k < laneHits.length; k++) {
       // Stay hittable while busy so the first lane-label dblclick after mount
-      // can queue. Lane strips do not drag.
+      // can queue. Lane bands do not drag.
       laneHits[k].style.pointerEvents = "all";
-      laneHits[k].style.cursor = state.layoutBusy ? "wait" : "text";
+      laneHits[k].style.cursor = state.layoutBusy ? "wait" : "pointer";
     }
     var endpoints = doc.querySelectorAll("circle.bw-endpoint");
     for (var e = 0; e < endpoints.length; e++) {
@@ -9117,6 +10135,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var edges = relationRecords();
     if (!edges[docIdx]) return;
     state.connectFrom = null;
+    clearLaneSelection();
     state.selectedEdgeIndex = docIdx;
     var e = edges[docIdx];
     var iframe = $("layout-frame");
@@ -9166,6 +10185,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       state.undo.pop();
       updateHistoryButtons();
     }
+  }
+
+  function revertLastHistorySnapshot() {
+    if (!state.undo.length) return;
+    var prev = state.undo.pop();
+    if (prev && prev.doc) {
+      state.doc = prev.doc;
+      state.sidecar = prev.sidecar;
+      ensureSidecar();
+    }
+    updateHistoryButtons();
   }
 
   function handleConnectNodeClick(nodeId) {
@@ -9592,6 +10622,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       "svg .bw-resize{pointer-events:all}" +
       "svg .bw-edge-hit{pointer-events:stroke}" +
       "svg .bw-lane-hit{pointer-events:all}" +
+      "svg .bw-lane-outline{pointer-events:none}" +
       "svg .bw-endpoint{pointer-events:all}" +
       "svg .bw-boundary{pointer-events:stroke;cursor:pointer}" +
       "svg .bw-boundary-tab{pointer-events:all;cursor:pointer}" +
@@ -9744,12 +10775,54 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
   }
 
+  function laneFrameElement(svg, idx) {
+    if (!svg) return null;
+    var want = "lane-" + idx;
+    var frames = svg.querySelectorAll(
+      'rect[data-composition-frame-kind="lane"][data-composition-frame-id],' +
+      'rect[data-composition-frame-kind="exception-lane"][data-composition-frame-id]'
+    );
+    for (var i = 0; i < frames.length; i++) {
+      if (frames[i].getAttribute("data-composition-frame-id") === want) return frames[i];
+    }
+    return null;
+  }
+
+  function paintLaneSelectionOutline(doc, svg) {
+    if (!doc || !svg || !laneEdit || isArchitecture()) return;
+    var idx = laneEdit.index;
+    var lanes = (state.doc && state.doc.lanes) || [];
+    if (idx < 0 || idx >= lanes.length) return;
+    var frame = laneFrameElement(svg, idx);
+    var hit = svg.querySelector('rect.bw-lane-hit[data-lane-index="' + idx + '"]');
+    var src = frame || hit;
+    if (!src) return;
+    var w = Number(src.getAttribute("width"));
+    var h = Number(src.getAttribute("height"));
+    if (!(w > 0) || !(h > 0)) return;
+    var outline = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
+    outline.setAttribute("class", "bw-lane-outline");
+    outline.setAttribute("data-lane-index", String(idx));
+    outline.setAttribute("x", src.getAttribute("x"));
+    outline.setAttribute("y", src.getAttribute("y"));
+    outline.setAttribute("width", src.getAttribute("width"));
+    outline.setAttribute("height", src.getAttribute("height"));
+    outline.setAttribute("fill", "none");
+    outline.setAttribute("stroke", "rgba(61,139,253,0.95)");
+    outline.setAttribute("stroke-width", "2.5");
+    outline.setAttribute("vector-effect", "non-scaling-stroke");
+    outline.setAttribute("pointer-events", "none");
+    svg.appendChild(outline);
+  }
+
   function mountLaneHitOverlays(doc, svg) {
     var lanes = (state.doc && state.doc.lanes) || [];
     if (!lanes.length) return;
     var frames = svg.querySelectorAll(
-      'rect[data-composition-frame-kind="lane"][data-composition-frame-id]'
+      'rect[data-composition-frame-kind="lane"][data-composition-frame-id],' +
+      'rect[data-composition-frame-kind="exception-lane"][data-composition-frame-id]'
     );
+    var ns = "http://www.w3.org/2000/svg";
     var placed = 0;
     for (var fi = 0; fi < frames.length; fi++) {
       var frame = frames[fi];
@@ -9763,24 +10836,45 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       var fw = Number(frame.getAttribute("width"));
       var fh = Number(frame.getAttribute("height"));
       if (!(fw > 0) || !(fh > 0) || isNaN(fx) || isNaN(fy)) continue;
-      var stripH = Math.min(LAYOUT_LANE_HIT_H, Math.max(18, fh * 0.12));
-      var stripW = Math.min(LAYOUT_LANE_HIT_W_MAX, Math.max(120, fw * 0.4));
-      var rect = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("class", "bw-lane-hit");
-      rect.setAttribute("data-lane-index", String(idx));
-      rect.setAttribute("data-lane-id", String(lanes[idx].id || ""));
-      rect.setAttribute("x", String(fx));
-      rect.setAttribute("y", String(fy));
-      rect.setAttribute("width", String(stripW));
-      rect.setAttribute("height", String(stripH));
-      rect.setAttribute("fill", "rgba(61,139,253,0.01)");
-      rect.setAttribute("stroke", "rgba(61,139,253,0.35)");
-      rect.setAttribute("stroke-width", "1");
-      rect.setAttribute("vector-effect", "non-scaling-stroke");
-      svg.appendChild(rect);
+      // Full lane band behind the diagram. pointer-events:none content falls through
+      // to it; node handles, edge hits, and edge labels stay on top.
+      var band = doc.createElementNS(ns, "rect");
+      band.setAttribute("class", "bw-lane-hit");
+      band.setAttribute("data-lane-index", String(idx));
+      band.setAttribute("data-lane-id", String(lanes[idx].id || ""));
+      band.setAttribute("x", String(fx));
+      band.setAttribute("y", String(fy));
+      band.setAttribute("width", String(fw));
+      band.setAttribute("height", String(fh));
+      band.setAttribute("fill", "rgba(61,139,253,0.01)");
+      band.setAttribute("stroke", "none");
+      svg.insertBefore(band, svg.firstChild);
+      // Header strip is editor chrome (not a composition frame). Omit it when
+      // lane frames are hidden; the full-lane band above still receives hits.
+      // Same for normal and exception lanes (both use the lane-N frame).
+      if (!displayFlagOn("hideLaneChrome")) {
+        var stripH = Math.min(LAYOUT_LANE_HIT_H, Math.max(18, fh * 0.12));
+        var stripW = Math.min(LAYOUT_LANE_HIT_W_MAX, Math.max(120, fw * 0.4));
+        var rect = doc.createElementNS(ns, "rect");
+        rect.setAttribute("class", "bw-lane-hit");
+        rect.setAttribute("data-lane-index", String(idx));
+        rect.setAttribute("data-lane-id", String(lanes[idx].id || ""));
+        rect.setAttribute("x", String(fx));
+        rect.setAttribute("y", String(fy));
+        rect.setAttribute("width", String(stripW));
+        rect.setAttribute("height", String(stripH));
+        rect.setAttribute("fill", "rgba(61,139,253,0.01)");
+        rect.setAttribute("stroke", "rgba(61,139,253,0.35)");
+        rect.setAttribute("stroke-width", "1");
+        rect.setAttribute("vector-effect", "non-scaling-stroke");
+        svg.appendChild(rect);
+      }
       placed++;
     }
-    if (placed > 0) return;
+    if (placed > 0) {
+      paintLaneSelectionOutline(doc, svg);
+      return;
+    }
 
     // Fallback: derived centers + left gutter when lane frames are absent.
     var centers = laneCentersFromLayout(state.layout, lanes);
@@ -9807,11 +10901,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       rect2.setAttribute("width", String(gutterRight));
       rect2.setAttribute("height", String(LAYOUT_LANE_HIT_H));
       rect2.setAttribute("fill", "rgba(61,139,253,0.01)");
-      rect2.setAttribute("stroke", "rgba(61,139,253,0.35)");
+      rect2.setAttribute("stroke", displayFlagOn("hideLaneChrome") ? "none" : "rgba(61,139,253,0.35)");
       rect2.setAttribute("stroke-width", "1");
       rect2.setAttribute("vector-effect", "non-scaling-stroke");
       svg.appendChild(rect2);
     }
+    paintLaneSelectionOutline(doc, svg);
   }
 
   function boundaryAt(index) {
@@ -10193,7 +11288,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         setStatus("Edits reverted", "");
         return;
       }
-      if (nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge") ||
+      if (nodeEdit || cardEdit || boundaryEdit || laneEdit || (singleEdit && singleEdit.kind === "edge") ||
           state.selectedNodeId || state.selectedComponentId || state.selectedEdgeIndex != null) {
         ev.preventDefault();
         showDocumentInspector();
@@ -10219,6 +11314,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         deleteLayoutBoundary();
         return;
       }
+      if (laneEdit) {
+        ev.preventDefault();
+        deleteLayoutLane();
+        return;
+      }
       if (state.selectedEdgeIndex != null) {
         ev.preventDefault();
         deleteSelectedEdge();
@@ -10234,7 +11334,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (tag === "input" || tag === "textarea" || tag === "select") return true;
       if (el.isContentEditable) return true;
     }
-    if (nodeEdit || singleEdit || cardEdit || boundaryEdit || quickType) return true;
+    if (nodeEdit || singleEdit || cardEdit || boundaryEdit || laneEdit || quickType) return true;
     if (isStatusOverlayActive()) return true;
     if (isOpenPanelActive() || isDirtyPanelActive() || isNewPanelActive()) return true;
     return false;
@@ -10433,16 +11533,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var showEdge = !!(singleEdit && singleEdit.kind === "edge");
     var showCard = !!cardEdit;
     var showBoundary = !!boundaryEdit;
+    var showLane = !!(laneEdit && !isArchitecture());
     var docPane = $("inspector-document");
     var nodePane = $("inspector-node");
     var edgePane = $("inspector-edge");
     var cardPane = $("inspector-card");
     var boundaryPane = $("inspector-boundary");
-    if (docPane) docPane.hidden = showNode || showEdge || showCard || showBoundary;
+    var lanePane = $("inspector-lane");
+    if (docPane) docPane.hidden = showNode || showEdge || showCard || showBoundary || showLane;
     if (nodePane) nodePane.hidden = !showNode;
     if (edgePane) edgePane.hidden = !showEdge;
     if (cardPane) cardPane.hidden = !showCard;
     if (boundaryPane) boundaryPane.hidden = !showBoundary;
+    if (lanePane) lanePane.hidden = !showLane;
   }
 
   function clearBoundarySelection() {
@@ -10461,6 +11564,395 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var pane = $("inspector-card");
     if (pane) pane.hidden = true;
     refreshCardSelection();
+  }
+
+  function laneAt(index) {
+    var lanes = state.doc && state.doc.lanes;
+    if (!Array.isArray(lanes) || index < 0 || index >= lanes.length) return null;
+    return lanes[index];
+  }
+
+  function clearLaneOutline() {
+    var doc = $("layout-frame") && $("layout-frame").contentDocument;
+    if (!doc) return;
+    var old = doc.querySelectorAll("rect.bw-lane-outline");
+    for (var i = 0; i < old.length; i++) {
+      if (old[i].parentNode) old[i].parentNode.removeChild(old[i]);
+    }
+  }
+
+  function clearLaneSelection() {
+    laneEdit = null;
+    var pane = $("inspector-lane");
+    if (pane) pane.hidden = true;
+    clearLaneOutline();
+  }
+
+  function laneNodeCount(lane) {
+    if (!lane) return 0;
+    var id = lane.id != null ? String(lane.id) : "";
+    var nodes = (state.doc && state.doc.nodes) || [];
+    var n = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+      if (!node) continue;
+      if (String(node.lane == null ? "" : node.lane) === id) n += 1;
+    }
+    return n;
+  }
+
+  function laneDisplayedVariant(lane) {
+    var v = lane && lane.variant != null ? String(lane.variant) : "";
+    if (v === "exception" || v === "normal") return v;
+    if (!v) return "normal";
+    return v;
+  }
+
+  function fillLaneVariantSelect(current) {
+    var sel = $("layout-lane-variant");
+    if (!sel) return;
+    var options = ["normal", "exception"];
+    if (current && options.indexOf(current) < 0) options.push(current);
+    var html = "";
+    for (var i = 0; i < options.length; i++) {
+      var variant = options[i];
+      html += '<option value="' + esc(variant) + '"' +
+        (variant === current ? " selected" : "") + ">" + esc(variant) + "</option>";
+    }
+    sel.innerHTML = html;
+  }
+
+  function readLaneEditorValues() {
+    var labelEl = $("layout-lane-label");
+    var variantEl = $("layout-lane-variant");
+    return {
+      label: String((labelEl && labelEl.value) || "").trim(),
+      variant: String((variantEl && variantEl.value) || "normal")
+    };
+  }
+
+  function laneValuesError(values) {
+    if (!values || !values.label) return "Lane label required (minLength 1); kept previous";
+    return "";
+  }
+
+  function laneBufferUnchanged(lane, values) {
+    if (!lane || !values) return false;
+    if (String(lane.label == null ? "" : lane.label) !== values.label) return false;
+    return laneDisplayedVariant(lane) === (values.variant || "normal");
+  }
+
+  function writeLaneFields(lane, values) {
+    lane.label = values.label;
+    if (!values.variant || values.variant === "normal") delete lane.variant;
+    else lane.variant = values.variant;
+  }
+
+  function syncLaneActionButtons() {
+    var up = $("layout-lane-up");
+    var down = $("layout-lane-down");
+    var del = $("layout-lane-delete");
+    var add = $("layout-lane-add");
+    var lanes = (state.doc && state.doc.lanes) || [];
+    var idx = laneEdit ? laneEdit.index : -1;
+    var busy = !!state.layoutBusy || !state.doc || isArchitecture();
+    if (up) up.disabled = busy || !laneEdit || idx <= 0;
+    if (down) down.disabled = busy || !laneEdit || idx < 0 || idx >= lanes.length - 1;
+    if (del) del.disabled = busy || !laneEdit;
+    if (add) add.disabled = busy;
+  }
+
+  function refillLaneEditorFromDoc() {
+    if (!laneEdit) return;
+    var lane = laneAt(laneEdit.index);
+    var labelEl = $("layout-lane-label");
+    var kicker = $("inspector-lane-kicker");
+    if (!lane || !labelEl) return;
+    laneSyncDepth += 1;
+    try {
+      labelEl.value = lane.label == null ? "" : String(lane.label);
+      fillLaneVariantSelect(laneDisplayedVariant(lane));
+      if (kicker) kicker.textContent = "Lane" + (lane.id ? " · " + lane.id : "");
+      var disabled = !state.doc || !!state.layoutBusy;
+      labelEl.disabled = disabled;
+      var variantEl = $("layout-lane-variant");
+      if (variantEl) variantEl.disabled = disabled;
+      syncLaneActionButtons();
+    } finally {
+      laneSyncDepth -= 1;
+    }
+  }
+
+  function focusLaneLabel() {
+    var labelEl = $("layout-lane-label");
+    if (labelEl && !labelEl.disabled) {
+      labelEl.focus();
+      if (labelEl.select) labelEl.select();
+    }
+  }
+
+  function selectLayoutLane(index, opts) {
+    opts = opts || {};
+    if (isArchitecture()) return;
+    if (state.layoutBusy && !opts.allowBusy) return;
+    var lane = laneAt(index);
+    if (!lane) return;
+    var same = !!(laneEdit && laneEdit.index === index);
+    if (singleEdit && singleEdit.kind === "lane") cancelSingleEditor();
+    if (nodeEdit) {
+      nodeEdit = null;
+      hideNodeEditor();
+    }
+    if (singleEdit && singleEdit.kind === "edge") {
+      singleEdit = null;
+      hideSingleEditor();
+    }
+    clearCardSelection();
+    clearBoundarySelection();
+    state.selectedNodeId = null;
+    state.selectedComponentId = null;
+    state.selectedEdgeIndex = null;
+    updateDeleteEdgeButton();
+    laneEdit = { index: index };
+    state.selected.lanes = index;
+    if (!same) refillLaneEditorFromDoc();
+    else syncLaneActionButtons();
+    syncInspectorPanes();
+    if (!state.layoutBusy) mountLayoutOverlays();
+    renderLists();
+    if (opts.focus) focusLaneLabel();
+  }
+
+  function restoreLaneEditorAfterRemount() {
+    if (!laneEdit) return;
+    if (isArchitecture() || !laneAt(laneEdit.index)) {
+      clearLaneSelection();
+      syncInspectorPanes();
+      return;
+    }
+    refillLaneEditorFromDoc();
+    syncInspectorPanes();
+  }
+
+  function failLaneStructure(prevIndex, message) {
+    revertLastHistorySnapshot();
+    if (prevIndex >= 0 && laneAt(prevIndex)) {
+      laneEdit = { index: prevIndex };
+      state.selected.lanes = prevIndex;
+      refillLaneEditorFromDoc();
+    } else {
+      clearLaneSelection();
+      state.selected.lanes = -1;
+    }
+    syncInspectorPanes();
+    setLayoutBusy(false);
+    setStatus(message, "err");
+    renderLists();
+    mountLayoutOverlays();
+  }
+
+  function previewLaneStructure(opts) {
+    opts = opts || {};
+    setLayoutBusy(true);
+    setStatus(opts.busy || "previewing lane…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = opts.ok || "Updated lane (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+            if (opts.focusId) {
+              var focusEl = $(opts.focusId);
+              if (focusEl && !focusEl.disabled) {
+                focusEl.focus();
+                if (focusEl.select) focusEl.select();
+              }
+            }
+          });
+        }
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        failLaneStructure(opts.prevIndex, (opts.fail || "Lane not updated") + ":\n- " + errs.join("\n- "));
+      })
+      .catch(function (e) {
+        failLaneStructure(opts.prevIndex, (opts.fail || "Lane preview failed") + ": " + e);
+      });
+  }
+
+  function commitLaneEditor(opts) {
+    opts = opts || {};
+    if (!laneEdit || state.layoutBusy || inspectorCommitLock || isArchitecture()) return;
+    var index = laneEdit.index;
+    var lane = laneAt(index);
+    if (!lane) return;
+    var values = readLaneEditorValues();
+    var err = laneValuesError(values);
+    if (err) {
+      setStatus(err, "");
+      refillLaneEditorFromDoc();
+      return;
+    }
+    if (laneBufferUnchanged(lane, values)) {
+      finishDockedSelect(opts);
+      return;
+    }
+    inspectorCommitLock = true;
+    try {
+      pushHistory();
+      writeLaneFields(lane, values);
+      state.selected.lanes = index;
+      state.rawDirty = false;
+    } finally {
+      inspectorCommitLock = false;
+    }
+    finishDockedSelect(opts);
+    var focusId = dockedRestoreFocusId(opts);
+    var prevIndex = index;
+    setLayoutBusy(true);
+    setStatus("previewing lane…", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var shown = laneAt(index);
+          var msg = "Updated lane " + ((shown && shown.id) || index) + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { restoreFocusId: focusId }).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+          });
+        }
+        revertLastHistorySnapshot();
+        if (laneEdit && laneEdit.index === prevIndex) refillLaneEditorFromDoc();
+        setLayoutBusy(false);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Lane not updated (reverted):\n- " + errs.join("\n- "), "err");
+        renderLists();
+        mountLayoutOverlays();
+      })
+      .catch(function (e) {
+        revertLastHistorySnapshot();
+        if (laneEdit && laneEdit.index === prevIndex) refillLaneEditorFromDoc();
+        setLayoutBusy(false);
+        setStatus("Lane preview failed (reverted): " + e, "err");
+        renderLists();
+        mountLayoutOverlays();
+      });
+  }
+
+  function addLayoutLane() {
+    if (!state.doc || state.layoutBusy || isArchitecture()) return;
+    ensureArrays();
+    var lanes = state.doc.lanes;
+    var prevIndex = laneEdit ? laneEdit.index : -1;
+    var editing = laneAt(prevIndex);
+    if (editing) {
+      var values = readLaneEditorValues();
+      var err = laneValuesError(values);
+      if (err) {
+        setStatus(err, "");
+        refillLaneEditorFromDoc();
+        return;
+      }
+    }
+    var after = editing ? prevIndex : lanes.length - 1;
+    pushHistory();
+    if (editing && !laneBufferUnchanged(editing, values)) writeLaneFields(editing, values);
+    var item = { id: uniqueItemId("lane", lanes), label: "New lane" };
+    var insertAt = after + 1;
+    if (insertAt < 0) insertAt = 0;
+    if (insertAt > lanes.length) insertAt = lanes.length;
+    lanes.splice(insertAt, 0, item);
+    laneEdit = { index: insertAt };
+    state.selected.lanes = insertAt;
+    state.selectedNodeId = null;
+    state.selectedComponentId = null;
+    state.selectedEdgeIndex = null;
+    updateDeleteEdgeButton();
+    state.rawDirty = false;
+    refillLaneEditorFromDoc();
+    syncInspectorPanes();
+    renderLists();
+    previewLaneStructure({
+      prevIndex: prevIndex,
+      busy: "previewing new lane…",
+      ok: "Added lane (unsaved)",
+      fail: "Lane not added (reverted)",
+      focusId: "layout-lane-label"
+    });
+  }
+
+  function moveLayoutLane(dir) {
+    if (!laneEdit || !state.doc || state.layoutBusy || isArchitecture()) return;
+    var lanes = state.doc.lanes || [];
+    var idx = laneEdit.index;
+    var lane = laneAt(idx);
+    if (!lane) return;
+    var next = idx + (dir < 0 ? -1 : 1);
+    if (next < 0 || next >= lanes.length) return;
+    var values = readLaneEditorValues();
+    var err = laneValuesError(values);
+    if (err) {
+      setStatus(err, "");
+      refillLaneEditorFromDoc();
+      return;
+    }
+    pushHistory();
+    if (!laneBufferUnchanged(lane, values)) writeLaneFields(lane, values);
+    var item = lanes.splice(idx, 1)[0];
+    lanes.splice(next, 0, item);
+    laneEdit = { index: next };
+    state.selected.lanes = next;
+    state.rawDirty = false;
+    refillLaneEditorFromDoc();
+    renderLists();
+    var verb = dir < 0 ? "up" : "down";
+    previewLaneStructure({
+      prevIndex: idx,
+      busy: "previewing lane move…",
+      ok: "Moved lane " + verb + " (unsaved)",
+      fail: "Lane not moved (reverted)"
+    });
+  }
+
+  function refuseLaneAction(text) {
+    showStatusToast(text);
+    setStatus(text, "");
+  }
+
+  function deleteLayoutLane() {
+    if (!laneEdit || !state.doc || state.layoutBusy || isArchitecture()) return;
+    var lanes = state.doc.lanes || [];
+    var idx = laneEdit.index;
+    var lane = laneAt(idx);
+    if (!lane) return;
+    if (lanes.length <= 1) {
+      refuseLaneAction("Cannot delete the last lane");
+      return;
+    }
+    var n = laneNodeCount(lane);
+    if (n > 0) {
+      refuseLaneAction("Move or delete its " + n + " nodes first");
+      return;
+    }
+    var label = lane.label || lane.id || "lane";
+    clearLaneSelection();
+    showDocumentInspector();
+    pushHistory();
+    lanes.splice(idx, 1);
+    state.selected.lanes = lanes.length ? Math.min(idx, lanes.length - 1) : -1;
+    state.rawDirty = false;
+    renderLists();
+    previewLaneStructure({
+      prevIndex: -1,
+      busy: "previewing delete lane…",
+      ok: "Deleted lane " + label + " (unsaved)",
+      fail: "Delete lane failed (reverted)"
+    });
   }
 
   function layoutCardElements(doc) {
@@ -10607,6 +12099,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     var hadBoundary = !!boundaryEdit;
     clearBoundarySelection();
+    clearLaneSelection();
     state.selectedNodeId = null;
     state.selectedComponentId = null;
     state.selectedEdgeIndex = null;
@@ -10835,6 +12328,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       "layout-single-dash", "layout-single-color",
       "layout-card-title", "layout-card-dot", "layout-card-add-item", "layout-card-delete",
       "layout-boundary-kind", "layout-boundary-label", "layout-boundary-pad", "layout-boundary-delete",
+      "layout-lane-label", "layout-lane-variant", "layout-lane-up", "layout-lane-down",
+      "layout-lane-delete", "layout-lane-add", "btn-add-lane",
       "layout-legend-mode", "btn-add-card", "btn-add-boundary"
     ];
     for (var i = 0; i < ids.length; i++) {
@@ -10850,7 +12345,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (brandSlot) {
       var lock = brandSlot.dataset.locked === "1";
       var brandControls = brandSlot.querySelectorAll("button, input");
-      for (var b = 0; b < brandControls.length; b++) brandControls[b].disabled = !!disabled || lock;
+      for (var b = 0; b < brandControls.length; b++) {
+        if (brandControls[b].id === "node-brand-replaces") {
+          brandControls[b].disabled = !!disabled || !state.doc;
+          continue;
+        }
+        brandControls[b].disabled = !!disabled || lock;
+      }
     }
     if (disabled) {
       var dupBtn = $("layout-edit-duplicate");
@@ -10956,6 +12457,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     slot.dataset.locked = isForeignObjectBrand(node.brand) ? "1" : "0";
     slot.innerHTML = inspectorBrandFieldHtml(node);
     syncIconPickerButton("node");
+    syncDisplayToggles();
   }
 
   function refillNodeEditorFromNode(node) {
@@ -11000,6 +12502,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (!boundary) return false;
       return !boundaryBufferUnchanged(boundary, readBoundaryEditorValues());
     }
+    if (laneEdit) {
+      var lane = laneAt(laneEdit.index);
+      if (!lane) return false;
+      return !laneBufferUnchanged(lane, readLaneEditorValues());
+    }
     return legendFormDirty();
   }
 
@@ -11025,6 +12532,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       refillBoundaryEditorFromDoc();
       return;
     }
+    if (laneEdit) {
+      refillLaneEditorFromDoc();
+      return;
+    }
     if (legendFormDirty()) revertLegendForm();
   }
 
@@ -11043,6 +12554,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     state.selectedEdgeIndex = null;
     clearCardSelection();
     clearBoundarySelection();
+    clearLaneSelection();
     updateDeleteEdgeButton();
     syncInspectorPanes();
     if ((hadComponent || hadBoundary) && isArchitecture() && !state.layoutBusy) mountLayoutOverlays();
@@ -11289,6 +12801,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     clearCardSelection();
     clearBoundarySelection();
+    clearLaneSelection();
     if (isArchitecture()) state.selectedComponentId = String(id);
     else state.selectedNodeId = String(id);
     state.selectedEdgeIndex = null;
@@ -11340,6 +12853,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     clearCardSelection();
     var hadBoundaryEdge = !!boundaryEdit;
     clearBoundarySelection();
+    clearLaneSelection();
     state.selectedNodeId = null;
     state.selectedComponentId = null;
     state.selectedEdgeIndex = idx;
@@ -11370,43 +12884,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function openLaneLabelEditor(hitEl) {
-    if (inspectorBufferDirty()) applyDockedBufferSync();
-    if (nodeEdit) {
-      nodeEdit = null;
-      hideNodeEditor();
-    }
-    if (singleEdit && singleEdit.kind === "edge") {
-      singleEdit = null;
-      hideSingleEditor();
-    }
-    clearCardSelection();
-    clearBoundarySelection();
     if (state.layoutBusy || !hitEl) return;
     var idx = parseInt(hitEl.getAttribute("data-lane-index"), 10);
-    if (isNaN(idx) || idx < 0 || !(state.doc.lanes && state.doc.lanes[idx])) return;
-    var lane = state.doc.lanes[idx];
-    var panel = $("layout-single-editor");
-    var input = $("layout-single-label");
-    var caption = $("layout-single-label-caption");
-    if (!panel || !input) return;
-    if (caption) caption.textContent = "Lane label";
-    panel.setAttribute("aria-label", "Edit lane label");
-    setSingleEditorHint("Enter=save · Esc=cancel");
-    hideEdgeAdvanced();
-    // Lane rename is the canvas overlay. Keep the panel docked and hidden;
-    // commitSingleEditor still reads #layout-single-label.
-    dockSingleEditor(true);
-    panel.classList.remove("active");
-    var sameLane = singleEdit && singleEdit.kind === "lane" && singleEdit.laneIndex === idx;
-    if (!sameLane) input.value = lane.label != null ? String(lane.label) : "";
-    singleEdit = {
-      kind: "lane",
-      laneIndex: idx,
-      snapLabel: lane.label,
-      anchor: hitEl,
-    };
-    syncInspectorPanes();
-    setStatus("Editing lane " + (lane.id || idx) + " label (required)", "");
+    if (isNaN(idx) || !laneAt(idx)) return;
+    // Pane label is the inline field, so Enter commits through the Lane pane.
+    selectLayoutLane(idx, { focus: false });
   }
 
   function restoreEdgeLabel(edge, edit) {
@@ -11826,7 +13308,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     opts = opts || {};
     if (opts.focusLegend) return "layout-legend-mode";
     if (opts.nextNodeId || opts.nextEdgeIndex != null || opts.nextCardIndex != null ||
-        opts.nextBoundaryIndex != null || opts.deselect) return null;
+        opts.nextBoundaryIndex != null || opts.nextLaneIndex != null || opts.deselect) return null;
     return opts.focusId || null;
   }
 
@@ -11836,6 +13318,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     else if (opts.nextEdgeIndex != null) selectLayoutEdge(opts.nextEdgeIndex, { focus: !!opts.focus });
     else if (opts.nextCardIndex != null) selectLayoutCard(opts.nextCardIndex, { focus: !!opts.focus });
     else if (opts.nextBoundaryIndex != null) selectLayoutBoundary(opts.nextBoundaryIndex, { focus: !!opts.focus });
+    else if (opts.nextLaneIndex != null) selectLayoutLane(opts.nextLaneIndex, { focus: !!opts.focus });
     else if (opts.focusLegend) focusLegendSection();
     else if (opts.deselect) showDocumentInspector();
     else if (opts.focusId) {
@@ -11859,6 +13342,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     else if (singleEdit && singleEdit.kind === "edge") commitEdgeInspector(opts);
     else if (cardEdit) commitCardEditor(opts);
     else if (boundaryEdit) commitBoundaryEditor(opts);
+    else if (laneEdit) commitLaneEditor(opts);
     else commitLegendEditor(opts);
   }
 
@@ -11936,6 +13420,24 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       pushHistory();
       writeBoundaryFields(boundary, boundaryValues);
       state.selected.boundaries = boundaryEdit.index;
+      state.rawDirty = false;
+      previewStale = true;
+      markDirty();
+      return true;
+    }
+    if (laneEdit) {
+      var laneValues = readLaneEditorValues();
+      var lane = laneAt(laneEdit.index);
+      var laneErr = lane ? laneValuesError(laneValues) : "Lane not found";
+      if (!lane || laneErr) {
+        if (lane) refillLaneEditorFromDoc();
+        if (laneErr) setStatus(laneErr, "");
+        return false;
+      }
+      if (laneBufferUnchanged(lane, laneValues)) return false;
+      pushHistory();
+      writeLaneFields(lane, laneValues);
+      state.selected.lanes = laneEdit.index;
       state.rawDirty = false;
       previewStale = true;
       markDirty();
@@ -12284,7 +13786,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function focusLegendSection() {
-    if (nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge")) showDocumentInspector();
+    if (nodeEdit || cardEdit || boundaryEdit || laneEdit || (singleEdit && singleEdit.kind === "edge")) showDocumentInspector();
     var section = $("inspector-legend");
     if (section && section.scrollIntoView) section.scrollIntoView({ block: "nearest" });
     var mode = $("layout-legend-mode");
@@ -12840,6 +14342,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       hideSingleEditor();
     }
     clearCardSelection();
+    clearLaneSelection();
     boundaryEdit = { index: index };
     state.selectedNodeId = null;
     state.selectedComponentId = null;
@@ -13745,15 +15248,67 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function nodeLabelElement(doc, id) {
-    if (!doc) return null;
+    return nodeTextElement(doc, id, "label");
+  }
+
+  function nodeTextElement(doc, id, field) {
+    if (!doc || id == null) return null;
+    var sel = "text[data-node-label]";
+    if (field === "sublabel") sel = "text[data-detail='context']";
+    else if (field === "tag") sel = "text[data-detail='fine']";
     var groups = doc.querySelectorAll("g[data-node-id]");
     var want = String(id);
     for (var i = 0; i < groups.length; i++) {
       if (groups[i].getAttribute("data-node-id") !== want) continue;
-      var text = groups[i].querySelector("text[data-node-label]");
+      var text = groups[i].querySelector(sel);
       if (text) return text;
     }
     return null;
+  }
+
+  function nodeIdFromEventTarget(t) {
+    if (!t || !t.getAttribute) return null;
+    if (t.classList && t.classList.contains("bw-handle")) return t.getAttribute("data-node-id");
+    var text = t.closest ? t.closest("text") : null;
+    var host = text || t;
+    var group = host.closest ? host.closest("g[data-node-id]") : null;
+    return group ? group.getAttribute("data-node-id") : null;
+  }
+
+  function nodeFieldFromMarked(marked) {
+    if (!marked || !marked.getAttribute) return "";
+    var detail = marked.getAttribute("data-detail");
+    if (detail === "context") return "sublabel";
+    if (detail === "fine") return "tag";
+    if (marked.hasAttribute && marked.hasAttribute("data-node-label")) return "label";
+    return "";
+  }
+
+  function nodeFieldFromHit(t, clientX, clientY) {
+    var text = t && t.closest ? t.closest("text") : null;
+    var marked = nodeFieldFromMarked(text || t);
+    if (marked) return marked;
+    var doc = t && t.ownerDocument;
+    var id = nodeIdFromEventTarget(t);
+    if (!doc || !id || clientX == null || clientY == null) return "label";
+    var fields = ["sublabel", "tag", "label"];
+    var best = "";
+    var bestArea = Infinity;
+    var slop = 3;
+    for (var i = 0; i < fields.length; i++) {
+      var el = nodeTextElement(doc, id, fields[i]);
+      if (!el || !el.getBoundingClientRect) continue;
+      var r = el.getBoundingClientRect();
+      if (!(r.width > 0 || r.height > 0)) continue;
+      if (clientX < r.left - slop || clientX > r.right + slop) continue;
+      if (clientY < r.top - slop || clientY > r.bottom + slop) continue;
+      var area = Math.max(1, r.width) * Math.max(1, r.height);
+      if (area < bestArea) {
+        bestArea = area;
+        best = fields[i];
+      }
+    }
+    return best || "label";
   }
 
   function nodeHandleElement(doc, id) {
@@ -13800,7 +15355,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   function laneLabelElement(doc, idx) {
     if (!doc) return null;
-    var frames = doc.querySelectorAll('rect[data-composition-frame-kind="lane"]');
+    var frames = doc.querySelectorAll(
+      'rect[data-composition-frame-kind="lane"], rect[data-composition-frame-kind="exception-lane"]'
+    );
     var want = "lane-" + idx;
     for (var i = 0; i < frames.length; i++) {
       if (frames[i].getAttribute("data-composition-frame-id") !== want) continue;
@@ -13824,7 +15381,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var guard = 0;
     while (frame && guard < 4) {
       guard += 1;
-      if (frame.localName === "rect" && frame.getAttribute("data-composition-frame-kind") === "lane") {
+      if (frame.localName === "rect") {
+        var frameKind = frame.getAttribute("data-composition-frame-kind");
+        if (frameKind !== "lane" && frameKind !== "exception-lane") {
+          frame = frame.previousElementSibling;
+          continue;
+        }
         var m = /^lane-(\d+)$/.exec(frame.getAttribute("data-composition-frame-id") || "");
         if (!m) return null;
         var idx = parseInt(m[1], 10);
@@ -14040,12 +15602,60 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     };
   }
 
-  function inlineFieldId(kind) {
-    if (kind === "node") return "layout-edit-label";
-    if (kind === "edge" || kind === "lane") return "layout-single-label";
+  function inlineFieldId(kind, field) {
+    if (kind === "node") {
+      if (field === "sublabel") return "layout-edit-sublabel";
+      if (field === "tag") return "layout-edit-tag";
+      return "layout-edit-label";
+    }
+    if (kind === "edge") return "layout-single-label";
+    if (kind === "lane") return "layout-lane-label";
     if (kind === "boundary") return "layout-boundary-label";
     if (kind === "card") return "layout-card-title";
     return "";
+  }
+
+  function inlineHintCopy(kind) {
+    if (kind === "node") return "Enter to save · Tab next field · Esc to cancel";
+    return "Enter to save · Esc to cancel";
+  }
+
+  function nodeInlineAnchor(id, field) {
+    var doc = $("layout-frame") && $("layout-frame").contentDocument;
+    if (!doc) return null;
+    var which = field === "sublabel" || field === "tag" ? field : "label";
+    if (which === "label") {
+      return anchorFromElement(nodeTextElement(doc, id, "label") || nodeHandleElement(doc, id), "center");
+    }
+    var el = nodeTextElement(doc, id, which);
+    if (el) {
+      var direct = anchorFromElement(el, "center");
+      if (direct && direct.laidOut) return direct;
+    }
+    // Empty sublabel/tag has no text node. Sit one line under the previous field.
+    var prev = nodeInlineAnchor(id, which === "tag" ? "sublabel" : "label");
+    if (!prev) return null;
+    var fontPx = prev.fontPx > 0 ? prev.fontPx : 13;
+    var boxH = prev.boxH > 0 ? prev.boxH : fontPx + 2;
+    var fontWeight = prev.fontWeight || "400";
+    if (which === "sublabel") {
+      fontPx = Math.max(10, fontPx * 0.85);
+      boxH = Math.max(fontPx + 2, 14);
+      fontWeight = "400";
+    }
+    var step = prev.boxH > 0 ? prev.boxH : boxH;
+    return {
+      align: prev.align || "center",
+      left: prev.left,
+      top: prev.top + step,
+      minW: Math.max(24, prev.minW || 24),
+      fontPx: fontPx,
+      boxH: boxH,
+      fontWeight: fontWeight,
+      fontFamily: prev.fontFamily || "inherit",
+      color: prev.color || "#E7E4DC",
+      laidOut: true
+    };
   }
 
   function inlineAnchor(kind, id) {
@@ -14069,10 +15679,60 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     inlineRename._closing = true;
     inlineRename = null;
     var input = $("bw-inline-rename");
-    if (!input) return;
-    input.hidden = true;
-    input.value = "";
-    input.style.width = "";
+    if (input) {
+      input.hidden = true;
+      input.value = "";
+      input.style.width = "";
+      input.setAttribute("aria-label", "Rename");
+    }
+    var hint = $("bw-inline-rename-hint");
+    if (hint) {
+      hint.hidden = true;
+      hint.textContent = "Enter to save · Esc to cancel";
+    }
+  }
+
+  function placeInlineRenameHint() {
+    var hint = $("bw-inline-rename-hint");
+    var input = $("bw-inline-rename");
+    var wrap = $("layout-wrap");
+    if (!hint) return;
+    if (!input || !wrap || !inlineRename || input.hidden) {
+      hint.hidden = true;
+      return;
+    }
+    hint.hidden = false;
+    var gap = 4;
+    var boxL = parseFloat(input.style.left) || 0;
+    var boxT = parseFloat(input.style.top) || 0;
+    var boxW = input.offsetWidth || 0;
+    var boxH = input.offsetHeight || 0;
+    var hintW = hint.offsetWidth || 0;
+    var hintH = hint.offsetHeight || 0;
+    var maxR = Math.max(4, wrap.clientWidth - 4);
+    var maxB = Math.max(4, wrap.clientHeight - 4);
+    var belowT = boxT + boxH + gap;
+    var belowL = boxL;
+    if (belowL + hintW > maxR) belowL = Math.max(4, maxR - hintW);
+    if (belowL < 4) belowL = 4;
+    var left = belowL;
+    var top = belowT;
+    if (belowT + hintH > maxB) {
+      var midT = boxT + Math.max(0, (boxH - hintH) / 2);
+      if (midT < 4) midT = 4;
+      if (midT + hintH > maxB) midT = Math.max(4, maxB - hintH);
+      var rightL = boxL + boxW + gap;
+      var leftL = boxL - gap - hintW;
+      if (rightL + hintW <= maxR) {
+        left = rightL;
+        top = midT;
+      } else if (leftL >= 4) {
+        left = leftL;
+        top = midT;
+      }
+    }
+    hint.style.left = left + "px";
+    hint.style.top = top + "px";
   }
 
   function layoutInlineBox() {
@@ -14080,7 +15740,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var mirror = $("bw-inline-rename-mirror");
     var session = inlineRename;
     var wrap = $("layout-wrap");
-    if (!input || !mirror || !session || !wrap || input.hidden) return;
+    if (!input || !mirror || !session || !wrap || input.hidden) {
+      placeInlineRenameHint();
+      return;
+    }
     mirror.style.fontSize = input.style.fontSize;
     mirror.style.fontWeight = input.style.fontWeight;
     mirror.style.fontFamily = input.style.fontFamily;
@@ -14094,19 +15757,53 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (left + w > wrap.clientWidth - 4) left = Math.max(4, wrap.clientWidth - 4 - w);
     input.style.left = left + "px";
     input.style.top = session.anchorTop + "px";
+    placeInlineRenameHint();
+  }
+
+  function syncInlineInputToPane() {
+    if (!inlineRename || inlineRename._closing) return;
+    var input = $("bw-inline-rename");
+    var field = $(inlineRename.fieldId);
+    if (field && input && !input.hidden) field.value = input.value;
+  }
+
+  function paintInlineSession(session, anchor) {
+    var input = $("bw-inline-rename");
+    var hint = $("bw-inline-rename-hint");
+    if (!session || !input || !anchor) return;
+    session.align = anchor.align;
+    session.anchorLeft = anchor.left;
+    session.anchorTop = anchor.top;
+    session.minW = anchor.minW;
+    if (hint) hint.textContent = inlineHintCopy(session.kind);
+    input.hidden = false;
+    input.style.fontSize = anchor.fontPx + "px";
+    input.style.fontWeight = String(anchor.fontWeight || "600");
+    input.style.fontFamily = anchor.fontFamily || "inherit";
+    input.style.color = anchor.color || "";
+    input.style.textAlign = anchor.align === "center" ? "center" : "left";
+    input.style.height = Math.max(anchor.boxH, anchor.fontPx + 2) + "px";
+    var aria = "Rename";
+    if (session.kind === "node") {
+      if (session.field === "sublabel") aria = "Sublabel";
+      else if (session.field === "tag") aria = "Tag";
+      else aria = "Label";
+    }
+    input.setAttribute("aria-label", aria);
+    layoutInlineBox();
   }
 
   function commitInlineSession() {
     if (!inlineRename || inlineRename._closing) return;
     var session = inlineRename;
-    session._closing = true;
     var input = $("bw-inline-rename");
     var field = $(session.fieldId);
     if (field && input && !input.hidden) field.value = input.value;
+    session._closing = true;
     var kind = session.kind;
     dismissInlineOverlay();
-    if (kind === "lane") {
-      if (singleEdit && singleEdit.kind === "lane") commitSingleEditor();
+    if (kind === "lane" && singleEdit && singleEdit.kind === "lane") {
+      commitSingleEditor();
       return;
     }
     commitDockedInspector({});
@@ -14116,11 +15813,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (!inlineRename || inlineRename._closing) return;
     var session = inlineRename;
     session._closing = true;
-    var field = $(session.fieldId);
-    if (field) field.value = session.snap;
+    if (session.kind === "node" && session.snaps) {
+      var labelEl = $("layout-edit-label");
+      var subEl = $("layout-edit-sublabel");
+      var tagEl = $("layout-edit-tag");
+      if (labelEl) labelEl.value = session.snaps.label;
+      if (subEl) subEl.value = session.snaps.sublabel;
+      if (tagEl) tagEl.value = session.snaps.tag;
+    } else {
+      var field = $(session.fieldId);
+      if (field) field.value = session.snap;
+    }
     var kind = session.kind;
     dismissInlineOverlay();
-    if (kind === "lane") {
+    if (kind === "lane" && singleEdit && singleEdit.kind === "lane") {
       cancelSingleEditor();
       setStatus("Label edit cancelled", "");
     }
@@ -14131,52 +15837,90 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     else if (singleEdit && singleEdit.kind === "lane") commitSingleEditor();
   }
 
-  function openInlineRename(kind, id, attempt) {
+  function showInlineNodeField(field) {
+    var session = inlineRename;
+    if (!session || session.kind !== "node" || session._closing) return;
+    var nodeField = field === "sublabel" || field === "tag" ? field : "label";
+    var fieldId = inlineFieldId("node", nodeField);
+    var pane = $(fieldId);
+    var input = $("bw-inline-rename");
+    if (!pane || !input) return;
+    var anchor = nodeInlineAnchor(session.id, nodeField);
+    if (!anchor) return;
+    session.field = nodeField;
+    session.fieldId = fieldId;
+    input.value = pane.value;
+    session._switching = true;
+    paintInlineSession(session, anchor);
+    input.focus();
+    input.select();
+    setTimeout(function () {
+      if (inlineRename === session) session._switching = false;
+    }, 0);
+  }
+
+  function cycleInlineNodeField(dir) {
+    if (!inlineRename || inlineRename.kind !== "node" || inlineRename._closing) return;
+    syncInlineInputToPane();
+    var order = ["label", "sublabel", "tag"];
+    var idx = order.indexOf(inlineRename.field);
+    if (idx < 0) idx = 0;
+    var step = dir < 0 ? order.length - 1 : 1;
+    showInlineNodeField(order[(idx + step) % order.length]);
+  }
+
+  function openInlineRename(kind, id, attempt, field) {
     if (inlineRename) {
       commitInlineSession();
       if (state.layoutBusy) return;
     }
     if (state.layoutBusy || !state.layout) return;
-    var fieldId = inlineFieldId(kind);
-    var field = $(fieldId);
-    var anchor = inlineAnchor(kind, id);
+    var nodeField = field === "sublabel" || field === "tag" ? field : "label";
+    var fieldId = inlineFieldId(kind, nodeField);
+    var pane = $(fieldId);
+    var anchor = kind === "node" ? nodeInlineAnchor(id, nodeField) : inlineAnchor(kind, id);
     var input = $("bw-inline-rename");
-    if (!field || !input) return;
+    if (!pane || !input) return;
     // The first frame after mount can report an empty label box.
     if ((!anchor || !anchor.laidOut) && (attempt || 0) < 2) {
       requestAnimationFrame(function () {
         if (state.layoutBusy || !state.layout || inlineRename) return;
-        openInlineRename(kind, id, (attempt || 0) + 1);
+        openInlineRename(kind, id, (attempt || 0) + 1, field);
       });
       return;
     }
     if (!anchor) return;
+    var snaps = null;
+    if (kind === "node") {
+      snaps = {
+        label: ($("layout-edit-label") && $("layout-edit-label").value) || "",
+        sublabel: ($("layout-edit-sublabel") && $("layout-edit-sublabel").value) || "",
+        tag: ($("layout-edit-tag") && $("layout-edit-tag").value) || ""
+      };
+    }
     inlineRename = {
       kind: kind,
       id: id,
+      field: kind === "node" ? nodeField : "",
       fieldId: fieldId,
-      snap: field.value,
+      snap: pane.value,
+      snaps: snaps,
       align: anchor.align,
       anchorLeft: anchor.left,
       anchorTop: anchor.top,
       minW: anchor.minW,
-      _closing: false
+      _closing: false,
+      _switching: false
     };
-    input.hidden = false;
-    input.value = field.value;
-    input.style.fontSize = anchor.fontPx + "px";
-    input.style.fontWeight = String(anchor.fontWeight || "600");
-    input.style.fontFamily = anchor.fontFamily || "inherit";
-    input.style.color = anchor.color || "";
-    input.style.textAlign = anchor.align === "center" ? "center" : "left";
-    input.style.height = Math.max(anchor.boxH, anchor.fontPx + 2) + "px";
-    layoutInlineBox();
+    input.value = pane.value;
+    paintInlineSession(inlineRename, anchor);
     input.focus();
     input.select();
   }
 
-  function queueInlineRename(target) {
+  function queueInlineRename(target, nodeField) {
     pendingLabelFocusId = null;
+    pendingNodeField = null;
     pendingEdgeFocusIndex = null;
     pendingLaneIndex = null;
     pendingLaneAttempts = 0;
@@ -14185,8 +15929,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (!target || !target.classList) return;
     var labelIdx = edgeIndexFromEventTarget(target);
     var laneIdx = laneIndexFromEventTarget(target);
-    if (target.classList.contains("bw-handle")) {
-      pendingLabelFocusId = target.getAttribute("data-node-id");
+    if (target.classList.contains("bw-handle") || nodeField) {
+      var queuedId = target.classList.contains("bw-handle")
+        ? target.getAttribute("data-node-id")
+        : nodeIdFromEventTarget(target);
+      if (queuedId) {
+        pendingLabelFocusId = queuedId;
+        pendingNodeField = nodeField || "label";
+      }
     } else if (target.classList.contains("bw-edge-hit") || labelIdx != null) {
       pendingEdgeFocusIndex = target.classList.contains("bw-edge-hit")
         ? parseInt(target.getAttribute("data-doc-index"), 10)
@@ -14229,14 +15979,28 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     } else if (cardEdit) {
       kind = "card";
       id = cardEdit.index;
+    } else if (laneEdit) {
+      kind = "lane";
+      id = laneEdit.index;
     } else return false;
     ev.preventDefault();
     if (kind === "node") openNodeEditorById(id, { focus: false });
     else if (kind === "edge") selectLayoutEdge(id, { focus: false });
     else if (kind === "boundary") selectLayoutBoundary(id, { focus: false });
     else if (kind === "card") selectLayoutCard(id, { focus: false });
+    else if (kind === "lane") selectLayoutLane(id, { focus: false });
     openInlineRename(kind, id);
     return true;
+  }
+
+  function queuedNodeField(target, ev) {
+    if (!target || !ev || !target.classList) return null;
+    var text = target.closest ? target.closest("text") : null;
+    var markedField = nodeFieldFromMarked(text || target);
+    var onHandle = target.classList.contains("bw-handle");
+    if (!onHandle && !markedField) return null;
+    if (!nodeIdFromEventTarget(target)) return null;
+    return nodeFieldFromHit(target, ev.clientX, ev.clientY);
   }
 
   function onLayoutDblClick(ev) {
@@ -14247,7 +16011,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     var pendingTarget = ev.target;
     if (state.layoutBusy) {
-      queueInlineRename(pendingTarget);
+      queueInlineRename(pendingTarget, queuedNodeField(pendingTarget, ev));
       return;
     }
     var t = ev.target;
@@ -14255,7 +16019,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (inlineRename) {
       commitInlineSession();
       if (state.layoutBusy) {
-        queueInlineRename(t);
+        queueInlineRename(t, queuedNodeField(t, ev));
         return;
       }
     }
@@ -14302,10 +16066,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       openInlineRename("card", cardIdx);
       return;
     }
-    if (!t.classList.contains("bw-handle")) return;
+    var nodeField = queuedNodeField(t, ev);
+    if (!nodeField) return;
     ev.preventDefault();
-    openNodeEditor(t, { focus: false });
-    openInlineRename("node", t.getAttribute("data-node-id"));
+    var nodeId = nodeIdFromEventTarget(t);
+    var handle = t.classList.contains("bw-handle") ? t : nodeHandleElement(t.ownerDocument, nodeId);
+    if (handle) openNodeEditor(handle, { focus: false });
+    else openNodeEditorById(nodeId, { focus: false });
+    openInlineRename("node", nodeId, 0, nodeField);
   }
 
   function endpointSnapThreshold() {
@@ -14562,7 +16330,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
       if (cardIndex >= 0 && cardAt(cardIndex)) {
         var sameCard = cardEdit && cardEdit.index === cardIndex;
-        if (!sameCard && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit ||
+        if (!sameCard && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit || laneEdit ||
             (singleEdit && singleEdit.kind === "edge"))) {
           commitDockedInspector({ nextCardIndex: cardIndex });
         } else if (!sameCard) selectLayoutCard(cardIndex);
@@ -14571,7 +16339,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     var legendHit = t && t.closest && t.closest("[data-legend]");
     if (legendHit) {
-      if (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge")) {
+      if (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit || laneEdit || (singleEdit && singleEdit.kind === "edge")) {
         commitDockedInspector({ focusLegend: true });
       } else focusLegendSection();
       return;
@@ -14651,7 +16419,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (labelEdgeIdx != null) {
       // Do not preventDefault — that suppresses dblclick (inline label edit).
       var sameLabelEdge = singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === labelEdgeIdx;
-      if (!sameLabelEdge && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit ||
+      if (!sameLabelEdge && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit || laneEdit ||
           (singleEdit && singleEdit.kind === "edge"))) {
         commitDockedInspector({ nextEdgeIndex: labelEdgeIdx });
       } else {
@@ -14664,7 +16432,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       // Do not preventDefault — that suppresses dblclick (edge label edit).
       var edgeIdx = parseInt(t.getAttribute("data-doc-index"), 10);
       var sameEdge = singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === edgeIdx;
-      if (!sameEdge && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit ||
+      if (!sameEdge && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit || laneEdit ||
           (singleEdit && singleEdit.kind === "edge"))) {
         commitDockedInspector({ nextEdgeIndex: edgeIdx });
       } else {
@@ -14680,7 +16448,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         var bIdx = parseInt(t.getAttribute("data-doc-index"), 10);
         if (isNaN(bIdx)) return;
         var sameBoundary = boundaryEdit && boundaryEdit.index === bIdx;
-        if (!sameBoundary && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit ||
+        if (!sameBoundary && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit || laneEdit ||
             (singleEdit && singleEdit.kind === "edge"))) {
           commitDockedInspector({ nextBoundaryIndex: bIdx });
         } else if (!sameBoundary) selectLayoutBoundary(bIdx);
@@ -14688,17 +16456,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
     }
 
-    if (laneIndexFromEventTarget(t) != null) {
-      if (inspectorBufferDirty()) commitDockedInspector({});
-      else if (state.selectedEdgeIndex != null) {
-        clearEdgeSelection(true);
-        if (singleEdit && singleEdit.kind === "edge") {
-          singleEdit = null;
-          hideSingleEditor();
-          syncInspectorPanes();
-        }
-        setStatus("Edge selection cleared", "");
-      }
+    var pickedLane = laneIndexFromEventTarget(t);
+    if (pickedLane != null) {
+      // Do not preventDefault — that suppresses dblclick (lane label edit).
+      var sameLane = laneEdit && laneEdit.index === pickedLane;
+      if (!sameLane && (inspectorBufferDirty() || nodeEdit || cardEdit || boundaryEdit || laneEdit ||
+          (singleEdit && singleEdit.kind === "edge"))) {
+        commitDockedInspector({ nextLaneIndex: pickedLane });
+      } else if (!sameLane) selectLayoutLane(pickedLane);
       return;
     }
 
@@ -15092,21 +16857,25 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     syncDockedFieldsDisabled(busy);
     applyOverlayInteractionStyles();
     syncQualityToggle();
+    syncDisplayToggles();
     updateDirtyUI();
     setEdgeAdvancedDisabled(busy);
     syncDiagramStrip();
     updateHistoryButtons();
     if (!busy) {
       syncNodeEditorButtons();
+      syncLaneActionButtons();
       if (pendingLabelFocusId) {
         var wantFocus = pendingLabelFocusId;
+        var wantField = pendingNodeField || "label";
         pendingLabelFocusId = null;
+        pendingNodeField = null;
         pendingLaneIndex = null;
         pendingEdgeFocusIndex = null;
         pendingCardIndex = null;
         pendingBoundaryIndex = null;
         openNodeEditorById(wantFocus, { focus: false });
-        openInlineRename("node", wantFocus);
+        openInlineRename("node", wantFocus, 0, wantField);
       } else if (pendingEdgeFocusIndex != null && !isNaN(pendingEdgeFocusIndex)) {
         var wantEdge = pendingEdgeFocusIndex;
         pendingEdgeFocusIndex = null;
@@ -15284,6 +17053,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
               }
               if (cardEdit) restoreCardEditorAfterRemount();
               if (boundaryEdit) restoreBoundaryEditorAfterRemount(opts);
+              if (laneEdit) restoreLaneEditorAfterRemount();
               if (opts.restoreFocusId) {
                 var focusEl = $(opts.restoreFocusId);
                 if (focusEl && !focusEl.disabled) {
@@ -15663,7 +17433,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     previewStale = true;
     markDirty();
     updateDirtyUI();
-    if (!state.archify) return;
+    if (!state.archify) {
+      noteIconNeedsCornerFlag(node);
+      return;
+    }
     var priorEntry = state.undo.length ? state.undo[state.undo.length - 1] : null;
     var priorFields = brandLayoutFieldsOf(findSnapshotNode(priorEntry && priorEntry.doc, nodeId));
     var gen = remountGen;
@@ -15683,10 +17456,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
             setLayoutBusy(false);
             renderAll();
             restoreKeptFocus(focusToken);
+            noteIconNeedsCornerFlag(node);
           }, function () {
             if (gen !== remountGen) return;
             setLayoutBusy(false);
             restoreKeptFocus(focusToken);
+            noteIconNeedsCornerFlag(node);
           });
         }
         revertLayoutBrandPick(nodeId, priorFields, wasStale);
@@ -15702,6 +17477,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         setStatus("Icon preview failed (reverted): " + e, "err");
         restoreKeptFocus(focusToken);
       });
+  }
+
+  function noteIconNeedsCornerFlag(node) {
+    if (!node || node.brand == null || node.brand === "") return;
+    if (displayFlagOn("brandReplacesTypeIcon")) return;
+    showStatusToast("Icon set. Turn on 'Show icon in place of the type glyph' to put it in the corner.");
   }
 
   function finishLayoutBrandEdit(node, positionClean) {
@@ -16132,18 +17913,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       .catch(function () {});
   }
 
-  function createNewDiagram(dtype) {
+  function createNewDiagram(dtype, templateId) {
     dtype = dtype || state.diagram_type || "workflow";
     if (dtype !== "workflow" && dtype !== "architecture") dtype = "workflow";
-    if (isPristineSeed(dtype)) {
+    if (!templateId && isPristineSeed(dtype)) {
       setStatus("Already a new diagram", "");
       return Promise.resolve(false);
     }
     setStatus("Starting a new diagram…", "");
+    var payload = { diagram_type: dtype };
+    if (templateId) payload.template = templateId;
     return apiFetch("/api/new", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ diagram_type: dtype }),
+      body: JSON.stringify(payload),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -16619,9 +18402,43 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     panel.setAttribute("aria-hidden", "true");
   }
 
+  function renderNewTemplates() {
+    var list = $("new-template-list");
+    if (!list) return;
+    list.textContent = "";
+    var items = Array.isArray(TEMPLATE_MANIFEST) ? TEMPLATE_MANIFEST : [];
+    items.forEach(function (item) {
+      if (!item || !item.id) return;
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "new-template";
+      var top = document.createElement("span");
+      top.className = "nt-top";
+      var label = document.createElement("span");
+      label.className = "nt-label";
+      label.textContent = item.label || item.id;
+      var kind = document.createElement("span");
+      kind.className = "nt-kind";
+      kind.textContent = item.diagram_type || "";
+      top.appendChild(label);
+      top.appendChild(kind);
+      var blurb = document.createElement("span");
+      blurb.className = "nt-blurb";
+      blurb.textContent = item.blurb || "";
+      btn.appendChild(top);
+      btn.appendChild(blurb);
+      btn.addEventListener("click", function () {
+        closeNewPanel();
+        createNewDiagram(item.diagram_type || "workflow", item.id);
+      });
+      list.appendChild(btn);
+    });
+  }
+
   function openNewPanel() {
     var panel = $("new-panel");
     if (!panel) return;
+    renderNewTemplates();
     panel.classList.add("active");
     panel.setAttribute("aria-hidden", "false");
   }
@@ -16837,6 +18654,19 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   $("btn-quality-showcase").addEventListener("click", function () {
     setQualityProfile("showcase");
   });
+  var brandReplacesInput = $("display-brand-replaces");
+  if (brandReplacesInput) brandReplacesInput.addEventListener("change", function () {
+    setDisplayFlag("brandReplacesTypeIcon", brandReplacesInput.checked);
+  });
+  document.addEventListener("change", function (ev) {
+    var target = ev.target;
+    if (!target || target.id !== "node-brand-replaces") return;
+    setDisplayFlag("brandReplacesTypeIcon", !!target.checked);
+  });
+  var hideLanesInput = $("display-hide-lanes");
+  if (hideLanesInput) hideLanesInput.addEventListener("change", function () {
+    setDisplayFlag("hideLaneChrome", hideLanesInput.checked);
+  });
   $("btn-delete-edge").addEventListener("click", function () {
     deleteSelectedEdge();
   });
@@ -16926,6 +18756,51 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   if (deleteBoundaryBtn) deleteBoundaryBtn.addEventListener("click", function (ev) {
     ev.preventDefault();
     deleteLayoutBoundary();
+  });
+  var addLaneBtn = $("btn-add-lane");
+  if (addLaneBtn) addLaneBtn.addEventListener("click", function () {
+    addLayoutLane();
+  });
+  var laneEditorEl = $("layout-lane-editor");
+  if (laneEditorEl) {
+    laneEditorEl.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") {
+        var tag = ev.target && ev.target.tagName ? ev.target.tagName.toLowerCase() : "";
+        if (tag === "button") return;
+        ev.preventDefault();
+        commitDockedInspector({ focusId: ev.target && ev.target.id });
+      } else if (ev.key === "Escape" || ev.key === "Esc") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (inspectorBufferDirty()) {
+          revertInspectorBuffer();
+          setStatus("Edits reverted", "");
+        } else {
+          showDocumentInspector();
+          setStatus("Selection cleared", "");
+        }
+      }
+    });
+  }
+  var laneUpBtn = $("layout-lane-up");
+  if (laneUpBtn) laneUpBtn.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    moveLayoutLane(-1);
+  });
+  var laneDownBtn = $("layout-lane-down");
+  if (laneDownBtn) laneDownBtn.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    moveLayoutLane(1);
+  });
+  var laneDeleteBtn = $("layout-lane-delete");
+  if (laneDeleteBtn) laneDeleteBtn.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    deleteLayoutLane();
+  });
+  var laneAddBtn = $("layout-lane-add");
+  if (laneAddBtn) laneAddBtn.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    addLayoutLane();
   });
   var legendSection = $("inspector-legend");
   if (legendSection) {
@@ -17295,6 +19170,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       layoutInlineBox();
     });
     inlineRenameInput.addEventListener("keydown", function (ev) {
+      if (!inlineRename || inlineRename._closing) return;
+      if (ev.key === "Tab" && inlineRename.kind === "node") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        cycleInlineNodeField(ev.shiftKey ? -1 : 1);
+        return;
+      }
       if (ev.key === "Enter" || ev.key === "Tab") {
         ev.preventDefault();
         ev.stopPropagation();
@@ -17309,7 +19191,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
     });
     inlineRenameInput.addEventListener("blur", function () {
-      if (!inlineRename || inlineRename._closing) return;
+      if (!inlineRename || inlineRename._closing || inlineRename._switching) return;
       commitInlineSession();
     });
   }
@@ -17388,7 +19270,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return;
     }
     if (focusInsideInspectorUi(ev.target)) return;
-    if (nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge") || legendFormDirty()) {
+    if (nodeEdit || cardEdit || boundaryEdit || laneEdit || (singleEdit && singleEdit.kind === "edge") || legendFormDirty()) {
       commitDockedInspector({});
     }
   });
@@ -17475,7 +19357,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         setStatus("Edits reverted", "");
         return;
       }
-      if (nodeEdit || cardEdit || boundaryEdit || (singleEdit && singleEdit.kind === "edge") ||
+      if (nodeEdit || cardEdit || boundaryEdit || laneEdit || (singleEdit && singleEdit.kind === "edge") ||
           state.selectedNodeId || state.selectedComponentId || state.selectedEdgeIndex != null) {
         ev.preventDefault();
         showDocumentInspector();
@@ -17500,6 +19382,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (state.tab === "layout" && boundaryEdit) {
         ev.preventDefault();
         deleteLayoutBoundary();
+        return;
+      }
+      if (state.tab === "layout" && laneEdit) {
+        ev.preventDefault();
+        deleteLayoutLane();
         return;
       }
       if (state.tab === "layout" && state.selectedEdgeIndex != null) {
@@ -17528,7 +19415,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   if (inspectorRoot) {
     inspectorRoot.addEventListener("focusout", function (ev) {
       if (inspectorCommitLock || state.layoutBusy || diagramStripSyncDepth || diagramCommitLock ||
-          legendSyncDepth || cardSyncDepth || boundarySyncDepth) return;
+          legendSyncDepth || cardSyncDepth || boundarySyncDepth || laneSyncDepth) return;
       var target = ev.target;
       if (target && (target.id === "layout-meta-title" || target.id === "layout-meta-subtitle")) return;
       var next = ev.relatedTarget;
@@ -17564,6 +19451,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 </html>
 """
 SPA_HTML = SPA_HTML.replace("__BW_HEADER_MARK__", _HEADER_MARK_SVG)
+SPA_HTML = SPA_HTML.replace(
+    "__TEMPLATE_MANIFEST_JSON__",
+    json.dumps(TEMPLATE_MANIFEST, ensure_ascii=False).replace("<", "\\u003c"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -17617,6 +19508,20 @@ function bendwrightKindFor(node, map) {
   return { label, colorDark, colorLight };
 }
 
+// Opt-in render flags. Unset or any value other than 1/true is stock output.
+function bendwrightEnvFlag(name) {
+  const value = process.env[name];
+  return value === '1' || value === 'true';
+}
+
+function bendwrightBrandReplacesTypeIcon() {
+  return bendwrightEnvFlag('ARCHIFY_BENDWRIGHT_BRAND_REPLACES_TYPE_ICON');
+}
+
+function bendwrightHideLaneChrome() {
+  return bendwrightEnvFlag('ARCHIFY_BENDWRIGHT_HIDE_LANE_CHROME');
+}
+
 """
     legend_new = """const bendwrightKinds = bendwrightKindMap();
 let bendwrightKindNote = '';
@@ -17657,7 +19562,11 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
   }
 }
 """
-    passport_new = """  const brand = renderBrandMark(node, { x: node.x + node.width - 22, y: node.y + 6 });
+    passport_new = """  const bendwrightBrandSlot = bendwrightBrandReplacesTypeIcon()
+    ? renderBrandMark(node, { x: node.x + 6, y: node.y + 6, size: 11 })
+    : '';
+  const brand = bendwrightBrandSlot
+    || renderBrandMark(node, { x: node.x + node.width - 22, y: node.y + 6 });
   const bendwrightKind = bendwrightNodeKinds.get(node.id);
   const passport = {
     kind: node.type,
@@ -17723,6 +19632,36 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
                     "  const brand = renderBrandMark(node, { x: node.x + node.width - 22, y: node.y + 6 });\n"
                     "  const passport = { kind: node.type, sublabel: node.sublabel, tag: node.tag, context: nodeContext(node), ...brandMetadataFor(node) };\n",
                     passport_new,
+                ),
+                (
+                    "          ${renderSemanticSigil(node.type, { x: node.x + 6, y: node.y + 6 })}${brand ? `\\n          ${brand}` : ''}\n",
+                    "          ${bendwrightBrandSlot ? '' : renderSemanticSigil(node.type, { x: node.x + 6, y: node.y + 6 })}${brand ? `\\n          ${brand}` : ''}\n",
+                ),
+                (
+                    "function renderLane(lane, index) {\n"
+                    "  const y = laneTop(lane.id);\n"
+                    "  const height = laneHeight(index);\n"
+                    "  const exception = lane.variant === 'exception'\n"
+                    "    ? `\\n        <rect data-graph-role=\"structural-frame\" data-composition-frame-kind=\"exception-lane\" data-composition-frame-id=\"lane-${index}-exception\" x=\"${layout.laneX + 6}\" y=\"${y + 6}\" width=\"${layout.laneW - 12}\" height=\"${height - 12}\" rx=\"8\" class=\"c-security-group\" stroke-width=\"1\"/>`\n"
+                    "    : '';\n"
+                    "  const labelClass = lane.variant === 'exception' ? 't-security' : 't-dim';\n"
+                    "  const prefix = lane.variant === 'exception' ? 'EX' : String(index + 1).padStart(2, '0');\n"
+                    "  return `        <rect data-graph-role=\"structural-frame\" data-composition-frame-kind=\"lane\" data-composition-frame-id=\"lane-${index}\" x=\"${layout.laneX}\" y=\"${y}\" width=\"${layout.laneW}\" height=\"${height}\" rx=\"10\" class=\"c-lane\" stroke-width=\"1\"/>${exception}\n"
+                    "        <text x=\"${layout.laneX + 14}\" y=\"${y + 22}\" class=\"${labelClass}\" font-size=\"10\" font-weight=\"600\">${prefix} / ${esc(lane.label)}</text>`;\n"
+                    "}\n",
+                    "function renderLane(lane, index) {\n"
+                    "  const y = laneTop(lane.id);\n"
+                    "  const height = laneHeight(index);\n"
+                    "  const hideLaneChrome = bendwrightHideLaneChrome();\n"
+                    "  const laneOpacity = hideLaneChrome ? ' opacity=\"0\"' : '';\n"
+                    "  const exception = lane.variant === 'exception'\n"
+                    "    ? `\\n        <rect data-graph-role=\"structural-frame\" data-composition-frame-kind=\"exception-lane\" data-composition-frame-id=\"lane-${index}-exception\" x=\"${layout.laneX + 6}\" y=\"${y + 6}\" width=\"${layout.laneW - 12}\" height=\"${height - 12}\" rx=\"8\" class=\"c-security-group\" stroke-width=\"1\"${laneOpacity}/>`\n"
+                    "    : '';\n"
+                    "  const labelClass = lane.variant === 'exception' ? 't-security' : 't-dim';\n"
+                    "  const prefix = lane.variant === 'exception' ? 'EX' : String(index + 1).padStart(2, '0');\n"
+                    "  const header = hideLaneChrome ? '' : `\\n        <text x=\"${layout.laneX + 14}\" y=\"${y + 22}\" class=\"${labelClass}\" font-size=\"10\" font-weight=\"600\">${prefix} / ${esc(lane.label)}</text>`;\n"
+                    "  return `        <rect data-graph-role=\"structural-frame\" data-composition-frame-kind=\"lane\" data-composition-frame-id=\"lane-${index}\" x=\"${layout.laneX}\" y=\"${y}\" width=\"${layout.laneW}\" height=\"${height}\" rx=\"10\" class=\"c-lane\" stroke-width=\"1\"${laneOpacity}/>${exception}${header}`;\n"
+                    "}\n",
                 ),
                 (
                     "function renderLegend() {\n"
@@ -17920,6 +19859,18 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
                     "}\n",
                 ),
                 (
+                    "  const brand = renderBrandMark(c, { x: c.x + c.width - 22, y: c.y + 6 });\n",
+                    "  const bendwrightBrandSlot = bendwrightBrandReplacesTypeIcon()\n"
+                    "    ? renderBrandMark(c, { x: c.x + 6, y: c.y + 6, size: 11 })\n"
+                    "    : '';\n"
+                    "  const brand = bendwrightBrandSlot\n"
+                    "    || renderBrandMark(c, { x: c.x + c.width - 22, y: c.y + 6 });\n",
+                ),
+                (
+                    "          ${renderSemanticSigil(c.type, { x: c.x + 6, y: c.y + 6 })}${brand ? `\\n          ${brand}` : ''}\n",
+                    "          ${bendwrightBrandSlot ? '' : renderSemanticSigil(c.type, { x: c.x + 6, y: c.y + 6 })}${brand ? `\\n          ${brand}` : ''}\n",
+                ),
+                (
                     "  const passport = { kind: c.type, sublabel: c.sublabel, tag: c.tag, context: componentContext(c), ...brandMetadataFor(c) };\n",
                     "  const bendwrightKind = bendwrightNodeKinds.get(c.id);\n"
                     "  const passport = {\n"
@@ -18037,6 +19988,39 @@ def _replace_anchors(
     for old, new in anchors:
         out = out.replace(old, new, 1)
     return out, None
+
+
+def _read_utf8(path: Path) -> str | None:
+    try:
+        return path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+
+
+def _spec_patched_text(
+    root: Path, spec: dict[str, Any], disk_text: str
+) -> tuple[str | None, str | None]:
+    """Apply anchors to the live file, or to its .bendwright-orig backup.
+
+    A previous hunk set already replaced the stock anchors. Re-apply reads
+    the backup (the original bytes unpatch restores) and does not rewrite it.
+    """
+    anchors = spec["anchors"]
+    rel = spec["path"]
+    if _anchors_applied(disk_text, anchors):
+        return disk_text, None
+    updated, err = _replace_anchors(disk_text, anchors)
+    if updated is not None:
+        return updated, None
+    backup_text = _read_utf8(_backup_path(root / rel))
+    if backup_text is not None and backup_text != disk_text:
+        updated, backup_err = _replace_anchors(backup_text, anchors)
+        if updated is not None:
+            return updated, None
+        err = f"{err}; backup {backup_err}"
+    if _anchors_partial(disk_text, anchors):
+        return None, f"anchor partial in {rel}"
+    return None, f"anchor miss in {rel}: {err}"
 
 
 def _hash_map(root: Path, rels: tuple[str, ...]) -> dict[str, str] | None:
@@ -18279,18 +20263,9 @@ def _apply_archify_kind_patch(archify_mjs: str | None) -> tuple[str, str]:
         except (OSError, UnicodeError) as e:
             return f"archify patch: not patched (could not read {rel}: {e})", "unpatched"
         originals[rel] = text
-        anchors = spec["anchors"]
-        if _anchors_applied(text, anchors):
-            # Already patched (workflow tree). Leave the file and its backup.
-            patched_text[rel] = text
-            continue
-        if _anchors_partial(text, anchors):
-            note = f"anchor partial in {rel}"
-            _record_patch_failure(hunk_sha, root, version, current, note)
-            return f"archify patch: not patched ({note}; custom names shown in tooltips and page legend only)", "unpatched"
-        updated, err = _replace_anchors(text, anchors)
+        updated, err = _spec_patched_text(root, spec, text)
         if updated is None:
-            note = f"anchor miss in {rel}: {err}"
+            note = err or f"anchor miss in {rel}"
             _record_patch_failure(hunk_sha, root, version, current, note)
             return f"archify patch: not patched ({note}; custom names shown in tooltips and page legend only)", "unpatched"
         patched_text[rel] = updated

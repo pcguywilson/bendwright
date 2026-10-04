@@ -15,9 +15,14 @@ stays valid Archify.
 
 ![bendwright editing the sample workflow: a node selected, its fields in the inspector on the right](docs/img/screenshot-workflow.png)
 
-**Bring your own Archify JSON.** This edits Archify's workflow and architecture IR, not
-arbitrary JSON. Point it at a `.workflow.json` or `.architecture.json` that already works
-with Archify, make your edits, and save.
+**Start from scratch or bring your own.** Click **New** for a blank workflow or
+architecture diagram, or start from one of the built-in templates (request and approval,
+incident response, three-tier web app, data pipeline). Or open a `.workflow.json` or
+`.architecture.json` that already works with Archify. bendwright edits Archify's workflow
+and architecture IR, not arbitrary JSON.
+
+**Help inside the app.** The **?** button in the header (or **Help** in the **⋯** menu)
+opens a how-to guide in a new tab.
 
 ## Contents
 
@@ -99,7 +104,7 @@ python bendwright.py diagram.workflow.json --port 8770 --archify /path/to/archif
 
 Two sample diagrams, `bendwright.example.workflow.json` and
 `bendwright.example.architecture.json`, are included, so you can launch and click Open to
-try them right away.
+try them right away. To start fresh, click **New** and pick a blank diagram or a template.
 
 bendwright shuts its own server down a few seconds after you close the browser. If you
 want it to stay running while you step away for a long time, launch with `--keep-alive`.
@@ -193,13 +198,15 @@ you close it. Your file is never left unrenderable.
   **Enter** applies your edits as one undo step; **Esc** throws them away.
 - **Connections** - add, reroute, restyle, relabel, and delete edges.
 - **Rename in place** - double-click a node, edge, lane, boundary, or card title (or
-  press **F2** on a selection) and type right on the diagram. **Enter** applies, **Esc**
-  cancels.
+  press **F2** on a selection) and type right on the diagram. On a node, double-click the
+  sublabel or tag to edit those, and **Tab** moves between label, sublabel, and tag.
+  **Enter** saves, **Esc** cancels.
 - **Boxes grow to fit** - type a long label and the node or component widens on its own,
   so you can drop in rough nodes now and fill in details later.
 - **Preview** - **Preview** on the bottom tool bar opens the full rendered page in a new tab.
-- **New diagram** - start from scratch with **New**. The first **Save** asks where to
-  write it.
+- **New diagram and templates** - **New** starts a blank workflow or architecture
+  diagram, or one of four starter templates. The first **Save** asks where to write it.
+- **Built-in guide** - **?** in the header opens a how-to guide in a new tab.
 - **Native file picker** - open a diagram through your OS file dialog.
 
 ### Diagram parts
@@ -211,6 +218,8 @@ you close it. Your file is never left unrenderable.
   to draw a new boundary around the components inside it.
 - **Cards** - edit cards in place under the drawing, or hide them with **Cards**.
 - **Legend** - legend mode (auto, all, hidden) plus a label and visibility per type.
+- **Lanes** - click a lane to rename it, set its variant, move it up or down, delete it,
+  or add a new one with **+ Lane**.
 
 ### Look and feel
 
@@ -226,6 +235,17 @@ you close it. Your file is never left unrenderable.
   logo catalog, a few extras bendwright ships for common infrastructure, and your own
   PNGs. The catalog is read from your Archify install, so logos Archify adds later show up
   automatically.
+
+### Display options
+
+With nothing selected, the inspector's **Display** section has two per-diagram switches.
+Both are saved beside the diagram and only change how bendwright renders it; the Archify
+JSON is untouched, and running Archify on its own gives its normal output.
+
+- **Icon replaces type glyph** - a node with an icon shows that icon in the top-left
+  corner instead of the type glyph.
+- **Hide lane frames** - a workflow draws no lane frames or lane headers. The lanes still
+  exist (Archify needs them), so you can still click and edit them.
 
 ### Files and safety
 
@@ -250,6 +270,7 @@ you close it. Your file is never left unrenderable.
 | **C** | Connect tool |
 | **B** | Boundary tool (architecture) |
 | **F2** | Rename the selection in place |
+| **Tab** / **Shift+Tab** | Next / previous field while renaming a node |
 | **Enter** | Apply edits |
 | **Esc** | Discard unapplied edits, close a panel, or clear the selection |
 | **Delete** / **Backspace** | Delete the selected node, edge, or card |
