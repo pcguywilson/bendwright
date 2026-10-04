@@ -5470,13 +5470,20 @@ header h1 {
 .bw-mark svg { width: 22px; height: 22px; display: block; }
 header .meta { color: var(--text); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kind-chip {
-  flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
   font-size: 11px; line-height: 1.2;
-  padding: 2px 8px 2px 6px; border-radius: 999px;
+  padding: 2px 8px; border-radius: 999px;
   border: 1px solid #8FB4C9; background: var(--surface2); color: #F4F7FA;
+  cursor: default; user-select: none;
 }
 .kind-chip[hidden] { display: none; }
-.kind-glyph { width: 11px; height: 11px; flex: 0 0 11px; display: block; }
+.kind-chip:hover, .kind-chip:active {
+  border-color: #8FB4C9; background: var(--surface2); color: #F4F7FA;
+}
+.kind-chip-dot {
+  width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%;
+  background: #8FB4C9; display: block;
+}
 .save-state { flex-shrink: 0; font-size: 12px; color: var(--muted); }
 .save-state[hidden] { display: none; }
 .save-state.is-unsaved { color: var(--accent); }
@@ -6301,7 +6308,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 <header>
   <h1><span class="bw-mark" aria-hidden="true">__BW_HEADER_MARK__</span>bendwright</h1>
   <div class="meta" id="file-meta">loading…</div>
-  <span id="file-kind" class="kind-chip" hidden></span>
+  <span id="file-kind" class="kind-chip" role="none" hidden></span>
   <span id="file-save-state" class="save-state" hidden></span>
   <button type="button" id="status-chip" class="status-chip" hidden title="Show error"></button>
   <div class="toolbar">
@@ -7037,12 +7044,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return JSON.stringify(a) === JSON.stringify(b);
   }
 
-  var KIND_GLYPH_LANES = '<svg class="kind-glyph" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" d="M1.5 3h9M1.5 6h9M1.5 9h9"/></svg>';
-  var KIND_GLYPH_BOXES = '<svg class="kind-glyph" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><rect x="1.15" y="1.15" width="6.1" height="6.1" rx="0.7" fill="none" stroke="currentColor" stroke-width="1.15"/><rect x="4.75" y="4.75" width="6.1" height="6.1" rx="0.7" fill="none" stroke="currentColor" stroke-width="1.15"/></svg>';
+  var KIND_CHIP_DOT = '<span class="kind-chip-dot" aria-hidden="true"></span>';
 
   function setFileKindChip(hasDoc) {
     var kindEl = $("file-kind");
     if (!kindEl) return;
+    kindEl.setAttribute("role", "none");
     if (!hasDoc) {
       kindEl.hidden = true;
       kindEl.textContent = "";
@@ -7051,10 +7058,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     kindEl.hidden = false;
     if (isArchitecture()) {
-      kindEl.innerHTML = KIND_GLYPH_BOXES + '<span class="kind-chip-label">Architecture</span>';
+      kindEl.innerHTML = KIND_CHIP_DOT + '<span class="kind-chip-label">Architecture</span>';
       kindEl.title = "Architecture: components and boundaries";
     } else {
-      kindEl.innerHTML = KIND_GLYPH_LANES + '<span class="kind-chip-label">Workflow</span>';
+      kindEl.innerHTML = KIND_CHIP_DOT + '<span class="kind-chip-label">Workflow</span>';
       kindEl.title = "Workflow: a process in lanes";
     }
   }
@@ -8658,22 +8665,23 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function ensureBrandWidth(node) {
-    // archify brandTopRailProblem: available text width is box width - 48.
+    // Stock archify brandTopRailProblem: available text is box width - 48.
+    // Replace-mode (flag on) uses the same left rail as the patched renderer:
+    // 8px pad + 22px tile + 8px gap. Flag off keeps 48 so stock output is unchanged.
     // Workflow: absent width renders as 92, legible minimum 9. Writes width.
     // Architecture: absent size renders as 120x60, legible minimum 8.
     // Writes size[0] only when size is already set or that default is too
     // narrow. Never shrink. Does not change size[1] when size is already set.
-    // Ceil and add 1px so 48 + units*em*0.6 cannot land a float hair under
+    // Ceil and add 1px so rail + units*em*0.6 cannot land a float hair under
     // the width archify measures. Written widths are integers.
     if (!node) return;
     var label = node.label != null ? String(node.label) : "";
     if (isArchitecture()) {
-      var required = textUnits(label) * 8 * 0.6;
       var size = node.size;
       var hasSize = Array.isArray(size) && size.length >= 2 &&
         typeof size[0] === "number" && isFinite(size[0]);
       var current = hasSize ? size[0] : 120;
-      var next = Math.ceil(48 + required) + 1;
+      var next = brandRailWidth(textUnits(label), 8);
       if (current >= next) return;
       var height = 60;
       if (hasSize && typeof size[1] === "number" && isFinite(size[1]) && size[1] > 0) {
@@ -8682,11 +8690,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       node.size = [Math.max(current, next), height];
       return;
     }
-    var required = textUnits(label) * 9 * 0.6;
     var hasWidth = typeof node.width === "number" && isFinite(node.width);
     var currentW = hasWidth ? node.width : 92;
-    var next = Math.max(currentW, Math.ceil(48 + required) + 1);
-    if (!hasWidth || node.width < next) node.width = next;
+    var nextW = brandRailWidth(textUnits(label), 9);
+    if (!hasWidth || node.width < nextW) node.width = Math.max(currentW, nextW);
   }
 
   // Smallest integer w with units * factor <= w + slack.
@@ -8700,18 +8707,26 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   // textUnits * minimum * 0.6 <= w - 8 (text-fit padding).
-  function detailWidthForUnits(units, minimum) {
+  // extraRail is the replace-mode left rail (38) when the node has a brand.
+  // Flag off and unbranded nodes pass 0, so the pad stays 8.
+  function detailWidthForUnits(units, minimum, extraRail) {
     if (!(units > 0)) return 0;
-    var limit = units * minimum * 0.6 + 8;
+    var rail = extraRail > 0 ? extraRail : 0;
+    var pad = 8 + rail;
+    var limit = units * minimum * 0.6 + pad;
     var w = Math.ceil(limit - 1e-9);
     if (w < 0) w = 0;
-    while (units * minimum * 0.6 > (w - 8) + 1e-9) w += 1;
+    while (units * minimum * 0.6 > (w - pad) + 1e-9) w += 1;
     return w;
   }
 
-  // Same floor ensureBrandWidth writes: ceil(48 + units * fontMin * 0.6) + 1.
+  // Floor ensureBrandWidth writes. Flag off: ceil(48 + units * fontMin * 0.6) + 1.
+  // Flag on: the replace-mode left rail (8 + 22 + 8), same number the patched
+  // workflow and architecture renderers reserve so the label clears the tile.
+  var BRAND_REPLACE_RAIL = 38;
   function brandRailWidth(units, fontMin) {
-    return Math.ceil(48 + units * fontMin * 0.6) + 1;
+    var rail = displayFlagOn("brandReplacesTypeIcon") ? BRAND_REPLACE_RAIL : 48;
+    return Math.ceil(rail + units * fontMin * 0.6) + 1;
   }
 
   function snapWidthUp10(w) {
@@ -8756,10 +8771,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var tag = node.tag != null && node.tag !== "" ? String(node.tag) : "";
     var labelUnits = textUnits(label);
     var branded = node.brand != null && node.brand !== "";
+    var detailRail = (branded && displayFlagOn("brandReplacesTypeIcon")) ? BRAND_REPLACE_RAIL : 0;
     if (isArchitecture()) {
       var need = widthForUnits(labelUnits, 6.6, 8);
-      if (sub) need = Math.max(need, detailWidthForUnits(textUnits(sub), 6));
-      if (tag) need = Math.max(need, detailWidthForUnits(textUnits(tag), 6));
+      if (sub) need = Math.max(need, detailWidthForUnits(textUnits(sub), 6, detailRail));
+      if (tag) need = Math.max(need, detailWidthForUnits(textUnits(tag), 6, detailRail));
       if (branded) need = Math.max(need, brandRailWidth(labelUnits, 8));
       if (!(need > 0)) return true;
       var snapped = snapWidthUp10(need);
@@ -8775,8 +8791,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return true;
     }
     var needW = widthForUnits(labelUnits, 6.8, 6);
-    if (sub) needW = Math.max(needW, detailWidthForUnits(textUnits(sub), 6));
-    if (tag) needW = Math.max(needW, detailWidthForUnits(textUnits(tag), 6));
+    if (sub) needW = Math.max(needW, detailWidthForUnits(textUnits(sub), 6, detailRail));
+    if (tag) needW = Math.max(needW, detailWidthForUnits(textUnits(tag), 6, detailRail));
     if (branded) needW = Math.max(needW, brandRailWidth(labelUnits, 9));
     var hasWidth = typeof node.width === "number" && isFinite(node.width);
     var currentW = hasWidth ? node.width : 92;
@@ -19522,6 +19538,51 @@ function bendwrightHideLaneChrome() {
   return bendwrightEnvFlag('ARCHIFY_BENDWRIGHT_HIDE_LANE_CHROME');
 }
 
+// Replace-mode mark. Flag off never calls these from a changed code path.
+// 22px tile at x+8. No sublabel: tile center sits 2px above the label baseline
+// (workflow baseline y+21 => y+8). With a sublabel the tile stays at y+8.
+// Left rail is pad 8 + tile 22 + gap 8, matching bendwright brandRailWidth.
+const BENDWRIGHT_REPLACE_ICON = 22;
+const BENDWRIGHT_REPLACE_RAIL = 38;
+
+function bendwrightReplaceOrigin(node, labelBaseline) {
+  const hasSub = node.sublabel != null && node.sublabel !== '';
+  const y = hasSub ? node.y + 8 : labelBaseline - 13;
+  return { x: node.x + 8, y, size: BENDWRIGHT_REPLACE_ICON };
+}
+
+function bendwrightReplaceSlot(node, labelBaseline) {
+  if (!bendwrightBrandReplacesTypeIcon()) return '';
+  return renderBrandMark(node, bendwrightReplaceOrigin(node, labelBaseline));
+}
+
+function bendwrightLabelFitWidth(node, width) {
+  if (bendwrightBrandReplacesTypeIcon() && brandMarkFor(node)) {
+    return Math.max(1, width - BENDWRIGHT_REPLACE_RAIL);
+  }
+  return brandLabelFitWidth(node, width);
+}
+
+function bendwrightLabelX(node, fallbackX) {
+  if (!(bendwrightBrandReplacesTypeIcon() && brandMarkFor(node))) return fallbackX;
+  const room = Math.max(1, node.width - BENDWRIGHT_REPLACE_RAIL);
+  return node.x + BENDWRIGHT_REPLACE_RAIL + room / 2;
+}
+
+// Sublabel and tag share the label's left rail. Flag off (or no mark) keeps
+// the full box width, which is what stock fittedNodeFontSize already receives.
+function bendwrightDetailFitWidth(node, width) {
+  if (!(bendwrightBrandReplacesTypeIcon() && brandMarkFor(node))) return width;
+  return Math.max(1, width - BENDWRIGHT_REPLACE_RAIL);
+}
+
+function bendwrightBrandRailProblem(node, width, minimumFontSize, subject) {
+  const useRail = bendwrightBrandReplacesTypeIcon() && brandMarkFor(node);
+  const measured = useRail ? width - BENDWRIGHT_REPLACE_RAIL + 48 : width;
+  if (subject == null) return brandTopRailProblem(node, measured, minimumFontSize);
+  return brandTopRailProblem(node, measured, minimumFontSize, subject);
+}
+
 """
     legend_new = """const bendwrightKinds = bendwrightKindMap();
 let bendwrightKindNote = '';
@@ -19562,9 +19623,7 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
   }
 }
 """
-    passport_new = """  const bendwrightBrandSlot = bendwrightBrandReplacesTypeIcon()
-    ? renderBrandMark(node, { x: node.x + 6, y: node.y + 6, size: 11 })
-    : '';
+    passport_new = """  const bendwrightBrandSlot = bendwrightReplaceSlot(node, node.y + 21);
   const brand = bendwrightBrandSlot
     || renderBrandMark(node, { x: node.x + node.width - 22, y: node.y + 6 });
   const bendwrightKind = bendwrightNodeKinds.get(node.id);
@@ -19687,6 +19746,38 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
                     "        <!-- Legend -->\n"
                     "${renderLegend()}${bendwrightKindNote ? `\\n        <!-- bendwright: ${bendwrightKindNote} -->` : ''}\n"
                     "      </svg>`;\n",
+                ),
+                (
+                    "import { brandLabelFitWidth, brandMetadataFor, brandTopRailProblem, renderBrandMark } from '../shared/brand-marks.mjs';\n",
+                    "import { brandLabelFitWidth, brandMarkFor, brandMetadataFor, brandTopRailProblem, renderBrandMark } from '../shared/brand-marks.mjs';\n",
+                ),
+                (
+                    "  const labelFontSize = fittedNodeFontSize(node.label, brandLabelFitWidth(node, node.width), nodeTextFit.labelPreferred, nodeTextFit.labelMinimum);\n",
+                    "  const labelFontSize = fittedNodeFontSize(node.label, bendwrightLabelFitWidth(node, node.width), nodeTextFit.labelPreferred, nodeTextFit.labelMinimum);\n",
+                ),
+                (
+                    "          <text data-node-label=\"\"${hasSub ? ' data-detail-anchor=\"\"' : ''} x=\"${node.cx}\" y=\"${node.y + 21}\" class=\"t-primary\" font-size=\"${labelFontSize}\" font-weight=\"600\" text-anchor=\"middle\">${esc(node.label)}</text>${sub}${tag}\n",
+                    "          <text data-node-label=\"\"${hasSub ? ' data-detail-anchor=\"\"' : ''} x=\"${bendwrightLabelX(node, node.cx)}\" y=\"${node.y + 21}\" class=\"t-primary\" font-size=\"${labelFontSize}\" font-weight=\"600\" text-anchor=\"middle\">${esc(node.label)}</text>${sub}${tag}\n",
+                ),
+                (
+                    "    ? fittedNodeFontSize(node.sublabel, node.width, nodeTextFit.sublabelPreferred, nodeTextFit.sublabelMinimum)\n",
+                    "    ? fittedNodeFontSize(node.sublabel, bendwrightDetailFitWidth(node, node.width), nodeTextFit.sublabelPreferred, nodeTextFit.sublabelMinimum)\n",
+                ),
+                (
+                    "    ? `\\n          <text data-detail=\"context\" x=\"${node.cx}\" y=\"${node.y + 38}\" class=\"t-muted\" font-size=\"${sublabelFontSize}\" text-anchor=\"middle\">${esc(node.sublabel)}</text>`\n",
+                    "    ? `\\n          <text data-detail=\"context\" x=\"${bendwrightLabelX(node, node.cx)}\" y=\"${node.y + 38}\" class=\"t-muted\" font-size=\"${sublabelFontSize}\" text-anchor=\"middle\">${esc(node.sublabel)}</text>`\n",
+                ),
+                (
+                    "    ? `\\n        <text data-detail=\"fine\" x=\"${node.cx}\" y=\"${node.y + node.height - 12}\" class=\"${accent}\" font-size=\"${fittedNodeFontSize(node.tag, node.width, nodeTextFit.tagPreferred, nodeTextFit.tagMinimum)}\" text-anchor=\"middle\">${esc(node.tag)}</text>`\n",
+                    "    ? `\\n        <text data-detail=\"fine\" x=\"${bendwrightLabelX(node, node.cx)}\" y=\"${node.y + node.height - 12}\" class=\"${accent}\" font-size=\"${fittedNodeFontSize(node.tag, bendwrightDetailFitWidth(node, node.width), nodeTextFit.tagPreferred, nodeTextFit.tagMinimum)}\" text-anchor=\"middle\">${esc(node.tag)}</text>`\n",
+                ),
+                (
+                    "    const availableTextW = availableNodeTextWidth(node.width);\n",
+                    "    const availableTextW = availableNodeTextWidth(bendwrightDetailFitWidth(node, node.width));\n",
+                ),
+                (
+                    "    const brandRailProblem = brandTopRailProblem(node, node.width, nodeTextFit.labelMinimum);\n",
+                    "    const brandRailProblem = bendwrightBrandRailProblem(node, node.width, nodeTextFit.labelMinimum);\n",
                 ),
             ),
         },
@@ -19860,9 +19951,7 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
                 ),
                 (
                     "  const brand = renderBrandMark(c, { x: c.x + c.width - 22, y: c.y + 6 });\n",
-                    "  const bendwrightBrandSlot = bendwrightBrandReplacesTypeIcon()\n"
-                    "    ? renderBrandMark(c, { x: c.x + 6, y: c.y + 6, size: 11 })\n"
-                    "    : '';\n"
+                    "  const bendwrightBrandSlot = bendwrightReplaceSlot(c, labelY);\n"
                     "  const brand = bendwrightBrandSlot\n"
                     "    || renderBrandMark(c, { x: c.x + c.width - 22, y: c.y + 6 });\n",
                 ),
@@ -19898,6 +19987,34 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
                     "      }\n"
                     "      return `<rect x=\"${entry.x}\" y=\"${entry.baseline - 9}\" width=\"16\" height=\"10\" rx=\"2.5\" class=\"${componentFill[entry.kind] || 'c-external'}\" stroke-width=\"1\"/>`;\n"
                     "    },\n",
+                ),
+                (
+                    "import { brandLabelFitWidth, brandMetadataFor, brandTopRailProblem, renderBrandMark } from '../shared/brand-marks.mjs';\n",
+                    "import { brandLabelFitWidth, brandMarkFor, brandMetadataFor, brandTopRailProblem, renderBrandMark } from '../shared/brand-marks.mjs';\n",
+                ),
+                (
+                    "  const labelFontSize = fittedNodeFontSize(c.label, brandLabelFitWidth(c, c.width), 11, 8);\n",
+                    "  const labelFontSize = fittedNodeFontSize(c.label, bendwrightLabelFitWidth(c, c.width), 11, 8);\n",
+                ),
+                (
+                    "          <text data-node-label=\"\"${hasSub ? ' data-detail-anchor=\"\"' : ''} x=\"${cx}\" y=\"${labelY}\" class=\"t-primary\" font-size=\"${labelFontSize}\" font-weight=\"600\" text-anchor=\"middle\">${esc(c.label)}</text>${sub}${tag}\n",
+                    "          <text data-node-label=\"\"${hasSub ? ' data-detail-anchor=\"\"' : ''} x=\"${bendwrightLabelX(c, cx)}\" y=\"${labelY}\" class=\"t-primary\" font-size=\"${labelFontSize}\" font-weight=\"600\" text-anchor=\"middle\">${esc(c.label)}</text>${sub}${tag}\n",
+                ),
+                (
+                    "    ? `\\n        <text data-detail=\"context\" x=\"${cx}\" y=\"${c.y + c.height / 2 + 14}\" class=\"t-muted\" font-size=\"${fittedNodeFontSize(c.sublabel, c.width, componentTextFit.sublabelPreferred, componentTextFit.sublabelMinimum)}\" text-anchor=\"middle\">${esc(c.sublabel)}</text>`\n",
+                    "    ? `\\n        <text data-detail=\"context\" x=\"${bendwrightLabelX(c, cx)}\" y=\"${c.y + c.height / 2 + 14}\" class=\"t-muted\" font-size=\"${fittedNodeFontSize(c.sublabel, bendwrightDetailFitWidth(c, c.width), componentTextFit.sublabelPreferred, componentTextFit.sublabelMinimum)}\" text-anchor=\"middle\">${esc(c.sublabel)}</text>`\n",
+                ),
+                (
+                    "    ? `\\n        <text data-detail=\"fine\" x=\"${cx}\" y=\"${c.y + c.height - 8}\" class=\"${accent}\" font-size=\"${fittedNodeFontSize(c.tag, c.width, componentTextFit.tagPreferred, componentTextFit.tagMinimum)}\" text-anchor=\"middle\">${esc(c.tag)}</text>`\n",
+                    "    ? `\\n        <text data-detail=\"fine\" x=\"${bendwrightLabelX(c, cx)}\" y=\"${c.y + c.height - 8}\" class=\"${accent}\" font-size=\"${fittedNodeFontSize(c.tag, bendwrightDetailFitWidth(c, c.width), componentTextFit.tagPreferred, componentTextFit.tagMinimum)}\" text-anchor=\"middle\">${esc(c.tag)}</text>`\n",
+                ),
+                (
+                    "    const availableTextW = availableNodeTextWidth(c.width);\n",
+                    "    const availableTextW = availableNodeTextWidth(bendwrightDetailFitWidth(c, c.width));\n",
+                ),
+                (
+                    "    const brandRailProblem = brandTopRailProblem(c, c.width, 8, 'Component');\n",
+                    "    const brandRailProblem = bendwrightBrandRailProblem(c, c.width, 8, 'Component');\n",
                 ),
             ),
         },
