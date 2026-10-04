@@ -259,6 +259,9 @@ JSON is untouched, and running Archify on its own gives its normal output.
   Files are written with 2-space indentation.
 - **Export HTML** - from the **⋯** menu, one click saves the JSON and writes the rendered
   `.html` (via Archify) right next to it, always in sync. No CLI needed.
+- **Two diagrams at once** - launch bendwright twice; the second one picks the next free
+  port (8771, 8772, ...). If one tab opens a different diagram, any other tab on that
+  server asks you to reload instead of saving into the wrong file.
 - **Auto-shutdown** - close the browser and the server (and its console window) shut down
   on their own a few seconds later.
 

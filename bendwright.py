@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+import errno
 import hashlib
 import json
 import os
@@ -1546,8 +1547,19 @@ _had_trailing_newline: bool = True
 _archify_path: str | None = None
 _preview_html: bytes | None = None
 _diagram_html: bytes | None = None
-# Loopback port baked into /api/brands URLs. main() sets this from --port.
+# Loopback port baked into /api/brands URLs. main() sets this from the bound port.
 _listen_port: int = 8770
+# Identity of the diagram this process is editing. gen bumps on Open, New,
+# template, and Discard reload. Save As of a new diagram changes the file
+# only, so the tab that saved can adopt the new path without a bump.
+_session_gen: int = 1
+_PORT_WINDOW_LO = 8770
+_PORT_WINDOW_HI = 8789
+STALE_TAB_MSG = (
+    "This tab is out of date: the diagram was switched in another tab. "
+    "Reload to continue."
+)
+_SESSION_HEADER = "X-Bendwright-Session"
 # M27: status note when the installed archify is not the version we verified.
 _archify_version_note: str | None = None
 # M29: resolved-tree kind-label patch. "patched" | "applied" | "opted-out" | "unpatched".
@@ -1747,10 +1759,124 @@ def native_pick_path(initial_dir: str) -> dict[str, Any]:
     return {"ok": True, "path": chosen}
 
 
+def session_public() -> dict[str, Any]:
+    """File plus generation the SPA echoes on mutating calls.
+
+    Caller holds _state_lock, or no request threads exist yet.
+    """
+    return {
+        "file": str(_file_path) if _file_path is not None else None,
+        "gen": _session_gen,
+    }
+
+
+def _session_file_text(value: Any) -> tuple[bool, str | None]:
+    if value is None or value == "":
+        return True, None
+    if not isinstance(value, str):
+        return False, None
+    return True, value
+
+
+def _files_match(got: str | None, want: str | None) -> bool:
+    if got is None and want is None:
+        return True
+    if got is None or want is None:
+        return False
+    if got == want:
+        return True
+    try:
+        left = Path(got).resolve()
+        right = Path(want).resolve()
+    except (OSError, RuntimeError):
+        return False
+    if left == right:
+        return True
+    if os.name == "nt":
+        return os.path.normcase(str(left)) == os.path.normcase(str(right))
+    return False
+
+
+def session_matches(presented: Any) -> bool:
+    """True when this tab still has the diagram the server is editing.
+
+    Caller holds _state_lock. Missing or malformed identity does not match.
+    """
+    if not isinstance(presented, dict):
+        return False
+    gen = presented.get("gen")
+    if isinstance(gen, bool) or not isinstance(gen, int):
+        return False
+    if gen != _session_gen:
+        return False
+    ok, got = _session_file_text(presented.get("file"))
+    if not ok:
+        return False
+    want = str(_file_path) if _file_path is not None else None
+    return _files_match(got, want)
+
+
+def bump_session() -> None:
+    """Open, New, template, or Discard reload. Caller holds _state_lock."""
+    global _session_gen
+    _session_gen += 1
+
+
+def _addr_in_use(exc: OSError) -> bool:
+    # Windows http.server with SO_REUSEADDR reports a busy port as 10013
+    # (access denied) instead of 10048. An excluded port is the same code.
+    # Either way this port cannot be taken; the scan tries the next one.
+    winerror = getattr(exc, "winerror", None)
+    if winerror in (10013, 10048):
+        return True
+    if exc.errno in (errno.EADDRINUSE, 10048):
+        return True
+    text = str(exc).lower()
+    return (
+        "address already in use" in text
+        or "only one usage of each socket address" in text
+        or "access a socket in a way forbidden" in text
+    )
+
+
+def listen_port_candidates(preferred: int) -> list[int]:
+    """Preferred port first, then the next ports in 8770..8789."""
+    if isinstance(preferred, bool) or not isinstance(preferred, int):
+        return []
+    if preferred < 0 or preferred > 65535:
+        return [preferred]
+    if _PORT_WINDOW_LO <= preferred <= _PORT_WINDOW_HI:
+        return list(range(preferred, _PORT_WINDOW_HI + 1))
+    window = [port for port in range(_PORT_WINDOW_LO, _PORT_WINDOW_HI + 1) if port != preferred]
+    return [preferred] + window
+
+
+class ExclusiveThreadingHTTPServer(ThreadingHTTPServer):
+    # Default SO_REUSEADDR on Windows turns a busy port into WinError 10013
+    # and can let two listeners share one port. Exclusive bind makes the
+    # next bendwright take the next port in the window.
+    allow_reuse_address = False
+
+
+def bind_loopback(preferred: int) -> tuple[ThreadingHTTPServer | None, OSError | None]:
+    """Bind the first free candidate. A non-in-use error stops the scan."""
+    last_in_use: OSError | None = None
+    for port in listen_port_candidates(preferred):
+        try:
+            return ExclusiveThreadingHTTPServer(("127.0.0.1", port), Handler), None
+        except OSError as exc:
+            if _addr_in_use(exc):
+                last_in_use = exc
+                continue
+            return None, exc
+    return None, last_in_use
+
+
 def state_payload() -> dict[str, Any]:
     has_doc = isinstance(_doc, dict) and bool(_doc)
     payload: dict[str, Any] = {
         "file": str(_file_path) if _file_path is not None else None,
+        "session": session_public(),
         "diagram_type": _diagram_type,
         "doc": _doc if has_doc else None,
         "ir": (
@@ -4545,6 +4671,7 @@ _HELP_BODY = r"""<header class="help-head">
     <li><code>&lt;name&gt;.bendwright.json</code>, next to your diagram: colors, line styles, custom types, display options, and any of your own icons the diagram uses. Keep it with the diagram if you move or share the JSON.</li>
     <li><code>bendwright-data/</code>, next to <code>bendwright.py</code>: your type library, your icons, and the Archify patch record.</li>
     <li>Everything runs on <code>127.0.0.1</code>. Nothing leaves your machine.</li>
+    <li>Two diagrams at once: launch bendwright twice (each gets its own port and tab). Opening a different diagram in one tab makes the other tab ask you to reload, so nothing is saved to the wrong file.</li>
   </ul>
 </section>
 """
@@ -4675,6 +4802,34 @@ class Handler(BaseHTTPRequestHandler):
             return json.loads(raw.decode("utf-8")), None
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             return None, f"invalid JSON body: {e}"
+
+    def _presented_session(self) -> Any:
+        """Session identity from the SPA, or None when it is missing or unreadable."""
+        raw = self.headers.get(_SESSION_HEADER)
+        if raw is None or str(raw).strip() == "":
+            return None
+        try:
+            blob = base64.b64decode(str(raw).strip(), validate=False)
+            parsed = json.loads(blob.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
+            return None
+        return parsed
+
+    def _send_stale(self) -> None:
+        self._send_json(
+            409,
+            {
+                "ok": False,
+                "saved": False,
+                "stale": True,
+                "error": STALE_TAB_MSG,
+                "errors": [STALE_TAB_MSG],
+            },
+        )
+
+    def _session_is_current(self, presented: Any) -> bool:
+        with _state_lock:
+            return session_matches(presented)
 
     def _handle_alive(self) -> None:
         """SSE presence. Held open while the tab exists; not an inflight request."""
@@ -4859,6 +5014,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             body, err = self._read_json_body()
+            presented = self._presented_session()
+            if not self._session_is_current(presented):
+                self._send_stale()
+                return
             if err is not None:
                 self._send_json(
                     200,
@@ -4920,7 +5079,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(200, {"ok": False, "saved": False, "errors": v_errors})
                     return
 
+            saved_session: dict[str, Any] | None = None
             with _state_lock:
+                # Re-check under the lock so a tab that lost the race does not write.
+                if not session_matches(presented):
+                    self._send_stale()
+                    return
                 if not adopting and _file_path is None:
                     self._send_json(
                         200,
@@ -4940,6 +5104,7 @@ class Handler(BaseHTTPRequestHandler):
                         )
                         return
                 if adopting:
+                    # Path changes; generation does not. The saving tab adopts it.
                     _file_path = target
                     _had_trailing_newline = True
                     _sidecar_unreadable = False
@@ -4951,6 +5116,7 @@ class Handler(BaseHTTPRequestHandler):
                     sc = copy.deepcopy(_sidecar)
                 _remember_sidecar(candidate, sc)
                 unreadable = _sidecar_unreadable
+                saved_session = session_public()
 
             sc_note = write_sidecar_for(target, sc, unreadable=unreadable)
             sc_blocked = bool(sc_note) and (
@@ -4958,9 +5124,14 @@ class Handler(BaseHTTPRequestHandler):
                 or "not overwritten" in str(sc_note)
             )
             if sc_blocked and ir_same:
-                self._send_json(
-                    200, {"ok": False, "saved": False, "errors": [sc_note]}
-                )
+                blocked: dict[str, Any] = {
+                    "ok": False,
+                    "saved": False,
+                    "errors": [sc_note],
+                }
+                if saved_session is not None:
+                    blocked["session"] = saved_session
+                self._send_json(200, blocked)
                 return
 
             receipt: dict[str, Any] = {
@@ -4969,6 +5140,8 @@ class Handler(BaseHTTPRequestHandler):
                 "structural": True,
                 "file": str(target),
             }
+            if saved_session is not None:
+                receipt["session"] = saved_session
             if archify:
                 # Render the just-saved file via a rewritten temp. atomic_write
                 # above kept the loopback URLs the user authored.
@@ -4993,7 +5166,18 @@ class Handler(BaseHTTPRequestHandler):
         """Ensure-saved-then-export sibling .html (M19). Lock off archify subprocess."""
         global _doc, _diagram_type
 
+        # Read the body before any refusal so a keep-alive connection stays aligned.
+        length = int(self.headers.get("Content-Length") or "0")
+        raw = self.rfile.read(length) if length else b""
+        presented = self._presented_session()
+        if not self._session_is_current(presented):
+            self._send_stale()
+            return
+
         with _state_lock:
+            if not session_matches(presented):
+                self._send_stale()
+                return
             if _file_path is None:
                 self._send_json(200, {"ok": False, "errors": ["no file open"]})
                 return
@@ -5012,8 +5196,6 @@ class Handler(BaseHTTPRequestHandler):
             target = _file_path
             evidence_dir = target.parent
 
-        length = int(self.headers.get("Content-Length") or "0")
-        raw = self.rfile.read(length) if length else b""
         # Dirty path: client sends the IR doc; clean path: empty / {} -> deliver from disk.
         stripped = raw.strip()
         sc: dict[str, Any] | None = None
@@ -5047,8 +5229,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": False, "errors": v_errors})
                 return
             with _state_lock:
-                if _file_path is None:
-                    self._send_json(200, {"ok": False, "errors": ["no file open"]})
+                if not session_matches(presented) or _file_path != target:
+                    self._send_stale()
                     return
                 on_disk = _read_saved_doc(target)
                 ir_same = on_disk is not None and on_disk[0] == candidate
@@ -5081,6 +5263,10 @@ class Handler(BaseHTTPRequestHandler):
                 sc = copy.deepcopy(_sidecar)
             sc_note = None
 
+        with _state_lock:
+            if not session_matches(presented) or _file_path != target:
+                self._send_stale()
+                return
         out_path = export_html_path(target)
         # Lock OFF during deliver (same as save/preview). Render a rewritten
         # temp so loopback brand URLs resolve; the saved JSON is not rewritten.
@@ -5101,6 +5287,10 @@ class Handler(BaseHTTPRequestHandler):
         global _doc, _diagram_type
 
         body, err = self._read_json_body()
+        presented = self._presented_session()
+        if not self._session_is_current(presented):
+            self._send_stale()
+            return
         if err is not None:
             self._send_json(
                 200,
@@ -5147,6 +5337,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if not archify:
             with _state_lock:
+                if not session_matches(presented):
+                    self._send_stale()
+                    return
                 _diagram_type = dtype
                 _doc = candidate
                 _remember_sidecar(candidate, sc)
@@ -5177,6 +5370,9 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         with _state_lock:
+            if not session_matches(presented):
+                self._send_stale()
+                return
             _diagram_type = dtype
             _doc = candidate
             _remember_sidecar(candidate, sc)
@@ -5263,6 +5459,10 @@ class Handler(BaseHTTPRequestHandler):
                 asked_template = body.get("template")
                 if isinstance(asked_template, str):
                     template_id = asked_template.strip()
+        presented = self._presented_session()
+        if not self._session_is_current(presented):
+            self._send_stale()
+            return
         if template_id:
             doc = template_document(template_id)
             if doc is None:
@@ -5273,6 +5473,9 @@ class Handler(BaseHTTPRequestHandler):
             doc = blank_diagram(dtype)
         sc = empty_sidecar()
         with _state_lock:
+            if not session_matches(presented):
+                self._send_stale()
+                return
             _file_path = None
             _diagram_type = dtype
             _doc = doc
@@ -5281,6 +5484,7 @@ class Handler(BaseHTTPRequestHandler):
             _sidecar = sc
             _sidecar_note = None
             _sidecar_unreadable = False
+            bump_session()
             archify = _archify_path
             set_preview_html(None)
         if archify:
@@ -5322,6 +5526,10 @@ class Handler(BaseHTTPRequestHandler):
         global _sidecar, _sidecar_note, _sidecar_unreadable
 
         body, err = self._read_json_body()
+        presented = self._presented_session()
+        if not self._session_is_current(presented):
+            self._send_stale()
+            return
         if err is not None:
             self._send_json(400, {"ok": False, "error": err})
             return
@@ -5373,6 +5581,9 @@ class Handler(BaseHTTPRequestHandler):
 
         sc, sc_note, sc_bad = load_sidecar(target, doc)
         with _state_lock:
+            if not session_matches(presented):
+                self._send_stale()
+                return
             archify = _archify_path
             _file_path = target
             _diagram_type = dtype
@@ -5382,6 +5593,7 @@ class Handler(BaseHTTPRequestHandler):
             _sidecar = sc
             _sidecar_note = sc_note
             _sidecar_unreadable = sc_bad
+            bump_session()
             set_preview_html(None)
 
         if archify:
@@ -5499,6 +5711,21 @@ header .meta { color: var(--text); font-size: 12px; flex: 1; min-width: 0; overf
   border-radius: 999px; padding: 2px 8px; font-size: 11px;
 }
 .status-chip[hidden] { display: none; }
+.stale-tab {
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  padding: 8px 12px; background: var(--surface);
+  border-bottom: 1px solid var(--danger);
+}
+.stale-tab[hidden] { display: none; }
+.stale-chip {
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.stale-tab button { border-color: var(--danger); color: var(--danger); flex-shrink: 0; }
 .toolbar { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
 .overflow-wrap { position: relative; }
 #overflow-menu {
@@ -6339,6 +6566,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     <a class="btn" id="btn-help" href="/help" target="_blank" rel="noopener" title="Help" aria-label="Help">?</a>
   </div>
 </header>
+<div id="stale-tab" class="stale-tab" hidden>
+  <span class="stale-chip">This tab is out of date: the diagram was switched in another tab. Reload to continue.</span>
+  <button type="button" id="btn-stale-reload">Reload</button>
+</div>
 <div id="open-panel" aria-hidden="true">
   <div class="open-head">
     <span>Open diagram</span>
@@ -6788,6 +7019,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     catalog: [],
     catalogOk: false,
     droppedIcons: {},
+    sessionFile: null,
+    sessionGen: null,
+    stale: false,
   };
 
   var BRAND_PORTABILITY_HINT = "Built-in logos work everywhere. Your own icons show in bendwright and in Export HTML, but not if you render the JSON with Archify by itself.";
@@ -6989,8 +7223,26 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   var SERVER_GONE_MSG = "bendwright server stopped responding - relaunch bendwright to continue (your saved file is safe).";
+  var STALE_TAB_MSG = "This tab is out of date: the diagram was switched in another tab. Reload to continue.";
+
+  function markStale() {
+    state.stale = true;
+    var bar = $("stale-tab");
+    if (bar) bar.hidden = false;
+    var el = $("status");
+    if (el) {
+      el.textContent = STALE_TAB_MSG;
+      el.title = STALE_TAB_MSG;
+      el.className = "err";
+    }
+    showStatusChip(STALE_TAB_MSG);
+  }
 
   function setStatus(msg, kind) {
+    if (state.stale) {
+      markStale();
+      return;
+    }
     var text = msg == null ? "" : String(msg);
     if (/Failed to fetch/i.test(text)) {
       text = SERVER_GONE_MSG;
@@ -7030,8 +7282,61 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return /Failed to fetch|NetworkError when attempting to fetch|Load failed/i.test(msg);
   }
 
+  function sessionMutatingPath(url) {
+    var path = String(url || "");
+    var q = path.indexOf("?");
+    if (q >= 0) path = path.slice(0, q);
+    if (path === "/api/save" || path === "/api/export" || path === "/api/preview" ||
+        path === "/api/new" || path === "/api/open") return path;
+    return "";
+  }
+
+  function encodeSessionHeader() {
+    var json = JSON.stringify({
+      file: state.sessionFile == null ? null : String(state.sessionFile),
+      gen: state.sessionGen
+    });
+    return btoa(unescape(encodeURIComponent(json)));
+  }
+
+  function withSession(opts) {
+    var next = {};
+    var key;
+    if (opts) {
+      for (key in opts) {
+        if (Object.prototype.hasOwnProperty.call(opts, key)) next[key] = opts[key];
+      }
+    }
+    var headers = {};
+    if (next.headers) {
+      for (key in next.headers) {
+        if (Object.prototype.hasOwnProperty.call(next.headers, key)) headers[key] = next.headers[key];
+      }
+    }
+    headers["X-Bendwright-Session"] = encodeSessionHeader();
+    next.headers = headers;
+    return next;
+  }
+
+  function rememberSession(data) {
+    if (!data || !data.session || typeof data.session !== "object") return;
+    var gen = data.session.gen;
+    if (typeof gen !== "number" || !isFinite(gen)) return;
+    state.sessionGen = gen;
+    state.sessionFile = data.session.file == null ? null : String(data.session.file);
+  }
+
   function apiFetch(url, opts) {
-    return window["fetch"](url, opts).catch(function (e) {
+    var mutating = sessionMutatingPath(url);
+    if (mutating && state.stale) {
+      markStale();
+      return Promise.reject(new Error(STALE_TAB_MSG));
+    }
+    if (mutating) opts = withSession(opts);
+    return window["fetch"](url, opts).then(function (r) {
+      if (mutating && r.status === 409) markStale();
+      return r;
+    }).catch(function (e) {
       if (!isServerGoneError(e)) throw e;
       var gone = new TypeError("Failed to fetch");
       gone.bendwrightOffline = true;
@@ -8552,6 +8857,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function undo() {
+    if (state.stale) { markStale(); return; }
     if (!state.doc || state.layoutBusy) return;
     if (inspectorBufferDirty()) revertInspectorBuffer();
     dropEqualHistory(state.undo);
@@ -8571,6 +8877,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function redo() {
+    if (state.stale) { markStale(); return; }
     if (!state.doc || state.layoutBusy) return;
     if (inspectorBufferDirty()) revertInspectorBuffer();
     // Skip snapshots identical to the buffer so one click applies the next
@@ -18017,6 +18324,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     })
       .then(function (r) { return r.json(); })
       .then(function (receipt) {
+        if (receipt && receipt.session) rememberSession(receipt.session);
+        if (state.stale) return false;
         if (receipt.ok && receipt.saved) {
           if (receipt.file) state.file = receipt.file;
           clearDirty();
@@ -18098,6 +18407,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        rememberSession(data);
         state.file = data.file || null;
         state.diagram_type = data.diagram_type;
         state.doc = data.doc || null;
@@ -18216,6 +18526,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function applyOpenedState(data) {
+    rememberSession(data);
     cancelInlineEditors();
     layoutDrag = null;
     endpointDrag = null;
@@ -18569,6 +18880,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     closeOpenPanel();
   });
 
+  var staleReload = $("btn-stale-reload");
+  if (staleReload) {
+    staleReload.addEventListener("click", function () {
+      window.location.reload();
+    });
+  }
   $("btn-status-close").addEventListener("click", dismissStatusError);
   var statusChip = $("status-chip");
   if (statusChip) {
@@ -20604,7 +20921,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--port",
         type=int,
         default=8770,
-        help="loopback port (default 8770)",
+        help="preferred loopback port (default 8770; if busy, the next ports through 8789)",
     )
     p.add_argument(
         "--keep-alive",
@@ -20658,7 +20975,7 @@ def _wait_http_ready(port: int) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     global _file_path, _diagram_type, _doc, _had_trailing_newline, _archify_path, _httpd, _auto_exit, _listen_port
-    global _sidecar, _sidecar_note, _sidecar_unreadable
+    global _sidecar, _sidecar_note, _sidecar_unreadable, _session_gen
 
     args = parse_args(argv)
     migrate_legacy_data_dir()
@@ -20759,11 +21076,15 @@ def main(argv: list[str] | None = None) -> int:
         _sidecar_unreadable = False
 
     # Bind before the initial deliver so archify can fetch /brand/<name>.png.
-    _listen_port = args.port
-    try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
-    except OSError as e:
-        print(f"[{APP}] cannot bind 127.0.0.1:{args.port}: {e}", file=sys.stderr)
+    # --port is the first port tried. If it is in use, take the next free
+    # port in 8770..8789. A hard bind error still stops on that port.
+    _session_gen = 1
+    server, bind_err = bind_loopback(args.port)
+    if server is None:
+        print(
+            f"[{APP}] cannot bind 127.0.0.1:{args.port}: {bind_err}",
+            file=sys.stderr,
+        )
         return 2
     server.daemon_threads = True
     _httpd = server
