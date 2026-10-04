@@ -800,18 +800,47 @@ def _user_icon_blob(name: str) -> dict[str, str] | None:
     }
 
 
-def _sync_sidecar_icons(sidecar: dict[str, Any]) -> None:
-    """Keep icons blobs only for user icons a type in this sidecar uses.
+def _brand_icon_names(doc: dict[str, Any] | None) -> list[str]:
+    """Icon names from node or component brand URLs on this loopback. Document order."""
+    names: list[str] = []
+    if not isinstance(doc, dict):
+        return names
+    for node in _element_list(doc):
+        if not isinstance(node, dict):
+            continue
+        brand = node.get("brand")
+        if not isinstance(brand, dict):
+            continue
+        url = brand.get("url")
+        if not isinstance(url, str):
+            continue
+        match = _OUR_BRAND_URL_RE.match(url)
+        if not match:
+            continue
+        name = match.group(1)
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _sync_sidecar_icons(sidecar: dict[str, Any], doc: dict[str, Any] | None = None) -> None:
+    """Keep icons blobs for type icons and brand URLs this diagram uses.
 
     Folder bytes win. A missing folder file keeps the previous blob so render
     still works. Empty icons are removed and do not force a sidecar file.
+    Gap, catalog, and dropped names are not stored.
     """
     types = sidecar.get("types")
-    used: set[str] = set()
+    used: list[str] = []
     if isinstance(types, dict):
         for entry in types.values():
             if isinstance(entry, dict) and isinstance(entry.get("icon"), str):
-                used.add(entry["icon"])
+                icon = entry["icon"]
+                if icon not in used:
+                    used.append(icon)
+    for name in _brand_icon_names(doc):
+        if name not in used:
+            used.append(name)
     previous = sidecar.get("icons") if isinstance(sidecar.get("icons"), dict) else {}
     nxt: dict[str, Any] = {}
     for name in used:
@@ -1458,18 +1487,59 @@ def brands_api_payload() -> list[dict[str, str]]:
     return rows
 
 
+def _icon_miss_sentence(name: str) -> str:
+    return f"Icon not found: {name}. Showing the type symbol instead."
+
+
+def _icon_miss_note(names: list[str] | None) -> str | None:
+    if not names:
+        return None
+    return "\n".join(_icon_miss_sentence(name) for name in names)
+
+
+def _apply_icon_miss_chips(html: bytes, names: list[str] | None) -> bytes:
+    """Fixed chips on the delivered page. Out of flow so they cannot resize the svg."""
+    if not names:
+        return html
+    try:
+        text = html.decode("utf-8")
+    except UnicodeError:
+        return html
+    chips: list[str] = []
+    for index, name in enumerate(names):
+        top = 8 + index * 36
+        chips.append(
+            '<p class="bw-icon-miss" role="status" style="'
+            f"position:fixed;top:{top}px;left:12px;z-index:30;margin:0;"
+            "padding:6px 10px;border-radius:999px;background:#1C242C;"
+            "color:#E7E4DC;font:13px/1.3 system-ui,sans-serif;"
+            'border:1px solid #343C46">'
+            f"{html_escape(_icon_miss_sentence(name))}</p>"
+        )
+    block = "".join(chips)
+    close = re.search(r"</body>", text, re.IGNORECASE)
+    if close:
+        text = text[: close.start()] + block + text[close.start() :]
+    else:
+        text += block
+    return text.encode("utf-8")
+
+
 def _rewrite_brands_for_archify(
     doc: dict[str, Any], sidecar: dict[str, Any] | None = None
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[str]]:
     """Copy doc. Dropped loopback brands become catalog id strings.
 
     Gap and user PNGs are retargeted at this port and their sha256 refreshed.
-    Catalog string brands are left alone. The caller's doc is not mutated.
+    Catalog string brands are left alone. A loopback brand whose icon is not
+    in the sidecar and not on disk is removed from the copy only. The caller's
+    doc is not mutated. The second value is the missing icon names, in order.
     """
     out = copy.deepcopy(doc)
     elements = _element_list(out)
     if not elements:
-        return out
+        return out, []
+    missing: list[str] = []
     port = current_listen_port()
     for node in elements:
         if not isinstance(node, dict):
@@ -1490,10 +1560,13 @@ def _rewrite_brands_for_archify(
             continue
         icon = _icon_asset(name, sidecar)
         if icon is None:
+            node.pop("brand", None)
+            if name not in missing:
+                missing.append(name)
             continue
         brand["url"] = brand_public_url(name, port)
         brand["sha256"] = icon["sha256"]
-    return out
+    return out, missing
 
 
 def read_installed_archify_version(archify_mjs: str) -> str | None:
@@ -2306,15 +2379,16 @@ def _archify_temp_json(
     doc: dict[str, Any],
     trailing_newline: bool,
     sidecar: dict[str, Any] | None = None,
-) -> str:
+) -> tuple[str, list[str]]:
     """System-temp IR with our brand URLs rewritten. Caller must delete.
 
     The doc argument is not mutated. atomic_write never uses this copy.
     A loopback URL for a dropped icon becomes the catalog id on this copy only.
+    A loopback URL for a missing icon is omitted on this copy only.
+    Returns (temp path, missing icon names).
     """
-    return _write_system_temp_json(
-        _rewrite_brands_for_archify(doc, sidecar), trailing_newline
-    )
+    rewritten, missing = _rewrite_brands_for_archify(doc, sidecar)
+    return _write_system_temp_json(rewritten, trailing_newline), missing
 
 
 def _unlink_quiet(path: str | Path) -> None:
@@ -3065,10 +3139,17 @@ def _sidecar_has_payload(sidecar: dict[str, Any]) -> bool:
     return False
 
 
-def write_sidecar_for(ir_path: Path, sidecar: dict[str, Any], *, unreadable: bool) -> str | None:
+def write_sidecar_for(
+    ir_path: Path,
+    sidecar: dict[str, Any],
+    *,
+    unreadable: bool,
+    doc: dict[str, Any] | None = None,
+) -> str | None:
     """Atomic replace on Save. Returns a note. Does not raise.
 
     Empty payload deletes an existing file. An unreadable file is left alone.
+    Brand icons are copied from doc, or from the saved IR when doc is omitted.
     """
     path = sidecar_path_for(ir_path)
     if unreadable:
@@ -3077,6 +3158,12 @@ def write_sidecar_for(ir_path: Path, sidecar: dict[str, Any], *, unreadable: boo
         return "sidecar write failed: not an object"
     payload = copy.deepcopy(sidecar)
     _normalize_display_flags(payload)
+    if doc is None:
+        loaded = _read_saved_doc(ir_path)
+        if loaded is not None:
+            doc = loaded[0]
+    # Brand bytes can be the only payload. Sync before the empty-file check.
+    _sync_sidecar_icons(payload, doc)
     if not _sidecar_has_payload(payload):
         if path.is_file():
             try:
@@ -3086,7 +3173,6 @@ def write_sidecar_for(ir_path: Path, sidecar: dict[str, Any], *, unreadable: boo
         return None
     if "bendwright_sidecar" not in payload:
         payload["bendwright_sidecar"] = 1
-    _sync_sidecar_icons(payload)
     # Empty type maps are editor defaults. Do not add them to an M28a sidecar.
     for optional in ("types", "assignments", "icons"):
         if isinstance(payload.get(optional), dict) and not payload[optional]:
@@ -3810,15 +3896,64 @@ def _apply_style_overlay(
     painted_edges = [target for target in edge_targets if target.get("apply")]
     legend = _legend_html(_legend_entries(painted_edges, node_targets), kind_targets, sidecar)
     if legend:
-        close_svg = re.search(r"</svg>", text, re.IGNORECASE)
-        if close_svg:
-            text = text[: close_svg.end()] + legend + text[close_svg.end() :]
-        else:
-            text += legend
+        text = _insert_style_legend(text, legend)
     note = status
     if missed:
         note = _join_notes(note, _style_miss_note(missed))
     return text.encode("utf-8"), note
+
+
+_CARDS_OPEN_STR_RE = re.compile(
+    r'<div\b[^>]*\bclass=(["\'])(?:[^"\']*\s)?cards(?:\s[^"\']*)?\1[^>]*>',
+    re.IGNORECASE,
+)
+_DIV_TAG_STR_RE = re.compile(r"</?div\b[^>]*>", re.IGNORECASE)
+
+
+def _cards_inner_close(text: str) -> int | None:
+    """Index of the closing tag of the first div.cards, or None."""
+    match = _CARDS_OPEN_STR_RE.search(text)
+    if not match:
+        return None
+    depth = 1
+    for token in _DIV_TAG_STR_RE.finditer(text, match.end()):
+        raw = token.group(0)
+        if raw.startswith("</"):
+            depth -= 1
+            if depth == 0:
+                return token.start()
+        elif not raw.endswith("/>"):
+            depth += 1
+    return None
+
+
+def _legend_with_style(legend: str, style: str) -> str:
+    match = re.match(r"<[A-Za-z0-9]+\b", legend)
+    if not match:
+        return legend
+    return (
+        legend[: match.end()]
+        + f' style="{html_escape(style, quote=True)}"'
+        + legend[match.end() :]
+    )
+
+
+def _insert_style_legend(text: str, legend: str) -> str:
+    """Last child of div.cards, or a fixed note when that block is absent.
+
+    grid-column spans the cards row so measure() reserves the note once.
+    position:fixed is out of flow, so a missing cards block cannot loop
+    --archify-reader-width.
+    """
+    close_at = _cards_inner_close(text)
+    if close_at is not None:
+        placed = _legend_with_style(legend, "grid-column: 1 / -1")
+        return text[:close_at] + placed + text[close_at:]
+    placed = _legend_with_style(legend, "position:fixed")
+    close_svg = re.search(r"</svg>", text, re.IGNORECASE)
+    if close_svg:
+        return text[: close_svg.end()] + placed + text[close_svg.end() :]
+    return text + placed
 
 
 def _legend_bytes(preview: bytes) -> bytes | None:
@@ -3884,7 +4019,7 @@ def _remember_sidecar(doc: dict[str, Any], sidecar: dict[str, Any]) -> None:
     global _sidecar, _sidecar_note
     _sidecar = copy.deepcopy(sidecar)
     _normalize_display_flags(_sidecar)
-    _sync_sidecar_icons(_sidecar)
+    _sync_sidecar_icons(_sidecar, doc)
     _sidecar_note = _join_notes(
         sidecar_status_note(doc, _sidecar),
         _dropped_brand_offer_note(doc),
@@ -4118,6 +4253,7 @@ def deliver_preview(
     ir_path: Path,
     sidecar: dict[str, Any] | None = None,
     evidence_dir: Path | None = None,
+    icon_misses: list[str] | None = None,
 ) -> tuple[bytes | None, str | None]:
     """Deliver IR to system-temp HTML; return (html_bytes_or_None, note_or_None)."""
     fd, html_tmp = tempfile.mkstemp(prefix=f"{APP}-prev-", suffix=".html")
@@ -4153,7 +4289,13 @@ def deliver_preview(
             return None, f"deliver ok but could not read HTML: {e}"
         html, brand_note = _apply_brand_display_names(html, ir_path, sidecar)
         html, style_note = _apply_style_overlay(html, ir_path, sidecar)
-        return html, _join_notes(brand_note, style_note, _compiler_kind_note(stderr, html))
+        html = _apply_icon_miss_chips(html, icon_misses)
+        return html, _join_notes(
+            brand_note,
+            style_note,
+            _compiler_kind_note(stderr, html),
+            _icon_miss_note(icon_misses),
+        )
     finally:
         try:
             os.unlink(html_tmp)
@@ -4215,6 +4357,7 @@ def deliver_to_path(
     out_path: Path,
     sidecar: dict[str, Any] | None = None,
     evidence_dir: Path | None = None,
+    icon_misses: list[str] | None = None,
 ) -> dict[str, Any]:
     """Deliver IR to out_path via sibling tmp + os.replace. No lock around subprocess.
 
@@ -4247,6 +4390,7 @@ def deliver_to_path(
         raw_html = Path(tmp_name).read_bytes()
         raw_html, brand_note = _apply_brand_display_names(raw_html, ir_path, sidecar)
         raw_html, style_note = _apply_style_overlay(raw_html, ir_path, sidecar)
+        raw_html = _apply_icon_miss_chips(raw_html, icon_misses)
         Path(tmp_name).write_bytes(raw_html)
         os.replace(tmp_name, out_path)
         receipt: dict[str, Any] = {"ok": True, "output": str(out_path)}
@@ -4256,6 +4400,7 @@ def deliver_to_path(
             brand_note,
             style_note,
             _compiler_kind_note(stderr, raw_html),
+            _icon_miss_note(icon_misses),
         )
         if notes:
             receipt["note"] = notes
@@ -4336,7 +4481,9 @@ def extract_diagram_html(preview: bytes) -> bytes | None:
     """Build a minimal same-origin diagram doc: styles + svg + cards, no scripts.
 
     Copies data-theme and data-preset from the delivered page so card colors
-    resolve. Does not set data-embed (that hides .cards).
+    resolve. Does not set data-embed (that hides .cards). Hoists
+    #bw-style-legend out of the cards copy and appends it once after cards,
+    so the layout canvas still shows it when div.cards is hidden.
     """
     svg_m = _SVG_RE.search(preview)
     if not svg_m:
@@ -4355,10 +4502,15 @@ def extract_diagram_html(preview: bytes) -> bytes | None:
     parts.append(b"\n</head><body style=\"margin:0;background:#0b0f14;\">\n")
     parts.append(_empty_editor_diagram_title(svg_m.group(0)))
     cards = _cards_bytes(preview)
+    legend: bytes | None = None
     if cards:
+        legend = _legend_bytes(cards)
+        if legend:
+            cards = cards.replace(legend, b"", 1)
         parts.append(b"\n")
         parts.append(cards)
-    legend = _legend_bytes(preview)
+    if legend is None:
+        legend = _legend_bytes(preview)
     if legend:
         parts.append(b"\n")
         parts.append(legend)
@@ -4410,7 +4562,7 @@ def validate_candidate(
     evidence_dir: Path | None = None,
 ) -> tuple[bool, list[str]]:
     """Write candidate to system temp, run validate --json (no --quality)."""
-    tmp_name = _archify_temp_json(doc, trailing_newline)
+    tmp_name, _missing = _archify_temp_json(doc, trailing_newline)
     try:
         return _validate_temp_path(archify, diagram_type, tmp_name, evidence_dir)
     finally:
@@ -4450,7 +4602,7 @@ def preview_candidate(
 
     Returns (ok, errors, html_or_None, note_or_None, layout_or_None).
     """
-    tmp_name = _archify_temp_json(doc, trailing_newline, sidecar)
+    tmp_name, missing = _archify_temp_json(doc, trailing_newline, sidecar)
     try:
         ok_v, v_errors = _validate_temp_path(
             archify, diagram_type, tmp_name, evidence_dir
@@ -4458,7 +4610,12 @@ def preview_candidate(
         if not ok_v:
             return False, v_errors, None, None, None
         html, note = deliver_preview(
-            archify, diagram_type, Path(tmp_name), sidecar, evidence_dir
+            archify,
+            diagram_type,
+            Path(tmp_name),
+            sidecar,
+            evidence_dir,
+            missing,
         )
         layout, layout_err = fetch_layout(
             archify, diagram_type, Path(tmp_name), sidecar, evidence_dir
@@ -4479,10 +4636,10 @@ def deliver_preview_doc(
     evidence_dir: Path | None = None,
 ) -> tuple[bytes | None, str | None]:
     """Deliver a rewritten temp copy. Does not read or write the real IR file."""
-    tmp_name = _archify_temp_json(doc, trailing_newline, sidecar)
+    tmp_name, missing = _archify_temp_json(doc, trailing_newline, sidecar)
     try:
         return deliver_preview(
-            archify, diagram_type, Path(tmp_name), sidecar, evidence_dir
+            archify, diagram_type, Path(tmp_name), sidecar, evidence_dir, missing
         )
     finally:
         _unlink_quiet(tmp_name)
@@ -4506,14 +4663,25 @@ def deliver_saved_file(
         return {"ok": False, "errors": ["could not read saved diagram for export"]}
     doc, trailing = loaded
     evidence_dir = ir_path.parent
-    tmp_name = _archify_temp_json(doc, trailing, sidecar)
+    tmp_name, missing = _archify_temp_json(doc, trailing, sidecar)
     try:
         if out_path is None:
             return deliver_preview(
-                archify, diagram_type, Path(tmp_name), sidecar, evidence_dir
+                archify,
+                diagram_type,
+                Path(tmp_name),
+                sidecar,
+                evidence_dir,
+                missing,
             )
         return deliver_to_path(
-            archify, diagram_type, Path(tmp_name), out_path, sidecar, evidence_dir
+            archify,
+            diagram_type,
+            Path(tmp_name),
+            out_path,
+            sidecar,
+            evidence_dir,
+            missing,
         )
     finally:
         _unlink_quiet(tmp_name)
@@ -4936,7 +5104,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json(404, {"archify": False})
                     return
                 dtype = resolve_diagram_type(doc, dtype)
-                tmp_name = _archify_temp_json(doc, trailing, sidecar)
+                tmp_name, _missing = _archify_temp_json(doc, trailing, sidecar)
                 try:
                     layout, err = fetch_layout(
                         archify, dtype, Path(tmp_name), sidecar, evidence_dir
@@ -5118,7 +5286,7 @@ class Handler(BaseHTTPRequestHandler):
                 unreadable = _sidecar_unreadable
                 saved_session = session_public()
 
-            sc_note = write_sidecar_for(target, sc, unreadable=unreadable)
+            sc_note = write_sidecar_for(target, sc, unreadable=unreadable, doc=candidate)
             sc_blocked = bool(sc_note) and (
                 str(sc_note).startswith("sidecar write failed")
                 or "not overwritten" in str(sc_note)
@@ -5250,7 +5418,7 @@ class Handler(BaseHTTPRequestHandler):
                     sc = copy.deepcopy(_sidecar)
                 _remember_sidecar(candidate, sc)
                 unreadable = _sidecar_unreadable
-            sc_note = write_sidecar_for(target, sc, unreadable=unreadable)
+            sc_note = write_sidecar_for(target, sc, unreadable=unreadable, doc=candidate)
             sc_blocked = bool(sc_note) and (
                 str(sc_note).startswith("sidecar write failed")
                 or "not overwritten" in str(sc_note)
