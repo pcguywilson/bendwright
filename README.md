@@ -300,7 +300,8 @@ Tool keys are ignored while you type in a field.
 
 **Your own icons**
 
-- Six sample icons ship in `examples/icons/` (user, server, queue, lock, cloud, file). They
+- Eight sample icons ship in `examples/icons/` (user, server, queue, lock, cloud, file,
+  upload, attachment). They
   are original artwork under this repo's MIT license. Copy them into
   `bendwright-data/icons/` and choose **Refresh icons** from the **⋯** menu to try them.
 
