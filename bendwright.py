@@ -3894,17 +3894,23 @@ def run_archify(
     """Run `node <archify> ...`. Returns (parsed_stdout_json_or_None, stdout, stderr).
 
     ARCHIFY_BRAND_ALLOW_PRIVATE is set on this subprocess only so loopback
-    brand PNGs can be fetched and inlined. ARCHIFY_BENDWRIGHT_KINDS is set
-    on this child only when kind_map is non-empty, and the temp file is
-    removed before return. display_env carries the opt-in render flags
-    (brand icon slot, lane chrome) the same way: this child only, absent
-    when the sidecar flags are off. os.environ is not modified.
+    brand PNGs can be fetched and inlined. ARCHIFY_BENDWRIGHT_ICON_TILE=22
+    is always set on this child (preview, /preview, Export HTML, and
+    validate) so the top-right badge is the 22px tile. A plain archify run
+    with the env unset stays stock. ARCHIFY_BENDWRIGHT_KINDS is set on this
+    child only when kind_map is non-empty, and the temp file is removed
+    before return. display_env carries the opt-in render flags (brand icon
+    slot, lane chrome) the same way: this child only, absent when the
+    sidecar flags are off. os.environ is not modified.
     """
     cmd = ["node", archify, *argv]
     if repo_root:
         cmd.extend(["--repo-root", repo_root])
     kind_path: str | None = None
-    extra: dict[str, str] = {"ARCHIFY_BRAND_ALLOW_PRIVATE": "1"}
+    extra: dict[str, str] = {
+        "ARCHIFY_BRAND_ALLOW_PRIVATE": "1",
+        "ARCHIFY_BENDWRIGHT_ICON_TILE": "22",
+    }
     if display_env:
         extra.update(display_env)
     try:
@@ -6488,7 +6494,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         </div>
         <section id="inspector-display" aria-label="Display">
           <div class="inspector-kicker">Display</div>
-          <label for="display-brand-replaces"><input type="checkbox" id="display-brand-replaces"> Icon replaces type glyph</label>
+          <label for="display-brand-replaces"><input type="checkbox" id="display-brand-replaces"> Icons replace the type symbol</label>
           <label for="display-hide-lanes" id="display-hide-lanes-row"><input type="checkbox" id="display-hide-lanes"> Hide lane frames</label>
           <p class="bw-ed-hint">Saved beside the diagram, not in the Archify file.</p>
         </section>
@@ -6784,7 +6790,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     droppedIcons: {},
   };
 
-  var BRAND_PORTABILITY_HINT = "icon shows in exported HTML anywhere; raw JSON re-renders the icon only with bendwright as host.";
+  var BRAND_PORTABILITY_HINT = "Built-in logos work everywhere. Your own icons show in bendwright and in Export HTML, but not if you render the JSON with Archify by itself.";
   var FULLWIDTH_RE = /[\u1100-\u115F\u231A-\u231B\u2329-\u232A\u23E9-\u23EC\u23F0\u23F3\u25FD-\u25FE\u2614-\u2615\u2630-\u2637\u2648-\u2653\u267F\u268A-\u268F\u2693\u26A1\u26AA-\u26AB\u26BD-\u26BE\u26C4-\u26C5\u26CE\u26D4\u26EA\u26F2-\u26F3\u26F5\u26FA\u26FD\u2705\u270A-\u270B\u2728\u274C\u274E\u2753-\u2755\u2757\u2795-\u2797\u27B0\u27BF\u2B1B-\u2B1C\u2B50\u2B55\u2E80-\uA4CF\uA960-\uA97C\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF01-\uFF60\uFFE0-\uFFE6\u{16FE0}-\u{18DFF}\u{1AFF0}-\u{1AFFF}\u{1B000}-\u{1B2FF}\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFD}]/u;
 
   // Server preview cache lags the buffer after form/raw edits until a deliver.
@@ -8665,9 +8671,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function ensureBrandWidth(node) {
-    // Stock archify brandTopRailProblem: available text is box width - 48.
-    // Replace-mode (flag on) uses the same left rail as the patched renderer:
-    // 8px pad + 22px tile + 8px gap. Flag off keeps 48 so stock output is unchanged.
+    // Bendwright always renders a 22px tile, so the label rail is 38
+    // (8px pad + 22px tile + 8px gap): left in replace mode, right when the
+    // top-right badge is on. Plain archify (no ICON_TILE env) still uses 48.
     // Workflow: absent width renders as 92, legible minimum 9. Writes width.
     // Architecture: absent size renders as 120x60, legible minimum 8.
     // Writes size[0] only when size is already set or that default is too
@@ -8707,8 +8713,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   // textUnits * minimum * 0.6 <= w - 8 (text-fit padding).
-  // extraRail is the replace-mode left rail (38) when the node has a brand.
-  // Flag off and unbranded nodes pass 0, so the pad stays 8.
+  // extraRail is 38 when the node has a brand: left rail in replace mode,
+  // right rail for the default 22px badge. Unbranded nodes pass 0.
   function detailWidthForUnits(units, minimum, extraRail) {
     if (!(units > 0)) return 0;
     var rail = extraRail > 0 ? extraRail : 0;
@@ -8720,13 +8726,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return w;
   }
 
-  // Floor ensureBrandWidth writes. Flag off: ceil(48 + units * fontMin * 0.6) + 1.
-  // Flag on: the replace-mode left rail (8 + 22 + 8), same number the patched
-  // workflow and architecture renderers reserve so the label clears the tile.
+  // Floor ensureBrandWidth writes. Both modes reserve 38 (8 + 22 + 8), the
+  // same rail the patched workflow and architecture renderers use so the
+  // label clears the 22px tile. Side does not change the number.
   var BRAND_REPLACE_RAIL = 38;
   function brandRailWidth(units, fontMin) {
-    var rail = displayFlagOn("brandReplacesTypeIcon") ? BRAND_REPLACE_RAIL : 48;
-    return Math.ceil(rail + units * fontMin * 0.6) + 1;
+    return Math.ceil(BRAND_REPLACE_RAIL + units * fontMin * 0.6) + 1;
   }
 
   function snapWidthUp10(w) {
@@ -8771,7 +8776,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var tag = node.tag != null && node.tag !== "" ? String(node.tag) : "";
     var labelUnits = textUnits(label);
     var branded = node.brand != null && node.brand !== "";
-    var detailRail = (branded && displayFlagOn("brandReplacesTypeIcon")) ? BRAND_REPLACE_RAIL : 0;
+    var detailRail = branded ? BRAND_REPLACE_RAIL : 0;
     if (isArchitecture()) {
       var need = widthForUnits(labelUnits, 6.6, 8);
       if (sub) need = Math.max(need, detailWidthForUnits(textUnits(sub), 6, detailRail));
@@ -8828,7 +8833,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     var nonePressed = !locked && !selected && !catalog;
     var hint = locked ? "Object brand — edit in Raw JSON" : BRAND_PORTABILITY_HINT;
-    var html = '<div class="field"><label>brand</label><div class="brand-picker">' +
+    var html = '<div class="field"><label>Icon</label><div class="brand-picker">' +
       brandPickerInnerHtml(selected, locked, nonePressed) + "</div>";
     html += '<input type="text" data-field="brandCatalog" value="' + esc(catalog) +
       '" placeholder="catalog id"' + (locked ? " disabled" : "") + ">";
@@ -8854,14 +8859,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var locked = isForeignObjectBrand(node.brand);
     var value = layoutBrandIconValue(node);
     var hint = locked ? "Object brand — edit in Raw JSON" : BRAND_PORTABILITY_HINT;
-    var html = '<div class="field"><label for="node-icon-btn">brand</label>';
+    var html = '<div class="field"><label for="node-icon-btn">Icon</label>';
     html += '<input type="hidden" id="node-icon" value="' + esc(value) + '">';
     html += '<div class="icon-picker">';
     html += '<button type="button" id="node-icon-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="node-icon-list"' +
       (locked ? " disabled" : "") + ">";
     html += '<span class="icon-art" aria-hidden="true"></span><span class="icon-picker-name">none</span>';
     html += "</button></div>";
-    html += '<label class="bw-icon-replaces" for="node-brand-replaces"><input type="checkbox" id="node-brand-replaces"> Show icon in place of the type glyph</label>';
+    html += '<label class="bw-icon-replaces" for="node-brand-replaces"><input type="checkbox" id="node-brand-replaces"> Put the icon in the top-left corner (replaces the type symbol)</label>';
     if (locked) {
       var shown = node.brand && node.brand.url != null ? String(node.brand.url) : "(object brand)";
       html += '<input type="text" value="' + esc(shown) + '" disabled>';
@@ -9660,7 +9665,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     state.rawDirty = false;
     syncDisplayToggles();
     setLayoutBusy(true);
-    var label = name === "brandReplacesTypeIcon" ? "Icon replaces type glyph" : "Hide lane frames";
+    var label = name === "brandReplacesTypeIcon" ? "Icons replace the type symbol" : "Hide lane frames";
     setStatus("previewing " + label + "…", "");
 
     function revertFlag() {
@@ -17498,7 +17503,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function noteIconNeedsCornerFlag(node) {
     if (!node || node.brand == null || node.brand === "") return;
     if (displayFlagOn("brandReplacesTypeIcon")) return;
-    showStatusToast("Icon set. Turn on 'Show icon in place of the type glyph' to put it in the corner.");
+    showStatusToast("Icon set. Tick 'Put the icon in the top-left corner' to move it there.");
   }
 
   function finishLayoutBrandEdit(node, positionClean) {
@@ -19538,6 +19543,12 @@ function bendwrightHideLaneChrome() {
   return bendwrightEnvFlag('ARCHIFY_BENDWRIGHT_HIDE_LANE_CHROME');
 }
 
+// 22 only when bendwright set ARCHIFY_BENDWRIGHT_ICON_TILE. Unset keeps the
+// stock 16px top-right badge, so a plain archify run stays byte-identical.
+function bendwrightIconTile() {
+  return process.env.ARCHIFY_BENDWRIGHT_ICON_TILE === '22' ? 22 : 0;
+}
+
 // Replace-mode mark. Flag off never calls these from a changed code path.
 // 22px tile at x+8. No sublabel: tile center sits 2px above the label baseline
 // (workflow baseline y+21 => y+8). With a sublabel the tile stays at y+8.
@@ -19556,28 +19567,57 @@ function bendwrightReplaceSlot(node, labelBaseline) {
   return renderBrandMark(node, bendwrightReplaceOrigin(node, labelBaseline));
 }
 
+// Default top-right badge. Env unset: stock 16px at x+width-22, y+6.
+// Env 22: 22px tile, 8px from the right and top (anchor x+width-30, y+8).
+function bendwrightDefaultBrandMark(node) {
+  if (bendwrightIconTile() === 22) {
+    return renderBrandMark(node, { x: node.x + node.width - 30, y: node.y + 8, size: 22 });
+  }
+  return renderBrandMark(node, { x: node.x + node.width - 22, y: node.y + 6 });
+}
+
+// Right rail for the default 22px badge. Replace mode keeps the left rail.
+function bendwrightRightIconRail(node) {
+  return bendwrightIconTile() === 22 && !bendwrightBrandReplacesTypeIcon() && !!brandMarkFor(node);
+}
+
 function bendwrightLabelFitWidth(node, width) {
   if (bendwrightBrandReplacesTypeIcon() && brandMarkFor(node)) {
+    return Math.max(1, width - BENDWRIGHT_REPLACE_RAIL);
+  }
+  if (bendwrightRightIconRail(node)) {
     return Math.max(1, width - BENDWRIGHT_REPLACE_RAIL);
   }
   return brandLabelFitWidth(node, width);
 }
 
 function bendwrightLabelX(node, fallbackX) {
-  if (!(bendwrightBrandReplacesTypeIcon() && brandMarkFor(node))) return fallbackX;
-  const room = Math.max(1, node.width - BENDWRIGHT_REPLACE_RAIL);
-  return node.x + BENDWRIGHT_REPLACE_RAIL + room / 2;
+  if (bendwrightBrandReplacesTypeIcon() && brandMarkFor(node)) {
+    const room = Math.max(1, node.width - BENDWRIGHT_REPLACE_RAIL);
+    return node.x + BENDWRIGHT_REPLACE_RAIL + room / 2;
+  }
+  if (bendwrightRightIconRail(node)) {
+    const room = Math.max(1, node.width - BENDWRIGHT_REPLACE_RAIL);
+    return node.x + room / 2;
+  }
+  return fallbackX;
 }
 
-// Sublabel and tag share the label's left rail. Flag off (or no mark) keeps
-// the full box width, which is what stock fittedNodeFontSize already receives.
+// Sublabel and tag share the icon rail. Replace mode uses the left 38.
+// The default 22px badge uses the same 38 on the right. Env unset, or no
+// mark, keeps the full box width stock fittedNodeFontSize already receives.
 function bendwrightDetailFitWidth(node, width) {
-  if (!(bendwrightBrandReplacesTypeIcon() && brandMarkFor(node))) return width;
-  return Math.max(1, width - BENDWRIGHT_REPLACE_RAIL);
+  if (bendwrightBrandReplacesTypeIcon() && brandMarkFor(node)) {
+    return Math.max(1, width - BENDWRIGHT_REPLACE_RAIL);
+  }
+  if (bendwrightRightIconRail(node)) {
+    return Math.max(1, width - BENDWRIGHT_REPLACE_RAIL);
+  }
+  return width;
 }
 
 function bendwrightBrandRailProblem(node, width, minimumFontSize, subject) {
-  const useRail = bendwrightBrandReplacesTypeIcon() && brandMarkFor(node);
+  const useRail = (bendwrightBrandReplacesTypeIcon() && brandMarkFor(node)) || bendwrightRightIconRail(node);
   const measured = useRail ? width - BENDWRIGHT_REPLACE_RAIL + 48 : width;
   if (subject == null) return brandTopRailProblem(node, measured, minimumFontSize);
   return brandTopRailProblem(node, measured, minimumFontSize, subject);
@@ -19625,7 +19665,7 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
 """
     passport_new = """  const bendwrightBrandSlot = bendwrightReplaceSlot(node, node.y + 21);
   const brand = bendwrightBrandSlot
-    || renderBrandMark(node, { x: node.x + node.width - 22, y: node.y + 6 });
+    || bendwrightDefaultBrandMark(node);
   const bendwrightKind = bendwrightNodeKinds.get(node.id);
   const passport = {
     kind: node.type,
@@ -19953,7 +19993,7 @@ if (bendwrightKinds && workflow.meta?.legend?.mode !== 'hidden') {
                     "  const brand = renderBrandMark(c, { x: c.x + c.width - 22, y: c.y + 6 });\n",
                     "  const bendwrightBrandSlot = bendwrightReplaceSlot(c, labelY);\n"
                     "  const brand = bendwrightBrandSlot\n"
-                    "    || renderBrandMark(c, { x: c.x + c.width - 22, y: c.y + 6 });\n",
+                    "    || bendwrightDefaultBrandMark(c);\n",
                 ),
                 (
                     "          ${renderSemanticSigil(c.type, { x: c.x + 6, y: c.y + 6 })}${brand ? `\\n          ${brand}` : ''}\n",

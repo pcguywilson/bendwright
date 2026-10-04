@@ -242,8 +242,8 @@ With nothing selected, the inspector's **Display** section has two per-diagram s
 Both are saved beside the diagram and only change how bendwright renders it; the Archify
 JSON is untouched, and running Archify on its own gives its normal output.
 
-- **Icon replaces type glyph** - a node with an icon shows that icon in the top-left
-  corner instead of the type glyph.
+- **Icons replace the type symbol** - a node with an icon shows that icon in the top-left
+  corner instead of the type symbol. With it off, the icon sits in the top-right corner.
 - **Hide lane frames** - a workflow draws no lane frames or lane headers. The lanes still
   exist (Archify needs them), so you can still click and edit them.
 
