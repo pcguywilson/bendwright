@@ -4746,6 +4746,7 @@ _HELP_BODY = r"""<header class="help-head">
   <ul>
     <li>Double-click a node, edge label, lane label, boundary label, or card title, or press <kbd>F2</kbd> on a selection, and type right on the diagram.</li>
     <li><kbd>Enter</kbd> saves the new name, <kbd>Esc</kbd> cancels. A small hint under the box reminds you.</li>
+    <li><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd> moves between label, sublabel, and tag while renaming a node.</li>
     <li>The inspector field updates as you type.</li>
   </ul>
 </section>
@@ -4814,9 +4815,10 @@ _HELP_BODY = r"""<header class="help-head">
     <tr><td><kbd>C</kbd></td><td>Connect tool</td></tr>
     <tr><td><kbd>B</kbd></td><td>Boundary tool (architecture)</td></tr>
     <tr><td><kbd>F2</kbd></td><td>Rename the selection in place</td></tr>
+    <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>Move between label, sublabel, and tag while renaming a node</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>Apply edits</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>Cancel edits, close a panel, or clear the selection</td></tr>
-    <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Delete the selected node, edge, or card</td></tr>
+    <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Delete the selected node, edge, card, boundary, or lane (asks first)</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Redo</td></tr>
@@ -6644,7 +6646,7 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 8px; font-size: 13px; font-weight: 600;
 }
-#dirty-panel .dirty-msg, #new-panel .dirty-msg { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+#dirty-panel .dirty-msg, #new-panel .dirty-msg, #delete-confirm-panel .dirty-msg { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 #new-panel {
   display: none;
   position: fixed;
@@ -6663,6 +6665,37 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   padding: 12px 14px;
 }
 #new-panel .row-actions { flex-wrap: wrap; }
+#delete-confirm-backdrop {
+  display: none;
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+#delete-confirm-backdrop.active { display: block; }
+#delete-confirm-panel {
+  display: none;
+  position: fixed;
+  z-index: 71;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 24px));
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55);
+  padding: 12px 14px;
+}
+#delete-confirm-panel.active { display: block; }
+#delete-confirm-panel .open-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px; font-size: 13px; font-weight: 600;
+}
+#delete-confirm-panel .delete-confirm-hint {
+  font-size: 11px; color: var(--muted); margin: -4px 0 10px;
+}
 .new-template-head {
   margin: 14px 0 6px;
   font-size: 12px;
@@ -6778,6 +6811,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   </div>
   <div class="new-template-head">Start from a template</div>
   <div id="new-template-list"></div>
+</div>
+<div id="delete-confirm-backdrop" aria-hidden="true"></div>
+<div id="delete-confirm-panel" role="dialog" aria-modal="true" aria-label="Confirm delete" aria-hidden="true">
+  <div class="open-head">
+    <span>Delete</span>
+  </div>
+  <div class="dirty-msg" id="delete-confirm-msg"></div>
+  <div class="delete-confirm-hint">You can undo this with Ctrl+Z.</div>
+  <div class="row-actions">
+    <button type="button" id="btn-delete-confirm-cancel">Cancel</button>
+    <button type="button" class="danger" id="btn-delete-confirm-ok">Delete</button>
+  </div>
 </div>
 <div id="quick-type-modal" role="dialog" aria-label="New custom type">
   <div class="bw-ed-field">
@@ -8624,7 +8669,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     setStatus(msg + " (unsaved)", "");
   }
 
-  function removeManagedType() {
+  function removeManagedType(opts) {
+    opts = opts || {};
     if (!state.doc || state.layoutBusy) return;
     var id = typeMgrId || String(($("type-mgr-id") && $("type-mgr-id").value) || "").trim();
     if (!id || !sidecarType(id)) {
@@ -8634,6 +8680,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var users = nodesUsingType(id);
     if (users.length) {
       setStatus("Cannot remove " + id + "; used by " + users.join(", "), "err");
+      return;
+    }
+    if (!opts.confirmed) {
+      askDeleteConfirm("Remove custom type " + id + "?", function () {
+        removeManagedType({ confirmed: true });
+      });
       return;
     }
     pushHistory();
@@ -10939,17 +10991,25 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       });
   }
 
-  function deleteSelectedEdge() {
+  function deleteSelectedEdge(opts) {
+    opts = opts || {};
     var idx = state.selectedEdgeIndex;
     if (idx == null || idx < 0) return;
     var edges = relationRecords();
     if (!edges[idx]) return;
     if (state.layoutBusy) return;
+    var removed = edges[idx];
+    if (!opts.confirmed) {
+      var noun = isArchitecture() ? "connection" : "edge";
+      var msg = "Delete " + noun + " " + endpointDisplayName(removed.from) + " -> " +
+        endpointDisplayName(removed.to) + "?";
+      askDeleteConfirm(msg, function () { deleteSelectedEdge({ confirmed: true }); });
+      return;
+    }
     if (singleEdit && singleEdit.kind === "edge") {
       singleEdit = null;
       hideSingleEditor();
     }
-    var removed = edges[idx];
     var captured = captureEdgeStyleKeys();
     var sideBefore = clone(state.sidecar);
     pushHistory();
@@ -11793,6 +11853,13 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return;
     }
     if (ev.key === "Delete" || ev.key === "Backspace") {
+      if (isDeleteConfirmActive()) return;
+      var layoutTarget = ev.target;
+      if (layoutTarget && layoutTarget.tagName) {
+        var layoutTag = layoutTarget.tagName.toLowerCase();
+        if (layoutTag === "input" || layoutTag === "textarea" || layoutTag === "select") return;
+        if (layoutTarget.isContentEditable) return;
+      }
       // Prefer deleting the edited node when the node editor is open
       // (iframe focus rarely sits in parent inputs, so this is safe here).
       if (nodeEdit) {
@@ -11833,6 +11900,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (nodeEdit || singleEdit || cardEdit || boundaryEdit || laneEdit || quickType) return true;
     if (isStatusOverlayActive()) return true;
     if (isOpenPanelActive() || isDirtyPanelActive() || isNewPanelActive()) return true;
+    if (isDeleteConfirmActive()) return true;
     return false;
   }
 
@@ -12420,7 +12488,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     setStatus(text, "");
   }
 
-  function deleteLayoutLane() {
+  function deleteLayoutLane(opts) {
+    opts = opts || {};
     if (!laneEdit || !state.doc || state.layoutBusy || isArchitecture()) return;
     var lanes = state.doc.lanes || [];
     var idx = laneEdit.index;
@@ -12436,6 +12505,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return;
     }
     var label = lane.label || lane.id || "lane";
+    if (!opts.confirmed) {
+      askDeleteConfirm("Delete lane " + label + "?", function () {
+        deleteLayoutLane({ confirmed: true });
+      });
+      return;
+    }
     clearLaneSelection();
     showDocumentInspector();
     pushHistory();
@@ -15047,12 +15122,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       });
   }
 
-  function deleteLayoutBoundary() {
+  function deleteLayoutBoundary(opts) {
+    opts = opts || {};
     if (!boundaryEdit || !state.doc || state.layoutBusy) return;
     var idx = boundaryEdit.index;
     var boundary = boundaryAt(idx);
     if (!boundary) return;
     var label = boundary.label || "boundary";
+    if (!opts.confirmed) {
+      askDeleteConfirm(
+        "Delete boundary " + label + "? The components inside stay.",
+        function () { deleteLayoutBoundary({ confirmed: true }); }
+      );
+      return;
+    }
     clearBoundarySelection();
     showDocumentInspector();
     pushHistory();
@@ -15157,10 +15240,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       });
   }
 
-  function deleteLayoutCard() {
+  function deleteLayoutCard(opts) {
+    opts = opts || {};
     if (!cardEdit || !state.doc || state.layoutBusy) return;
     var idx = cardEdit.index;
-    if (!cardAt(idx)) return;
+    var card = cardAt(idx);
+    if (!card) return;
+    if (!opts.confirmed) {
+      askDeleteConfirm("Delete card " + entityDisplayName(card) + "?", function () {
+        deleteLayoutCard({ confirmed: true });
+      });
+      return;
+    }
     clearCardSelection();
     showDocumentInspector();
     pushHistory();
@@ -15417,7 +15508,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
   }
 
-  function deleteLayoutComponent() {
+  function deleteLayoutComponent(opts) {
+    opts = opts || {};
     if (!nodeEdit || !state.doc || state.layoutBusy) return;
     var comps = state.doc.components || [];
     var nodeId = nodeEdit.nodeId;
@@ -15427,6 +15519,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     if (nodeIdx < 0) {
       setStatus("Delete: component not found", "err");
+      return;
+    }
+    if (!opts.confirmed) {
+      var comp = comps[nodeIdx];
+      var cName = entityDisplayName(comp);
+      var cCount = countIncidentRelations(nodeId);
+      var cMsg = "Delete component " + cName;
+      if (cCount === 1) cMsg += " and its 1 connection";
+      else if (cCount > 1) cMsg += " and its " + cCount + " connections";
+      cMsg += "?";
+      askDeleteConfirm(cMsg, function () { deleteLayoutComponent({ confirmed: true }); });
       return;
     }
     nodeEdit = null;
@@ -15491,9 +15594,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       });
   }
 
-  function deleteLayoutNode() {
+  function deleteLayoutNode(opts) {
+    opts = opts || {};
     if (isArchitecture()) {
-      deleteLayoutComponent();
+      deleteLayoutComponent(opts);
       return;
     }
     if (!nodeEdit || !state.doc || state.layoutBusy) return;
@@ -15510,6 +15614,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     if (nodeIdx < 0) {
       setStatus("Delete: node not found", "err");
+      return;
+    }
+    if (!opts.confirmed) {
+      var node = nodes[nodeIdx];
+      var nName = entityDisplayName(node);
+      var nCount = countIncidentRelations(nodeId);
+      var nMsg = "Delete node " + nName;
+      if (nCount === 1) nMsg += " and its 1 edge";
+      else if (nCount > 1) nMsg += " and its " + nCount + " edges";
+      nMsg += "?";
+      askDeleteConfirm(nMsg, function () { deleteLayoutNode({ confirmed: true }); });
       return;
     }
     nodeEdit = null;
@@ -17652,9 +17767,46 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return id;
   }
 
-  function removeSelected(kind) {
+  function removeSelected(kind, opts) {
+    opts = opts || {};
     var idx = state.selected[kind];
     if (idx < 0 || !state.doc || !Array.isArray(state.doc[kind])) return;
+    var item = state.doc[kind][idx];
+    if (!item) return;
+    if (!opts.confirmed) {
+      var msg = "Delete this item?";
+      if (kind === "nodes") {
+        var nCount = countIncidentRelations(item.id);
+        msg = "Delete node " + entityDisplayName(item);
+        if (nCount === 1) msg += " and its 1 edge";
+        else if (nCount > 1) msg += " and its " + nCount + " edges";
+        msg += "?";
+      } else if (kind === "components") {
+        var cCount = countIncidentRelations(item.id);
+        msg = "Delete component " + entityDisplayName(item);
+        if (cCount === 1) msg += " and its 1 connection";
+        else if (cCount > 1) msg += " and its " + cCount + " connections";
+        msg += "?";
+      } else if (kind === "edges" || kind === "connections") {
+        var noun = kind === "connections" ? "connection" : "edge";
+        msg = "Delete " + noun + " " + endpointDisplayName(item.from) + " -> " +
+          endpointDisplayName(item.to) + "?";
+      } else if (kind === "cards") {
+        msg = "Delete card " + entityDisplayName(item) + "?";
+      } else if (kind === "boundaries") {
+        msg = "Delete boundary " + entityDisplayName(item) + "? The components inside stay.";
+      } else if (kind === "lanes") {
+        var laneNodes = laneNodeCount(item);
+        msg = "Delete lane " + entityDisplayName(item) + "?";
+        if (laneNodes === 1) {
+          msg += " Its 1 node stays (still tagged with this lane id).";
+        } else if (laneNodes > 1) {
+          msg += " Its " + laneNodes + " nodes stay (still tagged with this lane id).";
+        }
+      }
+      askDeleteConfirm(msg, function () { removeSelected(kind, { confirmed: true }); });
+      return;
+    }
     if (kind === "components") {
       removeComponentAt(idx);
       return;
@@ -18749,6 +18901,85 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return !!(panel && panel.classList.contains("active"));
   }
 
+  var pendingDeleteAction = null;
+
+  function isDeleteConfirmActive() {
+    var panel = $("delete-confirm-panel");
+    return !!(panel && panel.classList.contains("active"));
+  }
+
+  function closeDeleteConfirm() {
+    var panel = $("delete-confirm-panel");
+    var backdrop = $("delete-confirm-backdrop");
+    if (panel) {
+      panel.classList.remove("active");
+      panel.setAttribute("aria-hidden", "true");
+    }
+    if (backdrop) {
+      backdrop.classList.remove("active");
+      backdrop.setAttribute("aria-hidden", "true");
+    }
+    pendingDeleteAction = null;
+  }
+
+  function openDeleteConfirm(message, nextAction) {
+    pendingDeleteAction = nextAction || null;
+    var panel = $("delete-confirm-panel");
+    var backdrop = $("delete-confirm-backdrop");
+    var msg = $("delete-confirm-msg");
+    if (msg) msg.textContent = message || "Delete this item?";
+    if (backdrop) {
+      backdrop.classList.add("active");
+      backdrop.setAttribute("aria-hidden", "false");
+    }
+    if (panel) {
+      panel.classList.add("active");
+      panel.setAttribute("aria-hidden", "false");
+    }
+    var ok = $("btn-delete-confirm-ok");
+    if (ok && ok.focus) ok.focus();
+  }
+
+  function askDeleteConfirm(message, nextAction) {
+    if (isDeleteConfirmActive()) return;
+    openDeleteConfirm(message, nextAction);
+  }
+
+  function confirmDeleteNow() {
+    var fn = pendingDeleteAction;
+    closeDeleteConfirm();
+    if (typeof fn === "function") fn();
+  }
+
+  function entityDisplayName(item) {
+    if (!item || typeof item !== "object") return "?";
+    var label = item.label != null ? String(item.label).trim() : "";
+    if (label) return label;
+    var title = item.title != null ? String(item.title).trim() : "";
+    if (title) return title;
+    if (item.id != null && String(item.id).trim()) return String(item.id);
+    return "?";
+  }
+
+  function countIncidentRelations(nodeId) {
+    var id = String(nodeId == null ? "" : nodeId);
+    if (!id) return 0;
+    var edges = relationRecords();
+    var n = 0;
+    for (var i = 0; i < edges.length; i++) {
+      var e = edges[i];
+      if (!e) continue;
+      if (String(e.from) === id || String(e.to) === id) n += 1;
+    }
+    return n;
+  }
+
+  function endpointDisplayName(id) {
+    var node = findDocNode(id);
+    if (node) return entityDisplayName(node);
+    return id == null || id === "" ? "?" : String(id);
+  }
+
   function closeDirtyPanel() {
     var panel = $("dirty-panel");
     if (!panel) return;
@@ -19029,6 +19260,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           !(statusBar && statusBar.contains(ev.target))) {
         closeStatusOverlay();
       }
+    }
+    if (isDeleteConfirmActive()) {
+      var delPanel = $("delete-confirm-panel");
+      if (delPanel && !delPanel.contains(ev.target)) return;
     }
     if (isDirtyPanelActive()) {
       var dirtyPanel = $("dirty-panel");
@@ -19788,14 +20023,36 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (state.rawDirty) applyRaw(true);
   });
 
-  // Capture-phase: status overlay Esc wins over connect/reroute/node-edit handlers.
+  // Capture-phase: delete confirm and status overlay Esc win over other handlers.
   document.addEventListener("keydown", function (ev) {
-    if ((ev.key === "Escape" || ev.key === "Esc") && isStatusOverlayActive()) {
+    if (ev.key !== "Escape" && ev.key !== "Esc") return;
+    if (isDeleteConfirmActive()) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeDeleteConfirm();
+      return;
+    }
+    if (isStatusOverlayActive()) {
       ev.preventDefault();
       ev.stopPropagation();
       closeStatusOverlay();
     }
   }, true);
+
+  var deleteConfirmCancel = $("btn-delete-confirm-cancel");
+  if (deleteConfirmCancel) deleteConfirmCancel.addEventListener("click", function () {
+    closeDeleteConfirm();
+  });
+  var deleteConfirmOk = $("btn-delete-confirm-ok");
+  if (deleteConfirmOk) deleteConfirmOk.addEventListener("click", function () {
+    confirmDeleteNow();
+  });
+  var deleteConfirmBackdrop = $("delete-confirm-backdrop");
+  if (deleteConfirmBackdrop) deleteConfirmBackdrop.addEventListener("mousedown", function (ev) {
+    ev.preventDefault();
+    closeDeleteConfirm();
+  });
+  // Enter confirms via the focused Delete button's native activation.
 
   document.addEventListener("keydown", function (ev) {
     if (tryStartInlineRename(ev)) return;
@@ -19826,6 +20083,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           closeQuickType(true);
           setStatus("Custom type cancelled", "");
         }
+        return;
+      }
+      if (isDeleteConfirmActive()) {
+        ev.preventDefault();
+        closeDeleteConfirm();
         return;
       }
       if (isDirtyPanelActive()) {
@@ -19872,7 +20134,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
     }
     if (!typing && (ev.key === "Delete" || ev.key === "Backspace")) {
-      if (quickType) return;
+      if (quickType || isDeleteConfirmActive()) return;
       // Prefer nodeEdit when the editor is open; skip when focus is in an input/select
       // so Backspace still edits Label text (typing already filtered above).
       if (state.tab === "layout" && nodeEdit) {

@@ -36,8 +36,8 @@ opens a how-to guide in a new tab.
   - [Architecture diagrams](#architecture-diagrams)
   - [Cards and legend](#cards-and-legend)
   - [Safe by default](#safe-by-default)
-- [Features](#features)
 - [Keyboard shortcuts](#keyboard-shortcuts)
+- [Features](#features)
 - [Custom types, icons, and the Archify patch](#custom-types-icons-and-the-archify-patch)
 - [The IR format](#the-ir-format)
 - [License](#license)
@@ -127,8 +127,14 @@ press **Enter**. Or double-click it and type the new name right on the diagram. 
 
 ![Move a node](gifs/move-node.gif)
 
-Duplicate and delete live in the node inspector. **New** starts a blank workflow or
-architecture diagram.
+**Delete asks first** - press **Delete** or click **Delete** in the inspector and
+bendwright names what will go (for a node, how many edges go with it) before anything
+changes. **Esc** or **Cancel** keeps it; **Undo** brings back anything you did delete.
+
+![Delete asks first](gifs/delete-confirm.gif)
+
+Duplicate lives in the node inspector. **New** starts a blank workflow or architecture
+diagram.
 
 ### Connections
 
@@ -141,11 +147,6 @@ onto another node to reroute the connection.
 and color are saved beside the diagram, so the Archify JSON stays valid.
 
 ![Style an edge](gifs/style-edges.gif)
-
-**Edge styles at a glance** - every preset color as a solid, dashed, and dotted line, in
-the dark and light themes. Rendered by bendwright.
-
-![Edge styles](gifs/edge-styles.gif)
 
 ### Icons and custom types
 
@@ -178,10 +179,28 @@ and renames or hides each built-in type.
 
 ### Safe by default
 
-An edit Archify rejects is put back right away and the reason stays in the header until
-you close it. Your file is never left unrenderable.
+An edit Archify rejects is put back right away. A red chip stays in the header; click it
+to see why. Your file is never left unrenderable.
 
 ![Safe by default](gifs/safe-by-default.gif)
+
+## Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| **V** | Select tool |
+| **C** | Connect tool |
+| **B** | Boundary tool (architecture) |
+| **F2** | Rename the selection in place |
+| **Tab** / **Shift+Tab** | Next / previous field while renaming a node |
+| **Enter** | Apply edits |
+| **Esc** | Discard unapplied edits, close a panel, or clear the selection |
+| **Delete** / **Backspace** | Delete the selected node, edge, card, boundary, or lane (asks first) |
+| **Ctrl+S** | Save |
+| **Ctrl+Z** | Undo |
+| **Ctrl+Y** / **Ctrl+Shift+Z** | Redo |
+
+Tool keys are ignored while you type in a field.
 
 ## Features
 
@@ -226,6 +245,8 @@ you close it. Your file is never left unrenderable.
 - **Colors and line styles** - preset colors (blue, green, red, amber, purple, teal,
   gray) for nodes and edges, plus solid, dashed, or dotted lines. Readable in both the
   light and dark themes, and they keep working with Archify's data-flow animation.
+
+  ![Edge styles: every preset color as a solid, dashed, and dotted line, in the dark and light themes](gifs/edge-styles.gif)
 - **Custom types** - define your own node types (for example "VM" or "File share") with
   a name, color, and icon in the **Custom types library** (the **⋯** menu). The name shows
   everywhere, including the exported page. Save a type to your library to reuse it in
@@ -252,6 +273,8 @@ JSON is untouched, and running Archify on its own gives its normal output.
 - **Quality profiles** - toggle between `standard` and `showcase`. Changes Archify
   rejects are reverted on the spot and the reason stays in a red chip in the header
   until you close it, so the file on disk is always renderable.
+- **Ask before deleting** - deleting a node, edge, card, boundary, lane, or custom type
+  asks first, and **Undo** brings it back.
 - **Explicit save** - edits live in a buffer and never touch disk until you press
   **Save**. Undo/redo, **Discard changes** (reload from disk, in the **⋯** menu), and an
   unsaved-changes warning are all included.
@@ -264,24 +287,6 @@ JSON is untouched, and running Archify on its own gives its normal output.
   server asks you to reload instead of saving into the wrong file.
 - **Auto-shutdown** - close the browser and the server (and its console window) shut down
   on their own a few seconds later.
-
-## Keyboard shortcuts
-
-| Key | Action |
-|---|---|
-| **V** | Select tool |
-| **C** | Connect tool |
-| **B** | Boundary tool (architecture) |
-| **F2** | Rename the selection in place |
-| **Tab** / **Shift+Tab** | Next / previous field while renaming a node |
-| **Enter** | Apply edits |
-| **Esc** | Discard unapplied edits, close a panel, or clear the selection |
-| **Delete** / **Backspace** | Delete the selected node, edge, or card |
-| **Ctrl+S** | Save |
-| **Ctrl+Z** | Undo |
-| **Ctrl+Y** / **Ctrl+Shift+Z** | Redo |
-
-Tool keys are ignored while you type in a field.
 
 ## Custom types, icons, and the Archify patch
 
@@ -306,7 +311,7 @@ Tool keys are ignored while you type in a field.
   `bendwright-data/icons/` and choose **Refresh icons** from the **⋯** menu to try them.
 
 - PNG only, 64 KB or smaller. 64 to 128 px square with a transparent background works
-  best; the icon is drawn at about 16 px in the node's corner.
+  best; the icon is drawn at about 22 px in the node's corner.
 - The file name is the icon name: lowercase letters, numbers, `-`, or `_`
   (for example `vm-server.png`). Other names are skipped with a note.
 - A name already used by Archify's catalog or bendwright's extras is skipped. Pick a
