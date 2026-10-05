@@ -4423,6 +4423,8 @@ def run_archify(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 check=False,
                 env={**os.environ, **extra},
@@ -7627,6 +7629,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     layoutZoom: null,
     layoutMode: "move",
     connectFrom: null,
+    connectFromPoint: null,
     selectedEdgeIndex: null,
     selectedComponentId: null,
     selectedNodeId: null,
@@ -10948,6 +10951,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   function clearConnectFrom() {
     state.connectFrom = null;
+    state.connectFromPoint = null;
     updateConnectHighlight();
     updateLayoutHint();
   }
@@ -10980,6 +10984,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     resizeDrag = null;
     state.layoutMode = mode;
     state.connectFrom = null;
+    state.connectFromPoint = null;
     state.selectedEdgeIndex = null;
     updateModeButtons();
     updateDeleteEdgeButton();
@@ -11112,6 +11117,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var edges = relationRecords();
     if (!edges[docIdx]) return;
     state.connectFrom = null;
+    state.connectFromPoint = null;
     clearLaneSelection();
     state.selectedEdgeIndex = docIdx;
     var e = edges[docIdx];
@@ -11175,10 +11181,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     updateHistoryButtons();
   }
 
-  function handleConnectNodeClick(nodeId) {
+  function handleConnectNodeClick(nodeId, point) {
     if (!nodeId) return;
     if (!state.connectFrom) {
       state.connectFrom = nodeId;
+      state.connectFromPoint = point || null;
       state.selectedEdgeIndex = null;
       updateConnectHighlight();
       refreshEdgeSelectionStyles();
@@ -11196,15 +11203,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return;
     }
     var from = state.connectFrom;
+    var fromPoint = state.connectFromPoint;
     var to = nodeId;
     state.connectFrom = null;
+    state.connectFromPoint = null;
     updateConnectHighlight();
     updateLayoutHint();
-    if (isArchitecture()) addConnectionAndSave(from, to);
+    if (isArchitecture()) addConnectionAndSave(from, to, fromPoint, point);
     else addEdgeAndSave(from, to, false);
   }
 
-  function componentCenter(id) {
+  function componentBox(id) {
     var laid = layoutNodeRecords();
     var i, n, w, h;
     for (i = 0; i < laid.length; i++) {
@@ -11214,7 +11223,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       h = Number(n.height);
       if (!(w > 0)) w = ARCH_MIN_W;
       if (!(h > 0)) h = ARCH_MIN_H;
-      return { x: Number(n.x) + w / 2, y: Number(n.y) + h / 2 };
+      return { x: Number(n.x), y: Number(n.y), w: w, h: h };
     }
     var node = findDocNode(id);
     if (!node || !Array.isArray(node.pos) || node.pos.length < 2) return null;
@@ -11223,7 +11232,56 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     h = Number(size[1]);
     if (!(w > 0)) w = ARCH_MIN_W;
     if (!(h > 0)) h = ARCH_MIN_H;
-    return { x: Number(node.pos[0]) + w / 2, y: Number(node.pos[1]) + h / 2 };
+    return { x: Number(node.pos[0]), y: Number(node.pos[1]), w: w, h: h };
+  }
+
+  function componentCenter(id) {
+    var box = componentBox(id);
+    if (!box) return null;
+    return { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+  }
+
+  function nearestSideFor(id, point) {
+    if (!point || !isFinite(Number(point.x)) || !isFinite(Number(point.y))) return null;
+    var box = componentBox(id);
+    if (!box) return null;
+    return nearestBoxSide(box, Number(point.x), Number(point.y));
+  }
+
+  function nodeDisplayLabel(id) {
+    var node = findDocNode(id);
+    if (node && node.label != null && String(node.label).trim()) return String(node.label);
+    return String(id == null ? "" : id);
+  }
+
+  // J1-ROUTING-START
+  // Pure helpers. Tests extract this block and run it under node.
+  function nearestBoxSide(box, x, y) {
+    var left = box.x;
+    var right = box.x + box.w;
+    var top = box.y;
+    var bottom = box.y + box.h;
+    function vertical(edgeX) {
+      var cy = y < top ? top : (y > bottom ? bottom : y);
+      var dx = x - edgeX;
+      var dy = y - cy;
+      return dx * dx + dy * dy;
+    }
+    function horizontal(edgeY) {
+      var cx = x < left ? left : (x > right ? right : x);
+      var dx = x - cx;
+      var dy = y - edgeY;
+      return dx * dx + dy * dy;
+    }
+    var side = "left";
+    var best = vertical(left);
+    var dist = vertical(right);
+    if (dist < best) { side = "right"; best = dist; }
+    dist = horizontal(top);
+    if (dist < best) { side = "top"; best = dist; }
+    dist = horizontal(bottom);
+    if (dist < best) side = "bottom";
+    return side;
   }
 
   function archSidePair(dx, dy, horizontal) {
@@ -11235,25 +11293,80 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return { fromSide: "top", toSide: "bottom" };
   }
 
-  // Dominant axis of target center minus source center, then the other axis,
-  // then orthogonal-h / orthogonal-v with the dominant sides. Null when the
-  // two components have no geometry (caller delivers the connection unchanged).
-  function archRoutingPlans(fromId, toId) {
-    var src = componentCenter(fromId);
-    var dst = componentCenter(toId);
+  function routingPlanKey(plan) {
+    if (plan && plan.auto) return "auto";
+    return String(plan.fromSide) + "|" + String(plan.toSide) + "|" + String(plan.route || "");
+  }
+
+  function pushRoutingPlan(plans, plan, cap) {
+    if (!plans || !plan) return false;
+    if (!(cap > 0)) cap = 8;
+    if (plans.length >= cap) return false;
+    var key = routingPlanKey(plan);
+    var i;
+    for (i = 0; i < plans.length; i++) {
+      if (routingPlanKey(plans[i]) === key) return false;
+    }
+    plans.push(plan);
+    return true;
+  }
+
+  function sideFacesTarget(side, dx, dy) {
+    if (side === "right") return dx > 0;
+    if (side === "left") return dx < 0;
+    if (side === "bottom") return dy > 0;
+    if (side === "top") return dy < 0;
+    return false;
+  }
+
+  function sideFacesSource(side, dx, dy) {
+    if (side === "left") return dx > 0;
+    if (side === "right") return dx < 0;
+    if (side === "top") return dy > 0;
+    if (side === "bottom") return dy < 0;
+    return false;
+  }
+
+  function archRoutingPlanList(src, dst, userPair) {
     if (!src || !dst) return null;
     var dx = dst.x - src.x;
     var dy = dst.y - src.y;
     var horizontal = Math.abs(dx) >= Math.abs(dy);
     var dominant = archSidePair(dx, dy, horizontal);
     var other = archSidePair(dx, dy, !horizontal);
-    var plans = [dominant];
-    if (other.fromSide !== dominant.fromSide || other.toSide !== dominant.toSide) {
-      plans.push(other);
+    var plans = [];
+    var cap = 8;
+    var sidesOk = { left: 1, right: 1, top: 1, bottom: 1 };
+    if (userPair && sidesOk[userPair.fromSide] && sidesOk[userPair.toSide]) {
+      pushRoutingPlan(plans, { fromSide: userPair.fromSide, toSide: userPair.toSide }, cap);
     }
-    plans.push({ fromSide: dominant.fromSide, toSide: dominant.toSide, route: "orthogonal-h" });
-    plans.push({ fromSide: dominant.fromSide, toSide: dominant.toSide, route: "orthogonal-v" });
+    pushRoutingPlan(plans, { auto: true }, cap);
+    pushRoutingPlan(plans, { fromSide: dominant.fromSide, toSide: dominant.toSide }, cap);
+    pushRoutingPlan(plans, { fromSide: dominant.fromSide, toSide: other.toSide }, cap);
+    pushRoutingPlan(plans, { fromSide: other.fromSide, toSide: dominant.toSide }, cap);
+    pushRoutingPlan(plans, { fromSide: other.fromSide, toSide: other.toSide }, cap);
+    var fromOrder = ["left", "right", "top", "bottom"];
+    var toOrder = ["left", "right", "top", "bottom"];
+    var fi, ti;
+    for (fi = 0; fi < fromOrder.length; fi++) {
+      if (!sideFacesTarget(fromOrder[fi], dx, dy)) continue;
+      for (ti = 0; ti < toOrder.length; ti++) {
+        if (!sideFacesSource(toOrder[ti], dx, dy)) continue;
+        pushRoutingPlan(plans, { fromSide: fromOrder[fi], toSide: toOrder[ti] }, cap);
+      }
+    }
     return plans;
+  }
+  // J1-ROUTING-END
+
+  // Plan 1 is the clicked (or dropped) side pair. Then automatic, the
+  // dominant straight pair, both L-shapes, the other straight pair, then
+  // any facing pair still missing. Null when either component has no box.
+  function archRoutingPlans(fromId, toId, userPair) {
+    var src = componentCenter(fromId);
+    var dst = componentCenter(toId);
+    if (!src || !dst) return null;
+    return archRoutingPlanList(src, dst, userPair || null);
   }
 
   function routingChoiceNote(edge) {
@@ -11284,21 +11397,26 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     else delete edge.route;
   }
 
-  function applyConnRouting(edge, plan, snap) {
+  function applyConnRouting(edge, plan) {
+    if (plan && plan.auto) {
+      delete edge.fromSide;
+      delete edge.toSide;
+      delete edge.route;
+      return;
+    }
     edge.fromSide = plan.fromSide;
     edge.toSide = plan.toSide;
     if (plan.route) edge.route = plan.route;
-    else if (snap && snap.hadRoute) edge.route = snap.route;
     else delete edge.route;
   }
 
-  function previewRoutingPlans(edge, plans, snap) {
-    var last = null;
+  function previewRoutingPlans(edge, plans) {
+    var firstReceipt = null;
     function tryAt(i) {
-      if (i >= plans.length) return Promise.resolve({ ok: false, receipt: last });
-      applyConnRouting(edge, plans[i], snap);
+      if (i >= plans.length) return Promise.resolve({ ok: false, receipt: firstReceipt });
+      applyConnRouting(edge, plans[i]);
       return postPreviewDoc().then(function (receipt) {
-        last = receipt;
+        if (i === 0) firstReceipt = receipt;
         if (receipt && receipt.ok) return { ok: true, plan: plans[i], receipt: receipt };
         return tryAt(i + 1);
       });
@@ -11306,7 +11424,18 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return tryAt(0);
   }
 
-  function addConnectionAndSave(from, to) {
+  function routingGiveUpMessage(fromId, toId, receipt) {
+    var msg = "Archify couldn't find a clean line from " + nodeDisplayLabel(fromId) +
+      " to " + nodeDisplayLabel(toId) +
+      ". Move one of them, or set the sides under Advanced on the connection.";
+    var errs;
+    if (receipt && Array.isArray(receipt.errors) && receipt.errors.length) errs = receipt.errors;
+    else if (receipt && receipt.error) errs = [receipt.error];
+    else errs = ["preview failed"];
+    return msg + "\n" + errs.join("\n");
+  }
+
+  function addConnectionAndSave(from, to, fromPoint, toPoint) {
     pushHistory();
     var created = !Array.isArray(state.doc.connections);
     if (created) state.doc.connections = [];
@@ -11315,11 +11444,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     state.rawDirty = false;
     renderLists();
     setLayoutBusy(true);
-    var plans = archRoutingPlans(from, to);
-    var routingBefore = connRoutingSnapshot(conn);
+    var userPair = {
+      fromSide: nearestSideFor(from, fromPoint),
+      toSide: nearestSideFor(to, toPoint)
+    };
+    var plans = archRoutingPlans(from, to, userPair);
     setStatus("previewing connection " + from + " → " + to + "…", "");
     var pending = plans
-      ? previewRoutingPlans(conn, plans, routingBefore)
+      ? previewRoutingPlans(conn, plans)
       : postPreviewDoc().then(function (receipt) {
           return { ok: !!(receipt && receipt.ok), plan: null, receipt: receipt };
         });
@@ -11329,7 +11461,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         if (result.ok) {
           markDirty();
           var msg = "Added connection " + from + " → " + to;
-          if (result.plan) msg += " (" + routingChoiceNote(conn) + ")";
+          if (result.plan && !result.plan.auto) msg += " (" + routingChoiceNote(conn) + ")";
           msg += " (unsaved)";
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
@@ -11342,8 +11474,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         if (created) delete state.doc.connections;
         revertHistoryPush();
         setLayoutBusy(false);
-        var errs = receipt.errors || [receipt.error || "preview failed"];
-        setStatus("Connection not added (reverted):\n- " + errs.join("\n- "), "err");
+        if (plans) setStatus(routingGiveUpMessage(from, to, receipt), "err");
+        else {
+          var errs = receipt.errors || [receipt.error || "preview failed"];
+          setStatus("Connection not added (reverted):\n- " + errs.join("\n- "), "err");
+        }
         renderLists();
       })
       .catch(function (e) {
@@ -16006,7 +16141,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       return;
     }
     state.selected.components = Math.min(nodeIdx, result.left - 1);
-    if (state.connectFrom && String(state.connectFrom) === String(nodeId)) state.connectFrom = null;
+    if (state.connectFrom && String(state.connectFrom) === String(nodeId)) {
+      state.connectFrom = null;
+      state.connectFromPoint = null;
+    }
     state.selectedEdgeIndex = null;
     state.selectedComponentId = null;
     state.selectedNodeId = null;
@@ -16111,6 +16249,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     stripNodeIdRefs(state.doc, nodeId);
     if (state.connectFrom && String(state.connectFrom) === String(nodeId)) {
       state.connectFrom = null;
+      state.connectFromPoint = null;
     }
     state.selectedEdgeIndex = null;
     state.selectedNodeId = null;
@@ -17193,7 +17332,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return null;
   }
 
-  function rerouteEdgeEnd(docIdx, end, newNodeId) {
+  function rerouteEdgeEnd(docIdx, end, newNodeId, dropPoint) {
     var routeEdges = relationRecords();
     if (!routeEdges[docIdx]) {
       mountLayoutOverlays();
@@ -17226,6 +17365,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var sideBefore = clone(state.sidecar);
     // Sides/route on this connection only. Other connections are not in the snapshot.
     var routingBefore = isArchitecture() ? connRoutingSnapshot(edge) : null;
+    var keptFrom = edge.fromSide;
+    var keptTo = edge.toSide;
     pushHistory();
     edge[end] = newNodeId;
     rekeyEdgeStyles(captured);
@@ -17235,9 +17376,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     renderLists();
     setLayoutBusy(true);
     setStatus("previewing reroute → " + newFrom + " → " + newTo + "…", "");
-    var plans = isArchitecture() ? archRoutingPlans(newFrom, newTo) : null;
+    var userPair = null;
+    if (isArchitecture()) {
+      userPair = {
+        fromSide: end === "from" ? nearestSideFor(newNodeId, dropPoint) : keptFrom,
+        toSide: end === "to" ? nearestSideFor(newNodeId, dropPoint) : keptTo
+      };
+    }
+    var plans = isArchitecture() ? archRoutingPlans(newFrom, newTo, userPair) : null;
     var pending = plans
-      ? previewRoutingPlans(edge, plans, routingBefore)
+      ? previewRoutingPlans(edge, plans)
       : postPreviewDoc().then(function (receipt) {
           return { ok: !!(receipt && receipt.ok), plan: null, receipt: receipt };
         });
@@ -17247,7 +17395,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         if (result.ok) {
           markDirty();
           var msg = "Rerouted edge " + newFrom + " → " + newTo + " (" + end + ")";
-          if (result.plan) msg += " (" + routingChoiceNote(edge) + ")";
+          if (result.plan && !result.plan.auto) msg += " (" + routingChoiceNote(edge) + ")";
           msg += " (unsaved)";
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
@@ -17262,8 +17410,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         revertHistoryPush();
         setLayoutBusy(false);
         mountLayoutOverlays();
-        var errs = receipt.errors || [receipt.error || "preview failed"];
-        setStatus("Reroute not updated (reverted):\n- " + errs.join("\n- "), "err");
+        if (plans) setStatus(routingGiveUpMessage(newFrom, newTo, receipt), "err");
+        else {
+          var errs = receipt.errors || [receipt.error || "preview failed"];
+          setStatus("Reroute not updated (reverted):\n- " + errs.join("\n- "), "err");
+        }
         renderLists();
       })
       .catch(function (e) {
@@ -17563,7 +17714,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
     if (state.layoutMode === "connect") {
       ev.preventDefault();
-      handleConnectNodeClick(t.getAttribute("data-node-id"));
+      var iframeC = $("layout-frame");
+      var svgC = iframeC && iframeC.contentDocument && iframeC.contentDocument.querySelector("svg");
+      var ptC = null;
+      if (svgC && svgC.getScreenCTM()) ptC = clientToSvg(svgC, ev.clientX, ev.clientY);
+      handleConnectNodeClick(t.getAttribute("data-node-id"), ptC);
       return;
     }
 
@@ -17738,7 +17893,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         setStatus("Reroute cancelled (drop on empty space)", "");
         return;
       }
-      rerouteEdgeEnd(epDrag.docIdx, epDrag.end, targetId);
+      rerouteEdgeEnd(epDrag.docIdx, epDrag.end, targetId, { x: epDrag.lastX, y: epDrag.lastY });
       return;
     }
     if (!layoutDrag) return;
@@ -18119,6 +18274,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
                 state.selectedEdgeIndex = null;
               }
               state.connectFrom = null;
+              state.connectFromPoint = null;
               mountLayoutOverlays();
               if (singleEdit && singleEdit.kind === "edge") restoreEdgePopupAfterRemount();
               if (nodeEdit) {
@@ -19647,6 +19803,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     state.selectedComponentId = null;
     state.selectedNodeId = null;
     state.connectFrom = null;
+    state.connectFromPoint = null;
     state.layoutMode = "move";
     state.layout = null;
     state.layoutLoaded = false;
@@ -21853,6 +22010,8 @@ def _smoke_kind_deliver(
                 ["node", archify_mjs, "deliver", diagram_type, fixture, html_path, "--json"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=120,
                 check=False,
                 env={

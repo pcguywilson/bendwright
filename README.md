@@ -139,8 +139,10 @@ diagram.
 
 ### Connections
 
-**Connect and reroute** - press **C**, click a source, then a target. Drag an endpoint
-onto another node to reroute the connection.
+**Connect and reroute** - press **C**, click a source, then a target. Click near the side
+you want the line to leave from and arrive at; if Archify can't draw it that way,
+bendwright tries other sides and uses the first clean route. Drag an endpoint onto
+another node to reroute the connection.
 
 ![Connect and reroute](gifs/connect-and-reroute.gif)
 
