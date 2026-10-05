@@ -195,6 +195,7 @@ to see why. Your file is never left unrenderable.
 | **C** | Connect tool |
 | **B** | Boundary tool (architecture) |
 | **F2** | Rename the selection in place |
+| **I** | Hide or show the sidebar |
 | **Tab** / **Shift+Tab** | Next / previous field while renaming a node |
 | **Enter** | Apply edits |
 | **Esc** | Discard unapplied edits, close a panel, or clear the selection |
@@ -226,6 +227,8 @@ Tool keys are ignored while you type in a field.
 - **Boxes grow to fit** - type a long label and the node or component widens on its own,
   so you can drop in rough nodes now and fill in details later.
 - **Preview** - **Preview** on the bottom tool bar opens the full rendered page in a new tab.
+- **Hide the sidebar** - the arrow on the sidebar's edge (or **I**) gives the drawing the
+  full width, handy for screenshots. bendwright remembers your choice.
 - **New diagram and templates** - **New** starts a blank workflow or architecture
   diagram, or one of four starter templates. The first **Save** asks where to write it.
 - **Built-in guide** - **?** in the header opens a how-to guide in a new tab.

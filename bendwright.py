@@ -4964,7 +4964,7 @@ _HELP_BODY = r"""<header class="help-head">
   <ul>
     <li><b>Header</b>: file name, the diagram kind, <b>Saved</b> or <b>Unsaved</b>, then New, Open, Undo, Redo, Save, and the <b>⋯</b> menu (Export HTML, Source JSON, Custom types library, Refresh icons, Discard changes).</li>
     <li><b>Canvas</b>: the live Archify drawing. It redraws after every applied change.</li>
-    <li><b>Inspector</b> (right): follows your selection. With nothing selected it shows the diagram itself: title, subtitle, quality profile, Legend, Display, and <b>Browse</b> links.</li>
+    <li><b>Inspector</b> (right): follows your selection. With nothing selected it shows the diagram itself: title, subtitle, quality profile, Legend, Display, and <b>Browse</b> links. The chevron on its left edge hides it (<kbd>I</kbd>) so the canvas can fill the window. Zoom stays put. A tab on the right edge, or <kbd>I</kbd> again, shows it. The choice is remembered in this browser.</li>
     <li><b>Tool bar</b> (bottom): Select, Connect, Boundary (architecture), zoom, Fit, Preview, and Cards.</li>
   </ul>
 </section>
@@ -5053,6 +5053,7 @@ _HELP_BODY = r"""<header class="help-head">
     <tr><td><kbd>V</kbd></td><td>Select tool</td></tr>
     <tr><td><kbd>C</kbd></td><td>Connect tool</td></tr>
     <tr><td><kbd>B</kbd></td><td>Boundary tool (architecture)</td></tr>
+    <tr><td><kbd>I</kbd></td><td>Hide or show the sidebar</td></tr>
     <tr><td><kbd>F2</kbd></td><td>Rename the selection in place</td></tr>
     <tr><td><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>Move between label, sublabel, and tag while renaming a node</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>Apply edits</td></tr>
@@ -6454,7 +6455,21 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   border: 1px solid var(--border); border-radius: 6px; padding: 10px;
   font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.4;
 }
-#pane-layout { min-width: 0; min-height: 0; }
+#pane-layout { position: relative; min-width: 0; min-height: 0; }
+#btn-sidebar-toggle {
+  position: absolute; z-index: 40; top: 50%; right: 320px;
+  transform: translateY(-50%);
+  width: 18px; height: 48px; padding: 0;
+  border-radius: 6px 0 0 6px; line-height: 1; font-size: 16px;
+}
+#btn-sidebar-toggle::before { content: "\203A"; }
+#btn-sidebar-toggle:focus { outline: none; border-color: var(--focus); }
+html.sidebar-collapsed #btn-sidebar-toggle { right: 0; }
+html.sidebar-collapsed #btn-sidebar-toggle::before { content: "\2039"; }
+html.sidebar-collapsed #inspector {
+  width: 0; flex: 0 0 0; padding: 0; border-left-width: 0;
+  overflow: hidden; visibility: hidden;
+}
 #layout-wrap {
   flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; padding: 0;
   position: relative;
@@ -7331,6 +7346,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       <div id="bw-inline-rename-hint" hidden>Enter to save · Esc to cancel</div>
       <span id="bw-inline-rename-mirror" aria-hidden="true"></span>
     </div>
+    <button type="button" id="btn-sidebar-toggle" title="Hide sidebar (I)" aria-expanded="true" aria-controls="inspector" aria-label="Hide sidebar (I)"></button>
     <aside id="inspector" aria-label="Inspector">
       <div id="inspector-document">
         <div class="inspector-kicker">Diagram</div>
@@ -7607,6 +7623,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 <script>
 (function () {
   "use strict";
+  applySidebarCollapsed(readSidebarCollapsed());
 
   var TEMPLATE_MANIFEST = __TEMPLATE_MANIFEST_JSON__;
 
@@ -12406,7 +12423,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (key === "F2" || key === "Delete" || key === "Backspace") return true;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return false;
     var lower = String(key || "").toLowerCase();
-    return lower === "v" || lower === "c" || lower === "b";
+    return lower === "v" || lower === "c" || lower === "b" || lower === "i";
   }
 
   function onLayoutKeyDown(ev) {
@@ -12504,11 +12521,73 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return false;
   }
 
+  // I only hides or shows the sidebar. Open editors and the selection stay.
+  function sidebarShortcutBlocked(ev) {
+    var el = ev && ev.target;
+    if (el && el.tagName) {
+      var tag = el.tagName.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if (el.isContentEditable) return true;
+    }
+    if (isStatusOverlayActive()) return true;
+    if (isOpenPanelActive() || isDirtyPanelActive() || isNewPanelActive()) return true;
+    if (isSavePanelActive() || isExportPanelActive()) return true;
+    if (isDeleteConfirmActive()) return true;
+    return false;
+  }
+
+  function readSidebarCollapsed() {
+    try {
+      return localStorage.getItem("bendwright-sidebar") === "collapsed";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function writeSidebarCollapsed(collapsed) {
+    try {
+      localStorage.setItem("bendwright-sidebar", collapsed ? "collapsed" : "open");
+    } catch (_) {}
+  }
+
+  function syncSidebarToggle(collapsed) {
+    var btn = $("btn-sidebar-toggle");
+    var inspector = $("inspector");
+    if (inspector) inspector.setAttribute("aria-hidden", collapsed ? "true" : "false");
+    if (!btn) return;
+    var title = collapsed ? "Show sidebar (I)" : "Hide sidebar (I)";
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+
+  function applySidebarCollapsed(collapsed) {
+    document.documentElement.classList.toggle("sidebar-collapsed", !!collapsed);
+    syncSidebarToggle(!!collapsed);
+  }
+
+  function toggleSidebar() {
+    var collapsed = !document.documentElement.classList.contains("sidebar-collapsed");
+    applySidebarCollapsed(collapsed);
+    writeSidebarCollapsed(collapsed);
+    var inspector = $("inspector");
+    var btn = $("btn-sidebar-toggle");
+    if (collapsed && inspector && document.activeElement && inspector.contains(document.activeElement)) {
+      if (btn) btn.focus();
+    }
+  }
+
   function onModeShortcut(ev) {
     if (inlineRename) return;
     if (!ev || ev.ctrlKey || ev.metaKey || ev.altKey) return;
     var key = String(ev.key || "").toLowerCase();
-    if (key !== "v" && key !== "c" && key !== "b") return;
+    if (key !== "v" && key !== "c" && key !== "b" && key !== "i") return;
+    if (key === "i") {
+      if (sidebarShortcutBlocked(ev)) return;
+      ev.preventDefault();
+      toggleSidebar();
+      return;
+    }
     if (modeShortcutBlocked(ev)) return;
     if (!state.doc || state.layoutBusy) return;
     if (key === "b" && !isArchitecture()) return;
@@ -20736,6 +20815,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     });
   }
 
+  var sidebarToggle = $("btn-sidebar-toggle");
+  if (sidebarToggle) sidebarToggle.addEventListener("click", function () {
+    toggleSidebar();
+  });
+
   $("btn-zoom-fit").addEventListener("click", function () {
     if (!$("layout-frame").contentDocument || !$("layout-frame").contentDocument.querySelector("svg")) return;
     fitLayoutViewport();
@@ -21047,7 +21131,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var tag = (ev.target && ev.target.tagName) ? ev.target.tagName.toLowerCase() : "";
     var typing = tag === "input" || tag === "textarea" || tag === "select" || (ev.target && ev.target.isContentEditable);
 
-    if (!typing && (ev.key === "v" || ev.key === "V" || ev.key === "c" || ev.key === "C" || ev.key === "b" || ev.key === "B")) {
+    if (!typing && (ev.key === "v" || ev.key === "V" || ev.key === "c" || ev.key === "C" || ev.key === "b" || ev.key === "B" || ev.key === "i" || ev.key === "I")) {
       onModeShortcut(ev);
     }
 
