@@ -144,6 +144,11 @@ you want the line to leave from and arrive at; if Archify can't draw it that way
 bendwright tries other sides and uses the first clean route. Drag an endpoint onto
 another node to reroute the connection.
 
+**Move a label** - click a connection to select it; its label gets a dashed blue outline
+and a grip. Drag the label where you want it. Labels of connections you haven't selected
+never move. **Reset label position** under **Advanced** puts it back, and you can also pick
+which segment of the line it sits on there.
+
 ![Connect and reroute](gifs/connect-and-reroute.gif)
 
 **Style an edge** - click a connection, pick a line style and color, and rename it. Line

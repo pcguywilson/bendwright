@@ -11115,10 +11115,51 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
   }
 
+  function markMovableLabel(doc) {
+    if (!doc) return;
+    var old = doc.querySelectorAll("g.bw-label-movable");
+    for (var i = 0; i < old.length; i++) {
+      old[i].classList.remove("bw-label-movable");
+      var oldTitle = old[i].querySelector("title.bw-label-title");
+      if (oldTitle) oldTitle.parentNode.removeChild(oldTitle);
+    }
+    var grips = doc.querySelectorAll(".bw-label-grip");
+    for (var j = 0; j < grips.length; j++) grips[j].parentNode.removeChild(grips[j]);
+    if (state.selectedEdgeIndex == null || state.layoutBusy) return;
+    var text = edgeLabelElement(doc, state.selectedEdgeIndex);
+    var g = text && text.closest ? text.closest("g[data-edge-from][data-edge-to]") : null;
+    if (!g) return;
+    g.classList.add("bw-label-movable");
+    var title = doc.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.setAttribute("class", "bw-label-title");
+    title.textContent = "Drag to move this label";
+    g.insertBefore(title, g.firstChild);
+    var rect = g.querySelector("rect");
+    var gx, gy;
+    if (rect) {
+      gx = Number(rect.getAttribute("x")) - 7;
+      gy = Number(rect.getAttribute("y")) + Number(rect.getAttribute("height")) / 2 + 3;
+    } else {
+      gx = Number(text.getAttribute("x")) - 14;
+      gy = Number(text.getAttribute("y"));
+    }
+    if (!isFinite(gx) || !isFinite(gy)) return;
+    var grip = doc.createElementNS("http://www.w3.org/2000/svg", "text");
+    grip.setAttribute("class", "bw-label-grip");
+    grip.setAttribute("x", String(gx));
+    grip.setAttribute("y", String(gy));
+    grip.setAttribute("font-size", "11");
+    grip.setAttribute("font-weight", "700");
+    grip.setAttribute("text-anchor", "middle");
+    grip.textContent = "\u283F";
+    g.appendChild(grip);
+  }
+
   function refreshEdgeSelectionStyles() {
     var iframe = $("layout-frame");
     var doc = iframe && iframe.contentDocument;
     if (!doc) return;
+    markMovableLabel(doc);
     var hits = doc.querySelectorAll("polyline.bw-edge-hit");
     for (var i = 0; i < hits.length; i++) {
       var idx = parseInt(hits[i].getAttribute("data-doc-index"), 10);
@@ -11192,7 +11233,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
     updateLayoutHint();
     var noun = isArchitecture() ? "connection" : "edge";
-    setStatus("Selected " + noun + " " + e.from + " → " + e.to + " (Delete to remove)", "");
+    var dragHint = edgeLabelValue(e) ? " Drag its label to move it." : "";
+    setStatus("Selected " + noun + " " + e.from + " → " + e.to + " (Delete to remove)." + dragHint, "");
   }
 
   function isRoleRequiredError(errors) {
@@ -11939,6 +11981,12 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       "svg .bw-lasso{pointer-events:none}" +
       "svg [data-legend],svg [data-legend] *{pointer-events:all;cursor:pointer}" +
       "svg g[data-edge-label] text,svg g[data-edge-label] rect{pointer-events:all;cursor:pointer}" +
+      /* N1: only the selected connection's label can be dragged, and it says so. */
+      "svg g.bw-label-movable rect{stroke:rgba(61,139,253,1);stroke-width:1.6px;stroke-dasharray:4 2;fill:rgba(61,139,253,0.22)}" +
+      "svg g.bw-label-movable text,svg g.bw-label-movable rect{cursor:grab}" +
+      "svg g.bw-label-dragging text,svg g.bw-label-dragging rect{cursor:grabbing}" +
+      "svg g.bw-label-dragging{opacity:0.85}" +
+      "svg .bw-label-grip{pointer-events:none;fill:rgba(61,139,253,0.95)}" +
       "svg rect[data-composition-frame-kind=\"lane\"] + text," +
       "svg rect[data-composition-frame-kind=\"exception-lane\"] + text{pointer-events:all;cursor:pointer}";
     (doc.head || doc.documentElement).appendChild(style);
@@ -12599,6 +12647,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function onLayoutKeyDown(ev) {
+    if (labelDrag && (ev.key === "Escape" || ev.key === "Esc")) {
+      ev.preventDefault();
+      cancelLabelDrag(true);
+      return;
+    }
     if (layoutModShortcut(ev)) return;
     if (layoutToolKeyBlocked(ev)) return;
     if (tryStartInlineRename(ev)) return;
@@ -12874,7 +12927,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         fieldSelect("Variant", "edge.variant", "variant", edge.variant) +
         fieldSelect("route", "connection.route", "route", edge.route) +
         fieldSelect("fromSide", "edge.fromSide", "fromSide", edge.fromSide) +
-        fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide);
+        fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide) +
+        labelPlacementHtml(edge);
     } else {
       body.innerHTML =
         nodeSelect("from", edge.from) +
@@ -12883,7 +12937,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         fieldSelect("Variant", "edge.variant", "variant", edge.variant) +
         fieldSelect("route", "edge.route", "route", edge.route) +
         fieldSelect("fromSide", "edge.fromSide", "fromSide", edge.fromSide) +
-        fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide);
+        fieldSelect("toSide", "edge.toSide", "toSide", edge.toSide) +
+        labelPlacementHtml(edge);
     }
     fillEdgeStyle(edge);
     if (state.layoutBusy) setEdgeAdvancedDisabled(true);
@@ -17792,6 +17847,178 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     window.removeEventListener("blur", onArchResizeBlur);
   }
 
+  // N1: drag the selected connection's label. Writes labelAt (the label's
+  // text anchor, which is where Archify places it), snapped to 5px.
+  var labelDrag = null;
+  var LABEL_SNAP = 5;
+
+  function labelClientToSvg(svg, x, y) {
+    if (!svg || !svg.createSVGPoint || !svg.getScreenCTM) return null;
+    var m = svg.getScreenCTM();
+    if (!m) return null;
+    var pt = svg.createSVGPoint();
+    pt.x = x;
+    pt.y = y;
+    var r = pt.matrixTransform(m.inverse());
+    return { x: r.x, y: r.y };
+  }
+
+  function startLabelDrag(ev, g, idx) {
+    var text = g.querySelector("text");
+    var svg = g.ownerSVGElement;
+    if (!text || !svg) return;
+    var ox = Number(text.getAttribute("x"));
+    var oy = Number(text.getAttribute("y"));
+    var start = labelClientToSvg(svg, ev.clientX, ev.clientY);
+    if (!isFinite(ox) || !isFinite(oy) || !start) return;
+    labelDrag = {
+      idx: idx, g: g, svg: svg, target: ev.target, pointerId: ev.pointerId,
+      startClientX: ev.clientX, startClientY: ev.clientY,
+      startSvg: start, originX: ox, originY: oy, dx: 0, dy: 0, moved: false
+    };
+  }
+
+  function moveLabelDrag(ev) {
+    var d = labelDrag;
+    if (!d) return;
+    var cdx = ev.clientX - d.startClientX;
+    var cdy = ev.clientY - d.startClientY;
+    var threshold = Math.max(LAYOUT_DRAG_THRESHOLD_PX || 0, 6);
+    if (!d.moved) {
+      if (cdx * cdx + cdy * cdy < threshold * threshold) return;
+      d.moved = true;
+      try { d.target.setPointerCapture(d.pointerId); } catch (eCap) {}
+      d.g.classList.add("bw-label-dragging");
+      var e = relationRecords()[d.idx];
+      setStatus("Moving the label for " + (e ? endpointDisplayName(e.from) + " \u2192 " + endpointDisplayName(e.to) : "this connection") +
+        ". Release to place it, Esc to cancel.", "");
+    }
+    ev.preventDefault();
+    var now = labelClientToSvg(d.svg, ev.clientX, ev.clientY);
+    if (!now) return;
+    d.dx = now.x - d.startSvg.x;
+    d.dy = now.y - d.startSvg.y;
+    d.g.setAttribute("transform", "translate(" + d.dx + " " + d.dy + ")");
+  }
+
+  function cancelLabelDrag(announce) {
+    var d = labelDrag;
+    labelDrag = null;
+    if (!d) return;
+    d.g.removeAttribute("transform");
+    d.g.classList.remove("bw-label-dragging");
+    try { d.target.releasePointerCapture(d.pointerId); } catch (eRel) {}
+    if (announce && d.moved) setStatus("Label move cancelled", "");
+  }
+
+  function endLabelDrag(ev) {
+    var d = labelDrag;
+    if (!d) return;
+    if (!d.moved || ev.type === "pointercancel") {
+      cancelLabelDrag(false);
+      return;
+    }
+    var nx = Math.round((d.originX + d.dx) / LABEL_SNAP) * LABEL_SNAP;
+    var ny = Math.round((d.originY + d.dy) / LABEL_SNAP) * LABEL_SNAP;
+    labelDrag = null;
+    try { d.target.releasePointerCapture(d.pointerId); } catch (eRel2) {}
+    d.g.classList.remove("bw-label-dragging");
+    if (Math.round(d.originX) === nx && Math.round(d.originY) === ny) {
+      d.g.removeAttribute("transform");
+      return;
+    }
+    applyEdgeLabelPlacement(d.idx, { labelAt: [nx, ny] }, "Moved the label", function () {
+      d.g.removeAttribute("transform");
+    });
+  }
+
+  var LABEL_PLACE_KEYS = ["labelAt", "labelDx", "labelDy", "labelSegment"];
+
+  // patch: key -> value, or null to remove the key.
+  function applyEdgeLabelPlacement(docIndex, patch, verb, onFail) {
+    if (state.layoutBusy || !state.doc) { if (onFail) onFail(); return; }
+    var edge = relationRecords()[docIndex];
+    if (!edge) { if (onFail) onFail(); return; }
+    var before = {};
+    var changed = false;
+    LABEL_PLACE_KEYS.forEach(function (k) {
+      before[k] = Object.prototype.hasOwnProperty.call(edge, k) ? clone(edge[k]) : undefined;
+      if (!Object.prototype.hasOwnProperty.call(patch, k)) return;
+      var next = patch[k];
+      if (next == null ? before[k] !== undefined : JSON.stringify(next) !== JSON.stringify(before[k])) changed = true;
+    });
+    if (!changed) { if (onFail) onFail(); return; }
+    pushHistory();
+    LABEL_PLACE_KEYS.forEach(function (k) {
+      if (!Object.prototype.hasOwnProperty.call(patch, k)) return;
+      if (patch[k] == null) delete edge[k];
+      else edge[k] = patch[k];
+    });
+    state.rawDirty = false;
+    setLayoutBusy(true);
+    var who = endpointDisplayName(edge.from) + " \u2192 " + endpointDisplayName(edge.to);
+    setStatus(verb + " for " + who + "\u2026", "");
+    function restore() {
+      LABEL_PLACE_KEYS.forEach(function (k) {
+        if (before[k] === undefined) delete edge[k];
+        else edge[k] = before[k];
+      });
+      revertHistoryPush();
+    }
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = verb + " for " + who + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true, { keepSingleEditor: true }).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+            refreshEdgeSelectionStyles();
+          });
+        }
+        restore();
+        setLayoutBusy(false);
+        if (onFail) onFail();
+        renderAll();
+        refreshEdgeSelectionStyles();
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Label not moved: Archify won't place it there (it would overlap a box or another label). Try another spot.\n" +
+          errs.join("\n"), "err");
+      })
+      .catch(function (e) {
+        restore();
+        setLayoutBusy(false);
+        if (onFail) onFail();
+        renderAll();
+        setStatus("Label not moved: " + e, "err");
+      });
+  }
+
+  function labelPlacementSummary(edge) {
+    if (Array.isArray(edge.labelAt) && edge.labelAt.length >= 2) {
+      return "Moved by hand (" + Math.round(edge.labelAt[0]) + ", " + Math.round(edge.labelAt[1]) + ")";
+    }
+    var parts = [];
+    if (edge.labelSegment != null) parts.push("segment " + edge.labelSegment);
+    if (edge.labelDx || edge.labelDy) parts.push("nudged " + (edge.labelDx || 0) + ", " + (edge.labelDy || 0));
+    return parts.length ? "Automatic, " + parts.join(", ") : "Automatic";
+  }
+
+  function labelPlacementHtml(edge) {
+    if (!edgeLabelValue(edge)) return "";
+    var custom = LABEL_PLACE_KEYS.some(function (k) { return Object.prototype.hasOwnProperty.call(edge, k); });
+    var seg = edge.labelSegment != null ? String(edge.labelSegment) : "";
+    return '<div class="field bw-label-place"><label>Label position</label>' +
+      '<div class="hint" id="label-place-state">' + esc(labelPlacementSummary(edge)) + '</div>' +
+      '<label for="label-place-segment">Label segment (0 = first)</label>' +
+      '<input type="number" min="0" step="1" id="label-place-segment" data-field="bwLabelSegment" value="' + esc(seg) + '" placeholder="auto">' +
+      '<button type="button" id="btn-label-reset"' + (custom ? "" : " disabled") + '>Reset label position</button>' +
+      '<div class="hint">To move it by hand, drag the label on the drawing while this connection is selected.</div>' +
+      '</div>';
+  }
+
   function onLayoutPointerDown(ev) {
     if (inlineRename) commitInlineSession();
     if (state.layoutBusy || !state.layout) return;
@@ -17894,6 +18121,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
 
     var labelEdgeIdx = edgeIndexFromEventTarget(t);
+    if (labelEdgeIdx != null && labelEdgeIdx === state.selectedEdgeIndex) {
+      var dragGroup = edgeLabelGroupFromTarget(t);
+      if (dragGroup && dragGroup.classList.contains("bw-label-movable")) {
+        // Do not preventDefault — a double-click still renames the label.
+        startLabelDrag(ev, dragGroup, labelEdgeIdx);
+        return;
+      }
+    }
     if (labelEdgeIdx != null) {
       // Do not preventDefault — that suppresses dblclick (inline label edit).
       var sameLabelEdge = singleEdit && singleEdit.kind === "edge" && singleEdit.edgeIndex === labelEdgeIdx;
@@ -18001,6 +18236,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function onLayoutPointerMove(ev) {
+    if (labelDrag) {
+      moveLabelDrag(ev);
+      return;
+    }
     if (boundaryLasso) {
       var ldx = ev.clientX - boundaryLasso.startClientX;
       var ldy = ev.clientY - boundaryLasso.startClientY;
@@ -18072,6 +18311,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   }
 
   function onLayoutPointerUp(ev) {
+    if (labelDrag) {
+      endLabelDrag(ev);
+      return;
+    }
     if (boundaryLasso) {
       if (ev.type === "pointercancel" && ev.currentTarget !== window && window._bwLassoBound) return;
       var lasso = boundaryLasso;
@@ -21193,6 +21436,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       clampSingleEditorToWrap();
     });
   }
+  // N1: Esc cancels a label drag wherever focus is.
+  document.addEventListener("keydown", function (ev) {
+    if (labelDrag && (ev.key === "Escape" || ev.key === "Esc")) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancelLabelDrag(true);
+    }
+  }, true);
   var singlePanel = $("layout-single-editor");
   if (singlePanel) {
     singlePanel.addEventListener("change", function (ev) {
@@ -21205,7 +21456,21 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         applyEdgeStyleLive(singleEdit.edgeIndex, field, el.value);
         return;
       }
+      if (field === "bwLabelSegment") {
+        var segRaw = String(el.value || "").trim();
+        var segVal = segRaw === "" ? null : Math.max(0, Math.floor(Number(segRaw)));
+        if (segVal != null && !isFinite(segVal)) return;
+        // A hand-placed label ignores the segment, so choosing one clears it.
+        applyEdgeLabelPlacement(singleEdit.edgeIndex, { labelSegment: segVal, labelAt: null }, "Changed the label segment");
+        return;
+      }
       applyEdgeField(singleEdit.edgeIndex, field, el.value);
+    });
+    singlePanel.addEventListener("click", function (ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest("#btn-label-reset") : null;
+      if (!btn || !singleEdit || singleEdit.kind !== "edge") return;
+      applyEdgeLabelPlacement(singleEdit.edgeIndex,
+        { labelAt: null, labelDx: null, labelDy: null, labelSegment: null }, "Reset the label position");
     });
     singlePanel.addEventListener("keydown", function (ev) {
       if (ev.key === "Enter" && ev.target && ev.target.id !== "layout-single-label") {
