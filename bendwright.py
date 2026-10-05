@@ -2946,6 +2946,8 @@ _STYLE_DASHES: dict[str, str | None] = {
 }
 # ~0.22 alpha on the node fill. 0x38/255 = 0.2196.
 _NODE_FILL_ALPHA = 0.22
+# O1: boundary tint is lighter than a node fill (boundaries are big).
+_BOUNDARY_FILL_ALPHA = 0.06
 _LEGEND_HINT = (
     "Custom colors are bendwright presets. On a dark theme, green sits near "
     "backend, amber near cloud, teal near frontend, and gray near external; "
@@ -3365,7 +3367,7 @@ def _sidecar_has_payload(sidecar: dict[str, Any]) -> bool:
     for key, value in sidecar.items():
         if key == "bendwright_sidecar":
             continue
-        if key in ("edges", "nodes", "types", "assignments", "icons") and isinstance(value, dict) and not value:
+        if key in ("edges", "nodes", "types", "assignments", "icons", "boundaries") and isinstance(value, dict) and not value:
             continue
         if key == "export" and isinstance(value, dict) and not value:
             continue
@@ -3408,7 +3410,7 @@ def write_sidecar_for(
     if "bendwright_sidecar" not in payload:
         payload["bendwright_sidecar"] = 1
     # Empty type maps are editor defaults. Do not add them to an M28a sidecar.
-    for optional in ("types", "assignments", "icons"):
+    for optional in ("types", "assignments", "icons", "boundaries"):
         if isinstance(payload.get(optional), dict) and not payload[optional]:
             payload.pop(optional, None)
     try:
@@ -3774,17 +3776,35 @@ def _svg_rule(selector: str, body: str) -> str:
 
 
 def _paint_var_decls(
-    edge_colors: list[str], node_colors: list[str]
+    edge_colors: list[str],
+    node_colors: list[str],
+    boundary_colors: list[str] | None = None,
 ) -> list[tuple[str, str, str]]:
     """(var name, dark hex, light hex) for colors these targets actually use."""
     decls: list[tuple[str, str, str]] = []
     seen: set[str] = set()
     edge_set = set(edge_colors)
     node_set = set(node_colors)
+    boundary_set = set(boundary_colors or [])
     for color in _STYLE_COLOR_ORDER:
-        if color not in edge_set and color not in node_set:
+        if color not in edge_set and color not in node_set and color not in boundary_set:
             continue
         ramp = _STYLE_COLORS[color]
+        if color in boundary_set:
+            stroke_b = _bw_paint_var(color, "stroke")
+            tint = _bw_paint_var(color, "tint")
+            if stroke_b not in seen:
+                decls.append((stroke_b, ramp["dark"], ramp["light"]))
+                seen.add(stroke_b)
+            if tint not in seen:
+                decls.append(
+                    (
+                        tint,
+                        _alpha_hex(ramp["dark"], _BOUNDARY_FILL_ALPHA),
+                        _alpha_hex(ramp["light"], _BOUNDARY_FILL_ALPHA),
+                    )
+                )
+                seen.add(tint)
         if color in edge_set:
             name = _bw_paint_var(color, "edge")
             if name not in seen:
@@ -3808,8 +3828,53 @@ def _paint_var_decls(
     return decls
 
 
+def _collect_boundary_targets(doc: Any, sidecar: Any) -> list[dict[str, Any]]:
+    """O1: sidecar.boundaries = {"<index>": {"color": preset}}. Architecture only."""
+    out: list[dict[str, Any]] = []
+    if not isinstance(doc, dict) or not isinstance(sidecar, dict):
+        return out
+    if doc.get("diagram_type") != "architecture":
+        return out
+    entries = sidecar.get("boundaries")
+    boundaries = doc.get("boundaries")
+    if not isinstance(entries, dict) or not isinstance(boundaries, list):
+        return out
+    labels = [b.get("label") if isinstance(b, dict) else None for b in boundaries]
+    for key, body in entries.items():
+        if not isinstance(body, dict):
+            continue
+        color = body.get("color")
+        if color not in _STYLE_COLORS:
+            continue
+        try:
+            index = int(key)
+        except (TypeError, ValueError):
+            continue
+        if index < 0 or index >= len(boundaries) or not isinstance(boundaries[index], dict):
+            continue
+        label = labels[index]
+        unique = isinstance(label, str) and label and labels.count(label) == 1
+        out.append({"index": index, "label": label if unique else None, "color": color})
+    out.sort(key=lambda t: t["index"])
+    return out
+
+
+def _boundary_selectors(target: dict[str, Any]) -> tuple[str, str]:
+    """(frame rect selector, label group selector). Label when unique, else index."""
+    if target.get("label"):
+        match = f'[data-composition-frame-label="{_css_attr(str(target["label"]))}"]'
+    else:
+        match = f'[data-composition-frame-id="{int(target["index"])}"]'
+    return (
+        f'rect[data-graph-role="structural-frame"]{match}',
+        f'g[data-graph-role="structural-frame-label"]{match}',
+    )
+
+
 def _build_overlay_css(
-    edge_targets: list[dict[str, Any]], node_targets: list[dict[str, Any]]
+    edge_targets: list[dict[str, Any]],
+    node_targets: list[dict[str, Any]],
+    boundary_targets: list[dict[str, Any]] | None = None,
 ) -> str:
     attr = str(_OVERLAY_MARKUP["theme_attr"])
     dark = str(_OVERLAY_MARKUP["theme_dark"])
@@ -3852,8 +3917,24 @@ def _build_overlay_css(
                 f"fill: var({_bw_paint_var(color, 'fill')})",
             )
         )
+    boundary_colors: list[str] = []
+    for target in boundary_targets or []:
+        color = str(target["color"])
+        if color not in boundary_colors:
+            boundary_colors.append(color)
+        frame_sel, label_sel = _boundary_selectors(target)
+        paint.append(
+            _svg_rule(
+                frame_sel,
+                f"stroke: var({_bw_paint_var(color, 'stroke')}); "
+                f"fill: var({_bw_paint_var(color, 'tint')})",
+            )
+        )
+        paint.append(
+            _svg_rule(f"{label_sel} text", f"fill: var({_bw_paint_var(color, 'stroke')})")
+        )
     lines: list[str] = []
-    decls = _paint_var_decls(edge_colors, node_colors)
+    decls = _paint_var_decls(edge_colors, node_colors, boundary_colors)
     if decls:
         dark_body = "; ".join(f"{name}: {dark_hex}" for name, dark_hex, _light_hex in decls)
         light_body = "; ".join(f"{name}: {light_hex}" for name, _dark_hex, light_hex in decls)
@@ -4088,7 +4169,8 @@ def _apply_style_overlay(
     status = sidecar_status_note(doc, sidecar)
     edge_targets, node_targets = _collect_style_targets(doc, sidecar)
     kind_targets = _collect_kind_targets(doc, sidecar)
-    if not edge_targets and not node_targets and not kind_targets:
+    boundary_targets = _collect_boundary_targets(doc, sidecar)
+    if not edge_targets and not node_targets and not kind_targets and not boundary_targets:
         return html, status
     try:
         text = html.decode("utf-8")
@@ -4130,7 +4212,7 @@ def _apply_style_overlay(
             replacements.append((start, end, updated))
         # A dash-only edge matches but does not retarget the arrow.
 
-    css = _build_overlay_css(edge_targets, node_targets)
+    css = _build_overlay_css(edge_targets, node_targets, boundary_targets)
     if "!important" in css or "stroke-dashoffset" in css:
         return html, _join_notes(
             status,
@@ -7536,6 +7618,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           <div class="bw-ed-field">
             <label for="layout-boundary-label">Label</label>
             <input type="text" id="layout-boundary-label" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="bw-ed-field">
+            <label for="layout-boundary-color">Color</label>
+            <select id="layout-boundary-color"></select>
+            <div class="meta">none keeps the kind's own color. Saved beside the diagram, not in the Archify file.</div>
           </div>
           <div class="bw-ed-field">
             <label for="layout-boundary-pad">Pad</label>
@@ -15680,6 +15767,81 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       });
   }
 
+  // O1: per-boundary preset color, stored in sidecar.boundaries[index].
+  function boundaryColorOf(index) {
+    var map = state.sidecar && state.sidecar.boundaries;
+    var entry = map && typeof map === "object" && !Array.isArray(map) ? map[String(index)] : null;
+    var color = entry && typeof entry === "object" ? String(entry.color || "") : "";
+    return STYLE_COLORS.indexOf(color) >= 0 ? color : "";
+  }
+
+  function fillBoundaryColorSelect(index) {
+    var sel = $("layout-boundary-color");
+    if (sel) fillStyleSelect(sel, "color", boundaryColorOf(index));
+  }
+
+  function applyBoundaryColor(index, color) {
+    if (state.layoutBusy || !state.doc) return;
+    var boundary = boundaryAt(index);
+    if (!boundary) return;
+    color = STYLE_COLORS.indexOf(color) >= 0 ? color : "";
+    if (color === boundaryColorOf(index)) return;
+    ensureSidecar();
+    var sideBefore = clone(state.sidecar);
+    pushHistory();
+    var map = state.sidecar.boundaries;
+    if (!map || typeof map !== "object" || Array.isArray(map)) map = state.sidecar.boundaries = {};
+    if (color) map[String(index)] = { color: color };
+    else delete map[String(index)];
+    if (!Object.keys(map).length) delete state.sidecar.boundaries;
+    state.rawDirty = false;
+    previewStale = true;
+    setLayoutBusy(true);
+    var label = boundary.label || "boundary";
+    setStatus("previewing boundary color " + label + "\u2026", "");
+    postPreviewDoc()
+      .then(function (receipt) {
+        if (receipt && receipt.ok) {
+          markDirty();
+          var msg = (color ? "Colored boundary " + label + " " + color : "Boundary " + label + " back to its kind's color") + " (unsaved)";
+          if (receipt.note) msg += "\nNote: " + receipt.note;
+          setStatus(msg, "ok");
+          return loadLayoutPane(true).then(function () {
+            setLayoutBusy(false);
+            renderAll();
+            fillBoundaryColorSelect(index);
+          });
+        }
+        state.sidecar = sideBefore;
+        revertHistoryPush();
+        setLayoutBusy(false);
+        fillBoundaryColorSelect(index);
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
+        setStatus("Boundary color not changed (reverted):\n- " + errs.join("\n- "), "err");
+      })
+      .catch(function (e) {
+        state.sidecar = sideBefore;
+        revertHistoryPush();
+        setLayoutBusy(false);
+        fillBoundaryColorSelect(index);
+        setStatus("Boundary color preview failed (reverted): " + e, "err");
+      });
+  }
+
+  // Keep colors on the right boundary after one is removed at deletedIndex.
+  function rekeyBoundaryColors(deletedIndex) {
+    var map = state.sidecar && state.sidecar.boundaries;
+    if (!map || typeof map !== "object" || Array.isArray(map)) return;
+    var next = {};
+    Object.keys(map).forEach(function (k) {
+      var i = parseInt(k, 10);
+      if (isNaN(i) || i === deletedIndex) return;
+      next[String(i > deletedIndex ? i - 1 : i)] = map[k];
+    });
+    if (Object.keys(next).length) state.sidecar.boundaries = next;
+    else delete state.sidecar.boundaries;
+  }
+
   function readBoundaryEditorValues() {
     var kindEl = $("layout-boundary-kind");
     var labelEl = $("layout-boundary-label");
@@ -15759,6 +15921,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     try {
       kindEl.value = boundary.kind === "security-group" ? "security-group" : "region";
       labelEl.value = boundary.label == null ? "" : String(boundary.label);
+      fillBoundaryColorSelect(boundaryEdit.index);
       padEl.value = (boundary.pad == null || boundary.pad === "") ? "" : String(boundary.pad);
       var selected = {};
       var wraps = Array.isArray(boundary.wraps) ? boundary.wraps : [];
@@ -16047,6 +16210,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     pushHistory();
     state.doc.boundaries.splice(idx, 1);
     if (!state.doc.boundaries.length) delete state.doc.boundaries;
+    rekeyBoundaryColors(idx);
     var left = state.doc.boundaries || [];
     state.selected.boundaries = left.length ? Math.min(idx, left.length - 1) : -1;
     state.rawDirty = false;
@@ -19623,7 +19787,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   function sidecarIsEmpty(sc) {
     if (!sc || typeof sc !== "object") return true;
-    var keys = ["edges", "nodes", "types", "assignments", "icons"];
+    var keys = ["edges", "nodes", "types", "assignments", "icons", "boundaries"];
     for (var i = 0; i < keys.length; i++) {
       var value = sc[keys[i]];
       if (value && typeof value === "object" && Object.keys(value).length) return false;
@@ -20970,6 +21134,11 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
     });
     boundaryEditorEl.addEventListener("change", function (ev) {
+      if (ev.target && ev.target.id === "layout-boundary-color") {
+        ev.stopPropagation();
+        if (boundaryEdit) applyBoundaryColor(boundaryEdit.index, ev.target.value);
+        return;
+      }
       var box = ev.target;
       if (!box || !box.getAttribute || box.getAttribute("data-wrap-id") == null) return;
       guardLastBoundaryWrap(box);

@@ -244,7 +244,8 @@ Tool keys are ignored while you type in a field.
 - **Diagram title** - with nothing selected, edit the title and subtitle in the inspector.
 - **Resize** - in an architecture diagram, select a component and drag the corner grip.
 - **Boundaries** - click a boundary's border or label to edit its kind, label, padding,
-  and members; click components to add or remove them. Press **B** and drag a rectangle
+  color, and members; click components to add or remove them. **Color** recolors the
+  border, tint, and label with any preset (none keeps the kind's own amber or rose). Press **B** and drag a rectangle
   to draw a new boundary around the components inside it.
 - **Cards** - edit cards in place under the drawing, or hide them with **Cards**.
 - **Legend** - legend mode (auto, all, hidden) plus a label and visibility per type.
