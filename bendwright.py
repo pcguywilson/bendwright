@@ -11223,6 +11223,128 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       });
   }
 
+  // M1: an architecture edit can make Archify reject a DIFFERENT connection
+  // whose fixed sides no longer route (ports on a shared side shift). When
+  // every error names such a connection, re-route those (max 3) with the
+  // same plan search as Connect, then re-preview. Callers keep their own
+  // revert path; on give-up the repaired connections are put back here.
+  var ROUTE_REPAIR_MAX_CONNS = 3;
+  var ROUTE_REPAIR_PLAN_CAP = 8;
+  var ROUTE_REPAIR_RE = /\[clean-flow\/[a-z0-9-]+\][^\n]*?connections\[(\d+)\]\s*"([^"]+)"\s*->\s*"([^"]+)"/i;
+
+  function routingRepairTargets(receipt, exclude) {
+    if (!isArchitecture() || !receipt || receipt.ok || !state.doc) return null;
+    var errs = (Array.isArray(receipt.errors) && receipt.errors.length)
+      ? receipt.errors
+      : (receipt.error ? [receipt.error] : []);
+    if (!errs.length) return null;
+    var conns = Array.isArray(state.doc.connections) ? state.doc.connections : [];
+    var out = [];
+    for (var i = 0; i < errs.length; i++) {
+      var line = String(errs[i] == null ? "" : errs[i]).trim();
+      if (!line) continue;
+      if (/^suggested fix:/i.test(line) || /^diagnostics:\s*\d+\s*$/i.test(line)) continue;
+      var m = ROUTE_REPAIR_RE.exec(line);
+      if (!m) return null;
+      var conn = conns[Number(m[1])];
+      if (!conn || String(conn.from) !== m[2] || String(conn.to) !== m[3]) return null;
+      if (exclude && exclude.indexOf(conn) >= 0) return null;
+      if (out.indexOf(conn) < 0) out.push(conn);
+    }
+    if (!out.length) return null;
+    return out;
+  }
+
+  // Centers from the edited doc, not the last good render (a move or
+  // resize being previewed is not in the laid-out geometry yet).
+  function docComponentCenter(id) {
+    var node = findDocNode(id);
+    if (!node || !Array.isArray(node.pos) || node.pos.length < 2) return componentCenter(id);
+    var size = Array.isArray(node.size) ? node.size : [ARCH_MIN_W, ARCH_MIN_H];
+    var w = Number(size[0]);
+    var h = Number(size[1]);
+    if (!(w > 0)) w = ARCH_MIN_W;
+    if (!(h > 0)) h = ARCH_MIN_H;
+    return { x: Number(node.pos[0]) + w / 2, y: Number(node.pos[1]) + h / 2 };
+  }
+
+  function repairPlansFor(conn, snap) {
+    var plans = archRoutingPlanList(docComponentCenter(conn.from), docComponentCenter(conn.to), null) ||
+      [{ auto: true }];
+    var hadAny = snap.hadFromSide || snap.hadToSide || snap.hadRoute;
+    var out = [];
+    for (var i = 0; i < plans.length && out.length < ROUTE_REPAIR_PLAN_CAP; i++) {
+      var pl = plans[i];
+      if (pl.auto) {
+        if (hadAny) out.push(pl);
+        continue;
+      }
+      if (pl.fromSide === snap.fromSide && pl.toSide === snap.toSide &&
+          (pl.route || "") === (snap.route || "")) continue;
+      out.push(pl);
+    }
+    return out;
+  }
+
+  function repairNote(conn, plan) {
+    return nodeDisplayLabel(conn.from) + " → " + nodeDisplayLabel(conn.to) + " (" +
+      (plan.auto ? "automatic" : plan.fromSide + " → " + plan.toSide) + ")";
+  }
+
+  function postPreviewRepair(exclude) {
+    exclude = exclude || [];
+    return postPreviewDoc().then(function (first) {
+      if (!routingRepairTargets(first, exclude)) return first;
+      var touched = [];
+      var snaps = [];
+      var notes = [];
+      function giveUp() {
+        for (var k = touched.length - 1; k >= 0; k--) restoreConnRouting(touched[k], snaps[k]);
+        return first;
+      }
+      function step(receipt) {
+        if (receipt && receipt.ok) {
+          if (notes.length) {
+            receipt.note = (receipt.note ? receipt.note + "\n" : "") +
+              "Also re-routed " + notes.join("; ");
+          }
+          return receipt;
+        }
+        var targets = routingRepairTargets(receipt, exclude);
+        if (!targets) return giveUp();
+        var target = null;
+        for (var t = 0; t < targets.length; t++) {
+          if (touched.indexOf(targets[t]) < 0) { target = targets[t]; break; }
+        }
+        if (!target || touched.length >= ROUTE_REPAIR_MAX_CONNS) return giveUp();
+        var snap = connRoutingSnapshot(target);
+        touched.push(target);
+        snaps.push(snap);
+        var plans = repairPlansFor(target, snap);
+        setStatus("Fixing the route for " + nodeDisplayLabel(target.from) + " → " +
+          nodeDisplayLabel(target.to) + "…", "");
+        function tryPlan(i) {
+          if (i >= plans.length) return giveUp();
+          applyConnRouting(target, plans[i]);
+          return postPreviewDoc().then(function (r) {
+            if (r && r.ok) {
+              notes.push(repairNote(target, plans[i]));
+              return step(r);
+            }
+            var still = routingRepairTargets(r, exclude);
+            if (still && still.indexOf(target) < 0) {
+              notes.push(repairNote(target, plans[i]));
+              return step(r);
+            }
+            return tryPlan(i + 1);
+          });
+        }
+        return tryPlan(0);
+      }
+      return step(first);
+    });
+  }
+
   function revertHistoryPush() {
     if (state.undo.length) {
       state.undo.pop();
@@ -11473,7 +11595,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function previewRoutingPlans(edge, plans) {
     var firstReceipt = null;
     function tryAt(i) {
-      if (i >= plans.length) return Promise.resolve({ ok: false, receipt: firstReceipt });
+      if (i >= plans.length) {
+        if (!plans.length) return Promise.resolve({ ok: false, receipt: firstReceipt });
+        applyConnRouting(edge, plans[0]);
+        return postPreviewRepair([edge]).then(function (r) {
+          if (r && r.ok) return { ok: true, plan: plans[0], receipt: r };
+          return { ok: false, receipt: firstReceipt };
+        });
+      }
       applyConnRouting(edge, plans[i]);
       return postPreviewDoc().then(function (receipt) {
         if (i === 0) firstReceipt = receipt;
@@ -11659,7 +11788,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     renderLists();
     setLayoutBusy(true);
     setStatus("previewing delete " + (isArchitecture() ? "connection " : "edge ") + removed.from + " → " + removed.to + "…", "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt.ok) {
           markDirty();
@@ -14937,14 +15066,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var focusId = dockedRestoreFocusId(opts);
     setLayoutBusy(true);
     setStatus("previewing node… " + committedId, "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt && receipt.ok) return receipt;
         var grown = findDocNode(committedId);
         if (!(grown && archOverlapOnly(receipt && receipt.errors) && nudgeClearOfNeighbors(grown))) {
           return receipt;
         }
-        return postPreviewDoc().then(function (retry) {
+        return postPreviewRepair().then(function (retry) {
           if (retry) retry.nudged = true;
           return retry;
         });
@@ -15400,7 +15529,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     renderLists();
     setLayoutBusy(true);
     setStatus("previewing new component…", "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt.ok) {
           markDirty();
@@ -15732,7 +15861,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var focusId = dockedRestoreFocusId(opts);
     setLayoutBusy(true);
     setStatus("previewing boundary…", "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt && receipt.ok) {
           markDirty();
@@ -15802,7 +15931,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     renderLists();
     setLayoutBusy(true);
     setStatus("previewing new boundary…", "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt && receipt.ok) {
           state.layoutMode = "move";
@@ -15869,7 +15998,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     renderLists();
     setLayoutBusy(true);
     setStatus("previewing delete boundary…", "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt && receipt.ok) {
           markDirty();
@@ -16095,7 +16224,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     renderLists();
     setLayoutBusy(true);
     setStatus("previewing duplicate…", "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt.ok) {
           markDirty();
@@ -16275,7 +16404,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     renderLists();
     setLayoutBusy(true);
     setStatus("previewing delete " + nodeId + "…", "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt.ok) {
           markDirty();
@@ -18166,7 +18295,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       ? ("previewing resize " + change.id + " → " + change.w + "×" + change.h)
       : ("previewing " + change.id + " → pos [" + change.x + ", " + change.y + "]");
     setStatus(label + "…", "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt && receipt.ok) {
           markDirty();
@@ -18277,7 +18406,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function saveLayoutDrop(drag, snap) {
     setLayoutBusy(true);
     setStatus("previewing… " + drag.id + " → lane " + snap.lane + " col " + snap.col, "");
-    postPreviewDoc()
+    postPreviewRepair()
       .then(function (receipt) {
         if (receipt.ok) {
           markDirty();
