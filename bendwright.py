@@ -2873,9 +2873,10 @@ def _apply_brand_display_names(
 #      only the nth path, so paint is applied only when every edge in the
 #      bucket has the same color and dash. Otherwise each of those edges
 #      is a markup miss and is not painted.
-# Arrowheads: one <marker> per used color per theme, id
-# bw-arrow-<color>-<dark|light>, explicit polygon fill. Theme CSS points
-# marker-end at the matching marker. No !important.
+# Arrowheads: one <marker> per used color, id bw-arrow-<color>. Polygon fill
+# is var(--bw-<color>-edge), also set by an svg-prefixed rule, so Archify's
+# export collector keeps the color. No !important. Paint selectors start
+# with "svg ". Theme hexes live on :root / [data-theme] custom properties.
 _OVERLAY_MARKUP: dict[str, Any] = {
     "edge_tag": "path",
     "edge_from_attr": "data-edge-from",
@@ -3761,57 +3762,105 @@ def _legend_entries(
     return ordered
 
 
+def _bw_paint_var(color: str, part: str) -> str:
+    return f"--bw-{color}-{part}"
+
+
+def _svg_rule(selector: str, body: str) -> str:
+    """One paint rule. The selector starts with 'svg ' so export keeps it."""
+    if not body.endswith(";"):
+        body += ";"
+    return f"svg {selector} {{ {body} }}"
+
+
+def _paint_var_decls(
+    edge_colors: list[str], node_colors: list[str]
+) -> list[tuple[str, str, str]]:
+    """(var name, dark hex, light hex) for colors these targets actually use."""
+    decls: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    edge_set = set(edge_colors)
+    node_set = set(node_colors)
+    for color in _STYLE_COLOR_ORDER:
+        if color not in edge_set and color not in node_set:
+            continue
+        ramp = _STYLE_COLORS[color]
+        if color in edge_set:
+            name = _bw_paint_var(color, "edge")
+            if name not in seen:
+                decls.append((name, ramp["dark"], ramp["light"]))
+                seen.add(name)
+        if color in node_set:
+            stroke = _bw_paint_var(color, "stroke")
+            fill = _bw_paint_var(color, "fill")
+            if stroke not in seen:
+                decls.append((stroke, ramp["dark"], ramp["light"]))
+                seen.add(stroke)
+            if fill not in seen:
+                decls.append(
+                    (
+                        fill,
+                        _alpha_hex(ramp["dark"], _NODE_FILL_ALPHA),
+                        _alpha_hex(ramp["light"], _NODE_FILL_ALPHA),
+                    )
+                )
+                seen.add(fill)
+    return decls
+
+
 def _build_overlay_css(
     edge_targets: list[dict[str, Any]], node_targets: list[dict[str, Any]]
 ) -> str:
+    attr = str(_OVERLAY_MARKUP["theme_attr"])
     dark = str(_OVERLAY_MARKUP["theme_dark"])
     light = str(_OVERLAY_MARKUP["theme_light"])
-    lines: list[str] = []
-    used_colors: list[str] = []
+    edge_colors: list[str] = []
+    node_colors: list[str] = []
+    paint: list[str] = []
     for target in edge_targets:
         if not target.get("apply"):
             continue
-        selector = _edge_selector(target)
         color = str(target["color"])
         dash = str(target["dash"])
         dash_value = _STYLE_DASHES.get(dash)
-        base: list[str] = []
+        body: list[str] = []
         if color:
-            ramp = _STYLE_COLORS[color]
-            base.append(f'stroke: {ramp["dark"]}')
-            lines.append(
-                _theme_rule(
-                    dark,
-                    selector,
-                    f'stroke: {ramp["dark"]}; marker-end: url(#{_arrow_marker_id(color, dark)})',
-                )
-            )
-            lines.append(
-                _theme_rule(
-                    light,
-                    selector,
-                    f'stroke: {ramp["light"]}; marker-end: url(#{_arrow_marker_id(color, light)})',
-                )
-            )
-            if color not in used_colors:
-                used_colors.append(color)
+            if color not in edge_colors:
+                edge_colors.append(color)
+            body.append(f"stroke: var({_bw_paint_var(color, 'edge')})")
+            body.append(f"marker-end: url(#{_arrow_marker_id(color)})")
         if dash_value:
-            base.append(f"stroke-dasharray: {dash_value}")
-        if base:
-            lines.append(f'{selector} {{ {"; ".join(base)}; }}')
+            body.append(f"stroke-dasharray: {dash_value}")
+        if body:
+            paint.append(_svg_rule(_edge_selector(target), "; ".join(body)))
+    shape = str(_OVERLAY_MARKUP["marker_shape_tag"])
+    for color in edge_colors:
+        paint.append(
+            _svg_rule(
+                f"#{_arrow_marker_id(color)} > {shape}",
+                f"fill: var({_bw_paint_var(color, 'edge')})",
+            )
+        )
     for target in node_targets:
         color = str(target["color"])
-        ramp = _STYLE_COLORS[color]
-        selector = _node_box_selector(str(target["id"]))
-        dark_fill = _alpha_hex(ramp["dark"], _NODE_FILL_ALPHA)
-        light_fill = _alpha_hex(ramp["light"], _NODE_FILL_ALPHA)
-        lines.append(
-            _theme_rule(dark, selector, f'stroke: {ramp["dark"]}; fill: {dark_fill}')
+        if color not in node_colors:
+            node_colors.append(color)
+        paint.append(
+            _svg_rule(
+                _node_box_selector(str(target["id"])),
+                f"stroke: var({_bw_paint_var(color, 'stroke')}); "
+                f"fill: var({_bw_paint_var(color, 'fill')})",
+            )
         )
-        lines.append(
-            _theme_rule(light, selector, f'stroke: {ramp["light"]}; fill: {light_fill}')
-        )
-        lines.append(f'{selector} {{ stroke: {ramp["dark"]}; fill: {dark_fill}; }}')
+    lines: list[str] = []
+    decls = _paint_var_decls(edge_colors, node_colors)
+    if decls:
+        dark_body = "; ".join(f"{name}: {dark_hex}" for name, dark_hex, _light_hex in decls)
+        light_body = "; ".join(f"{name}: {light_hex}" for name, _dark_hex, light_hex in decls)
+        # Dark is the :root default and the explicit dark theme. Light overrides.
+        lines.append(f':root, [{attr}="{dark}"] {{ {dark_body}; }}')
+        lines.append(f'[{attr}="{light}"] {{ {light_body}; }}')
+    lines.extend(paint)
     legend_id = str(_OVERLAY_MARKUP["legend_id"])
     lines.append(
         f'#{legend_id} {{ font: 12px/1.4 system-ui, sans-serif; margin: 12px 16px; }}'
@@ -3834,28 +3883,25 @@ def _build_overlay_css(
     return "\n".join(lines)
 
 
-def _arrow_marker_id(color: str, theme: str) -> str:
-    return f"bw-arrow-{color}-{theme}"
+def _arrow_marker_id(color: str) -> str:
+    return f"bw-arrow-{color}"
 
 
 def _marker_defs(colors: list[str]) -> str:
-    """One marker per color per theme. Fill is the theme hex, not a shared dark fill."""
+    """One marker per color. Fill is the edge variable so both themes survive export."""
     markup = _OVERLAY_MARKUP
     parts: list[str] = []
-    themes = (str(markup["theme_dark"]), str(markup["theme_light"]))
     for color in colors:
-        ramp = _STYLE_COLORS[color]
-        for theme in themes:
-            fill = html_escape(ramp[theme], quote=True)
-            parts.append(
-                f'<{markup["marker_tag"]} id="{_arrow_marker_id(color, theme)}" '
-                f'markerWidth="{markup["marker_width"]}" '
-                f'markerHeight="{markup["marker_height"]}" '
-                f'refX="{markup["marker_ref_x"]}" refY="{markup["marker_ref_y"]}" '
-                f'orient="{markup["marker_orient"]}">'
-                f'<{markup["marker_shape_tag"]} points="{markup["marker_points"]}" '
-                f'fill="{fill}"/></{markup["marker_tag"]}>'
-            )
+        fill = html_escape(f"var({_bw_paint_var(color, 'edge')})", quote=True)
+        parts.append(
+            f'<{markup["marker_tag"]} id="{_arrow_marker_id(color)}" '
+            f'markerWidth="{markup["marker_width"]}" '
+            f'markerHeight="{markup["marker_height"]}" '
+            f'refX="{markup["marker_ref_x"]}" refY="{markup["marker_ref_y"]}" '
+            f'orient="{markup["marker_orient"]}">'
+            f'<{markup["marker_shape_tag"]} points="{markup["marker_points"]}" '
+            f'fill="{fill}"/></{markup["marker_tag"]}>'
+        )
     return "".join(parts)
 
 
@@ -4032,8 +4078,8 @@ def _apply_style_overlay(
 
     Does not write the path style attribute, stroke-dashoffset, or !important
     on dasharray, dashoffset, opacity, filter, or stroke-width. The edge-label
-    g is not retargeted. marker-end is a path attribute (dark marker); theme
-    CSS points it at the light or dark marker.
+    g is not retargeted. marker-end is a path attribute naming bw-arrow-<color>.
+    The marker polygon fill is var(--bw-<color>-edge).
     """
     loaded = _read_saved_doc(ir_path)
     if loaded is None or not isinstance(sidecar, dict):
@@ -4056,7 +4102,6 @@ def _apply_style_overlay(
     path_tag = str(_OVERLAY_MARKUP["edge_tag"])
     paths = _iter_open_tags(text, path_tag)
     replacements: list[tuple[int, int, str]] = []
-    fallback_theme = str(_OVERLAY_MARKUP["theme_dark"])
     for target in edge_targets:
         if not target.get("apply"):
             continue
@@ -4076,9 +4121,7 @@ def _apply_style_overlay(
             chosen = hits[0]
         start, end, tag = chosen
         if target["color"]:
-            updated = _set_marker_end(
-                tag, _arrow_marker_id(str(target["color"]), fallback_theme)
-            )
+            updated = _set_marker_end(tag, _arrow_marker_id(str(target["color"])))
             # marker-end is an attribute. Never rewrite style (it holds --step).
             if _tag_attr(updated, "style") != _tag_attr(tag, "style"):
                 target["apply"] = False
