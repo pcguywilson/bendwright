@@ -1725,28 +1725,212 @@ def load_doc(path: Path) -> tuple[dict[str, Any], bool]:
     return doc, trailing
 
 
-def _diagram_save_path(raw: Any, diagram_type: str) -> tuple[Path | None, str | None]:
-    """First-save path. Must already end in the type suffix. Not renamed."""
+def _diagram_save_path(
+    raw: Any,
+    diagram_type: str,
+    *,
+    base_dir: Path | None = None,
+) -> tuple[Path | None, str | None]:
+    """Resolve a save path. Appends the type suffix when missing.
+
+    Relative paths resolve against base_dir (current file's folder), else cwd.
+    Missing parent folder returns an error and does not create it.
+    """
     if not isinstance(raw, str) or not raw.strip():
         return None, "path is required"
     suffix = save_name_suffix(diagram_type)
     try:
         target = Path(raw.strip()).expanduser()
         if not target.is_absolute():
-            target = Path.cwd() / target
+            root = base_dir if isinstance(base_dir, Path) else Path.cwd()
+            target = root / target
         target = target.resolve()
     except (OSError, RuntimeError) as e:
         return None, f"bad path: {e}"
     if not target.name.endswith(suffix):
-        return None, f"name must end in {suffix}"
+        target = Path(str(target) + suffix)
+    if not target.parent.is_dir():
+        return None, f"folder does not exist: {target.parent}"
     return target, None
 
 
-def native_save_path(initial_dir: str, diagram_type: str = "workflow") -> dict[str, Any]:
+def _export_html_save_path(
+    raw: Any, *, base_dir: Path | None = None
+) -> tuple[Path | None, str | None]:
+    """Resolve an HTML export path. Appends .html when missing."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None, "path is required"
+    try:
+        target = Path(raw.strip()).expanduser()
+        if not target.is_absolute():
+            root = base_dir if isinstance(base_dir, Path) else Path.cwd()
+            target = root / target
+        target = target.resolve()
+    except (OSError, RuntimeError) as e:
+        return None, f"bad path: {e}"
+    if not target.name.lower().endswith(".html"):
+        target = Path(str(target) + ".html")
+    if not target.parent.is_dir():
+        return None, f"folder does not exist: {target.parent}"
+    return target, None
+
+
+_EXPORT_THEME_VALUES = frozenset({"dark", "light", "system"})
+_EXPORT_THEME_DEFAULT = "dark"
+_EXPORT_THEME_MARK = b"/*bw-export-theme*/"
+_LOCALSTORAGE_THEME_ANCHOR = (
+    b"if (!theme) {\n"
+    b"          try { theme = localStorage.getItem('archify-theme'); } catch (_) {}\n"
+    b"        }"
+)
+# Archify.theme re-applies after the pre-paint script. These two anchors are
+# the URL-check-then-readStored shape in the stock toolbar script.
+_RESOLVE_INITIAL_ANCHOR = (
+    b"        if (fromUrl) return fromUrl;\n"
+    b"        var saved = readStored();"
+)
+_ONCHANGE_THEME_ANCHOR = (
+    b"        var onChange = function (e) {\n"
+    b"          var saved = readStored();"
+)
+
+
+def normalize_export_theme(raw: Any) -> str:
+    """dark | light | system. Unknown values fall back to dark."""
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in _EXPORT_THEME_VALUES:
+            return value
+    return _EXPORT_THEME_DEFAULT
+
+
+_EXPORT_THEME_INJECT_RE = re.compile(
+    br"if \(!theme\) \{ theme = '(?:dark|light)'; \} /\*bw-export-theme\*/\r?\n[ \t]*"
+)
+_EXPORT_THEME_RESOLVE_RE = re.compile(
+    br"        return '(?:dark|light)'; /\*bw-theme-resolve\*/\r?\n"
+)
+_EXPORT_THEME_ONCHANGE_RE = re.compile(
+    br"          return; /\*bw-theme-onchange\*/\r?\n"
+)
+
+
+def apply_export_theme(html: bytes, theme: str) -> bytes:
+    """Bake dark/light into Archify's pre-paint script and Archify.theme.
+
+    system leaves bytes alone. ?theme= still wins in both places. toggle()
+    is left intact so a click still flips and stores. A missing anchor skips
+    that patch only; export still returns the other patches.
+    """
+    if not isinstance(html, (bytes, bytearray)):
+        return html
+    chosen = normalize_export_theme(theme)
+    raw = bytes(html)
+    raw = _EXPORT_THEME_INJECT_RE.sub(b"", raw)
+    raw = _EXPORT_THEME_RESOLVE_RE.sub(b"", raw)
+    raw = _EXPORT_THEME_ONCHANGE_RE.sub(b"", raw)
+    if chosen == "system":
+        return raw
+    if _LOCALSTORAGE_THEME_ANCHOR in raw:
+        injection = (
+            f"if (!theme) {{ theme = '{chosen}'; }} /*bw-export-theme*/\n        ".encode(
+                "ascii"
+            )
+            + _LOCALSTORAGE_THEME_ANCHOR
+        )
+        raw = raw.replace(_LOCALSTORAGE_THEME_ANCHOR, injection, 1)
+    if _RESOLVE_INITIAL_ANCHOR in raw:
+        # Return the baked theme after the URL check and before readStored.
+        resolve_line = f"        return '{chosen}'; /*bw-theme-resolve*/\n".encode(
+            "ascii"
+        )
+        raw = raw.replace(
+            _RESOLVE_INITIAL_ANCHOR,
+            b"        if (fromUrl) return fromUrl;\n"
+            + resolve_line
+            + b"        var saved = readStored();",
+            1,
+        )
+    if _ONCHANGE_THEME_ANCHOR in raw:
+        # OS media changes must not override a baked theme. toggle() is separate.
+        raw = raw.replace(
+            _ONCHANGE_THEME_ANCHOR,
+            b"        var onChange = function (e) {\n"
+            b"          return; /*bw-theme-onchange*/\n"
+            b"          var saved = readStored();",
+            1,
+        )
+    return raw
+
+
+def export_prefs_from_sidecar(sidecar: dict[str, Any] | None) -> dict[str, str]:
+    """Return {theme, path} with defaults. path may be empty."""
+    theme = _EXPORT_THEME_DEFAULT
+    path = ""
+    if isinstance(sidecar, dict):
+        block = sidecar.get("export")
+        if isinstance(block, dict):
+            theme = normalize_export_theme(block.get("theme"))
+            raw_path = block.get("path")
+            if isinstance(raw_path, str) and raw_path.strip():
+                path = raw_path.strip()
+    return {"theme": theme, "path": path}
+
+
+def resolve_sidecar_export_path(
+    stored: str, ir_path: Path | None
+) -> str:
+    """Absolute path for a remembered export path. Relative → next to the JSON."""
+    if not stored:
+        if ir_path is not None:
+            return str(export_html_path(ir_path))
+        return ""
+    try:
+        target = Path(stored).expanduser()
+        if not target.is_absolute() and ir_path is not None:
+            target = ir_path.parent / target
+        return str(target.resolve())
+    except (OSError, RuntimeError):
+        if ir_path is not None:
+            return str(export_html_path(ir_path))
+        return stored
+
+
+def path_for_sidecar_export(html_path: Path, ir_path: Path) -> str:
+    """Prefer a path relative to the JSON folder when the HTML lives inside it."""
+    try:
+        rel = html_path.resolve().relative_to(ir_path.parent.resolve())
+        return rel.as_posix()
+    except ValueError:
+        return str(html_path)
+
+
+def set_sidecar_export(
+    sidecar: dict[str, Any],
+    *,
+    theme: Any,
+    html_path: Path,
+    ir_path: Path,
+) -> None:
+    """Write sidecar.export = {theme, path}. Archify JSON is not touched."""
+    if not isinstance(sidecar, dict):
+        return
+    sidecar["export"] = {
+        "theme": normalize_export_theme(theme),
+        "path": path_for_sidecar_export(html_path, ir_path),
+    }
+
+
+def native_save_path(
+    initial_dir: str,
+    diagram_type: str = "workflow",
+    *,
+    initial_file: str | None = None,
+) -> dict[str, Any]:
     """Native Save dialog. Sibling of native_pick_path. Cancel leaves the buffer unsaved."""
     suffix = save_name_suffix(diagram_type)
     init_literal = json.dumps(initial_dir)
-    file_literal = json.dumps(f"untitled{suffix}")
+    file_literal = json.dumps(initial_file or f"untitled{suffix}")
     suffix_literal = json.dumps(suffix)
     pattern_literal = json.dumps(f"*{suffix}")
     script = (
@@ -1767,6 +1951,53 @@ def native_save_path(initial_dir: str, diagram_type: str = "workflow") -> dict[s
         '    title="Save diagram",\n'
         f"    defaultextension={suffix_literal},\n"
         f'    filetypes=[("Archify diagrams", {pattern_literal}), ("All files", "*.*")],\n'
+        ")\n"
+        'print(path if path else "", end="")\n'
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"ok": False, "error": "native picker unavailable"}
+    if proc.returncode != 0:
+        return {"ok": False, "error": "native picker unavailable"}
+    chosen = (proc.stdout or "").strip()
+    if not chosen:
+        return {"ok": True, "cancelled": True}
+    return {"ok": True, "path": chosen}
+
+
+def native_save_html_path(
+    initial_dir: str, initial_file: str = "diagram.html"
+) -> dict[str, Any]:
+    """Native Save dialog for Export HTML (.html)."""
+    init_literal = json.dumps(initial_dir)
+    if not initial_file.lower().endswith(".html"):
+        initial_file = f"{initial_file}.html"
+    file_literal = json.dumps(initial_file)
+    script = (
+        "import sys\n"
+        "try:\n"
+        "    from tkinter import Tk, filedialog\n"
+        "except Exception:\n"
+        "    sys.exit(2)\n"
+        "root = Tk()\n"
+        "root.withdraw()\n"
+        "try:\n"
+        '    root.attributes("-topmost", True)\n'
+        "except Exception:\n"
+        "    pass\n"
+        "path = filedialog.asksaveasfilename(\n"
+        f"    initialdir={init_literal},\n"
+        f"    initialfile={file_literal},\n"
+        '    title="Export HTML",\n'
+        '    defaultextension=".html",\n'
+        '    filetypes=[("HTML", "*.html"), ("All files", "*.*")],\n'
         ")\n"
         'print(path if path else "", end="")\n'
     )
@@ -3135,6 +3366,8 @@ def _sidecar_has_payload(sidecar: dict[str, Any]) -> bool:
             continue
         if key in ("edges", "nodes", "types", "assignments", "icons") and isinstance(value, dict) and not value:
             continue
+        if key == "export" and isinstance(value, dict) and not value:
+            continue
         return True
     return False
 
@@ -4290,6 +4523,8 @@ def deliver_preview(
         html, brand_note = _apply_brand_display_names(html, ir_path, sidecar)
         html, style_note = _apply_style_overlay(html, ir_path, sidecar)
         html = _apply_icon_miss_chips(html, icon_misses)
+        prefs = export_prefs_from_sidecar(sidecar)
+        html = apply_export_theme(html, prefs["theme"])
         return html, _join_notes(
             brand_note,
             style_note,
@@ -4391,6 +4626,8 @@ def deliver_to_path(
         raw_html, brand_note = _apply_brand_display_names(raw_html, ir_path, sidecar)
         raw_html, style_note = _apply_style_overlay(raw_html, ir_path, sidecar)
         raw_html = _apply_icon_miss_chips(raw_html, icon_misses)
+        prefs = export_prefs_from_sidecar(sidecar)
+        raw_html = apply_export_theme(raw_html, prefs["theme"])
         Path(tmp_name).write_bytes(raw_html)
         os.replace(tmp_name, out_path)
         receipt: dict[str, Any] = {"ok": True, "output": str(out_path)}
@@ -4713,7 +4950,7 @@ _HELP_BODY = r"""<header class="help-head">
 <section id="start">
   <h2>Getting started</h2>
   <ul>
-    <li><b>New</b> starts a blank workflow or architecture diagram, or one of the starter templates. It stays unsaved until your first <b>Save</b>, which asks where to write it.</li>
+    <li><b>New</b> starts a blank workflow or architecture diagram, or one of the starter templates. It stays unsaved until your first <b>Save</b>, which opens a path panel (Enter saves in place).</li>
     <li><b>Open</b> loads an existing <code>.workflow.json</code> or <code>.architecture.json</code> that Archify can already render.</li>
     <li><b>Workflow</b> diagrams are lanes and columns: every node sits in a lane and a column, and dragging snaps to that grid.</li>
     <li><b>Architecture</b> diagrams are free placement: components go anywhere (snapped to 10 px), can be resized, and can be grouped with boundaries.</li>
@@ -4800,9 +5037,9 @@ _HELP_BODY = r"""<header class="help-head">
 <section id="save">
   <h2>Save, preview, export</h2>
   <ul>
-    <li><b>Save</b> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) writes the JSON, keeping key order and fields bendwright does not edit.</li>
-    <li><b>Preview</b> on the tool bar opens the full rendered page in a new tab.</li>
-    <li><b>Export HTML</b> (<b>⋯</b> menu) saves and writes the rendered <code>.html</code> next to your JSON. It opens anywhere, with no bendwright or Archify needed.</li>
+    <li><b>Save</b> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) opens a path panel prefilled with the current file (or a suggested name for a new diagram). <kbd>Enter</kbd> saves in place; edit the path or use <b>Browse…</b> for Save As. A missing <code>.workflow.json</code> / <code>.architecture.json</code> suffix is appended. Relative paths resolve against the current file's folder.</li>
+    <li><b>Preview</b> on the tool bar opens the full rendered page in a new tab (theme matches your last Export choice).</li>
+    <li><b>Export HTML</b> (<b>⋯</b> menu) opens a panel: choose the HTML path and a theme (Dark, Light, or Match system). It saves the JSON first, then writes the HTML. Dark/Light bake into the file so it opens with that theme; <code>?theme=</code> in the URL still wins. Match system leaves Archify's default script alone.</li>
     <li><b>Discard changes</b> (<b>⋯</b> menu) reloads the file from disk.</li>
   </ul>
 </section>
@@ -4819,7 +5056,7 @@ _HELP_BODY = r"""<header class="help-head">
     <tr><td><kbd>Enter</kbd></td><td>Apply edits</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>Cancel edits, close a panel, or clear the selection</td></tr>
     <tr><td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td><td>Delete the selected node, edge, card, boundary, or lane (asks first)</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Open the Save dialog (<kbd>Enter</kbd> saves in place)</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></td><td>Redo</td></tr>
   </table>
@@ -4838,7 +5075,7 @@ _HELP_BODY = r"""<header class="help-head">
 <section id="files">
   <h2>Where things are stored</h2>
   <ul>
-    <li><code>&lt;name&gt;.bendwright.json</code>, next to your diagram: colors, line styles, custom types, display options, and any of your own icons the diagram uses. Keep it with the diagram if you move or share the JSON.</li>
+    <li><code>&lt;name&gt;.bendwright.json</code>, next to your diagram: colors, line styles, custom types, display options, export theme/path, and any of your own icons the diagram uses. Keep it with the diagram if you move or share the JSON.</li>
     <li><code>bendwright-data/</code>, next to <code>bendwright.py</code>: your type library, your icons, and the Archify patch record.</li>
     <li>Everything runs on <code>127.0.0.1</code>. Nothing leaves your machine.</li>
     <li>Two diagrams at once: launch bendwright twice (each gets its own port and tab). Opening a different diagram in one tab makes the other tab ask you to reload, so nothing is saved to the wrong file.</li>
@@ -5218,11 +5455,19 @@ class Handler(BaseHTTPRequestHandler):
                 archify = _archify_path
                 trailing = _had_trailing_newline
                 dtype = resolve_diagram_type(candidate, _diagram_type)
-                target = _file_path
+                current_path = _file_path
 
             adopting = False
-            if target is None:
-                chosen, path_err = _diagram_save_path(body.get("path"), dtype)
+            target = current_path
+            path_raw = body.get("path")
+            # Path from the Save dialog: first save, Save As, or same-path save.
+            if current_path is None or (isinstance(path_raw, str) and path_raw.strip()):
+                base_dir = current_path.parent if current_path is not None else Path.cwd()
+                chosen, path_err = _diagram_save_path(
+                    path_raw if isinstance(path_raw, str) else None,
+                    dtype,
+                    base_dir=base_dir,
+                )
                 if chosen is None:
                     self._send_json(
                         200,
@@ -5233,12 +5478,37 @@ class Handler(BaseHTTPRequestHandler):
                         },
                     )
                     return
+                same_as_current = (
+                    current_path is not None
+                    and chosen.resolve() == current_path.resolve()
+                )
+                if not same_as_current:
+                    if chosen.is_file() and body.get("replace") is not True:
+                        self._send_json(
+                            200,
+                            {
+                                "ok": False,
+                                "saved": False,
+                                "exists": True,
+                                "file": str(chosen),
+                                "errors": [f"Replace {chosen.name}?"],
+                            },
+                        )
+                        return
+                    adopting = True
+                    trailing = True
                 target = chosen
-                adopting = True
-                trailing = True
-                inferred = candidate.get("diagram_type")
-                if isinstance(inferred, str) and inferred.strip():
-                    dtype = resolve_diagram_type(candidate, dtype)
+                if adopting or current_path is None:
+                    inferred = candidate.get("diagram_type")
+                    if isinstance(inferred, str) and inferred.strip():
+                        dtype = resolve_diagram_type(candidate, dtype)
+
+            if target is None:
+                self._send_json(
+                    200,
+                    {"ok": False, "saved": False, "errors": ["path is required"]},
+                )
+                return
 
             evidence_dir = target.parent
             if archify:
@@ -5333,8 +5603,8 @@ class Handler(BaseHTTPRequestHandler):
             _end_request()
 
     def _handle_export(self) -> None:
-        """Ensure-saved-then-export sibling .html (M19). Lock off archify subprocess."""
-        global _doc, _diagram_type
+        """Save current JSON, then write HTML to the chosen path (theme from body/sidecar)."""
+        global _doc, _diagram_type, _sidecar
 
         # Read the body before any refusal so a keep-alive connection stays aligned.
         length = int(self.headers.get("Content-Length") or "0")
@@ -5365,23 +5635,52 @@ class Handler(BaseHTTPRequestHandler):
             dtype = _diagram_type
             target = _file_path
             evidence_dir = target.parent
+            sc = copy.deepcopy(_sidecar)
 
-        # Dirty path: client sends the IR doc; clean path: empty / {} -> deliver from disk.
+        body: dict[str, Any] = {}
         stripped = raw.strip()
-        sc: dict[str, Any] | None = None
         if stripped and stripped != b"{}":
             try:
-                body = json.loads(raw.decode("utf-8"))
+                parsed = json.loads(raw.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as e:
                 self._send_json(
                     200, {"ok": False, "errors": [f"invalid JSON body: {e}"]}
                 )
                 return
-            if not isinstance(body, dict):
+            if not isinstance(parsed, dict):
                 self._send_json(
                     200, {"ok": False, "errors": ["body must be a JSON object"]}
                 )
                 return
+            body = parsed
+
+        export_theme = normalize_export_theme(body.get("theme"))
+        path_raw = body.get("path")
+        if not isinstance(path_raw, str) or not path_raw.strip():
+            path_raw = str(export_html_path(target))
+        out_path, path_err = _export_html_save_path(path_raw, base_dir=target.parent)
+        if out_path is None:
+            self._send_json(200, {"ok": False, "errors": [path_err or "bad path"]})
+            return
+        if out_path.is_file() and body.get("replace") is not True:
+            self._send_json(
+                200,
+                {
+                    "ok": False,
+                    "exists": True,
+                    "file": str(out_path),
+                    "errors": [f"Replace {out_path.name}?"],
+                },
+            )
+            return
+
+        sc_note: str | None = None
+        # Export always saves the JSON first when the client sends doc (dialog path).
+        if isinstance(body.get("doc"), dict):
+            # Ensure _split_edit_body sees a sidecar key when only doc was sent.
+            if "sidecar" not in body:
+                body = dict(body)
+                body["sidecar"] = sc
             candidate, sidecar_in, split_err = _split_edit_body(body)
             if split_err:
                 self._send_json(200, {"ok": False, "errors": [split_err]})
@@ -5418,9 +5717,14 @@ class Handler(BaseHTTPRequestHandler):
                     sc = copy.deepcopy(sidecar_in)
                 else:
                     sc = copy.deepcopy(_sidecar)
+                set_sidecar_export(
+                    sc, theme=export_theme, html_path=out_path, ir_path=target
+                )
                 _remember_sidecar(candidate, sc)
                 unreadable = _sidecar_unreadable
-            sc_note = write_sidecar_for(target, sc, unreadable=unreadable, doc=candidate)
+            sc_note = write_sidecar_for(
+                target, sc, unreadable=unreadable, doc=candidate
+            )
             sc_blocked = bool(sc_note) and (
                 str(sc_note).startswith("sidecar write failed")
                 or "not overwritten" in str(sc_note)
@@ -5429,24 +5733,44 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"ok": False, "errors": [sc_note]})
                 return
         else:
+            # No doc in body: persist theme/path, leave IR on disk as-is.
+            set_sidecar_export(
+                sc, theme=export_theme, html_path=out_path, ir_path=target
+            )
             with _state_lock:
-                sc = copy.deepcopy(_sidecar)
-            sc_note = None
+                if not session_matches(presented) or _file_path != target:
+                    self._send_stale()
+                    return
+                doc_for_sc = _doc if isinstance(_doc, dict) else None
+                if doc_for_sc is not None:
+                    _remember_sidecar(doc_for_sc, sc)
+                else:
+                    _sidecar = copy.deepcopy(sc)
+                unreadable = _sidecar_unreadable
+            sc_note = write_sidecar_for(
+                target, sc, unreadable=unreadable, doc=doc_for_sc
+            )
 
         with _state_lock:
             if not session_matches(presented) or _file_path != target:
                 self._send_stale()
                 return
-        out_path = export_html_path(target)
         # Lock OFF during deliver (same as save/preview). Render a rewritten
         # temp so loopback brand URLs resolve; the saved JSON is not rewritten.
         receipt = deliver_saved_file(archify, dtype, target, out_path, sc)
         if not isinstance(receipt, dict):
             receipt = {"ok": False, "errors": ["export failed"]}
-        elif sc_note and receipt.get("ok"):
-            receipt["note"] = _join_notes(
-                sc_note, receipt.get("note") if isinstance(receipt.get("note"), str) else None
-            )
+        elif receipt.get("ok"):
+            # Keep /preview in sync with the exported theme.
+            preview = deliver_saved_file(archify, dtype, target, None, sc)
+            if isinstance(preview, tuple) and preview[0] is not None:
+                with _state_lock:
+                    set_preview_html(preview[0])
+            if sc_note:
+                receipt["note"] = _join_notes(
+                    sc_note,
+                    receipt.get("note") if isinstance(receipt.get("note"), str) else None,
+                )
         self._send_json(200, receipt)
 
     def _handle_preview(self) -> None:
@@ -5587,6 +5911,8 @@ class Handler(BaseHTTPRequestHandler):
         """Native OS dialog via tkinter subprocess (M12). mode=save asks where to write."""
         mode = "open"
         save_type = ""
+        file_type = "diagram"
+        initial_file: str | None = None
         length = int(self.headers.get("Content-Length") or "0")
         if length:
             body, err = self._read_json_body()
@@ -5596,6 +5922,15 @@ class Handler(BaseHTTPRequestHandler):
                 asked = body.get("diagram_type")
                 if isinstance(asked, str):
                     save_type = asked
+                asked_ft = body.get("file_type")
+                if isinstance(asked_ft, str) and asked_ft.strip().lower() in (
+                    "html",
+                    "diagram",
+                ):
+                    file_type = asked_ft.strip().lower()
+                asked_name = body.get("initial_file")
+                if isinstance(asked_name, str) and asked_name.strip():
+                    initial_file = asked_name.strip()
         with _state_lock:
             current = _file_path
             if save_type not in ("workflow", "architecture"):
@@ -5605,8 +5940,15 @@ class Handler(BaseHTTPRequestHandler):
         else:
             initial_dir = str(Path.cwd())
         try:
-            if mode == "save":
-                result = native_save_path(initial_dir, save_type)
+            if mode == "save" and file_type == "html":
+                html_name = initial_file or (
+                    export_html_path(current).name if current is not None else "diagram.html"
+                )
+                result = native_save_html_path(initial_dir, html_name)
+            elif mode == "save":
+                result = native_save_path(
+                    initial_dir, save_type, initial_file=initial_file
+                )
             else:
                 result = native_pick_path(initial_dir)
         except Exception:
@@ -6619,13 +6961,40 @@ main { flex: 1; overflow: hidden; display: flex; background: var(--panel); }
   box-shadow: 0 12px 36px rgba(0,0,0,0.55);
   padding: 12px 14px;
 }
-#open-panel.active { display: block; }
-#open-panel .open-head {
+#save-panel, #export-panel {
+  display: none;
+  position: absolute;
+  z-index: 65;
+  top: 48px;
+  right: 16px;
+  width: min(440px, calc(100vw - 24px));
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.55);
+  padding: 12px 14px;
+}
+#open-panel.active, #save-panel.active, #export-panel.active { display: block; }
+#open-panel .open-head, #save-panel .open-head, #export-panel .open-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 8px; font-size: 13px; font-weight: 600;
 }
-#open-panel .field { max-width: none; margin-bottom: 8px; }
-#open-panel .row-actions { margin-top: 0; }
+#open-panel .field, #save-panel .field, #export-panel .field { max-width: none; margin-bottom: 8px; }
+#open-panel .row-actions, #save-panel .row-actions, #export-panel .row-actions { margin-top: 0; }
+#save-panel .panel-error, #export-panel .panel-error {
+  display: none; font-size: 12px; color: #f0a0a0; margin: 0 0 8px;
+}
+#save-panel .panel-error.active, #export-panel .panel-error.active { display: block; }
+#save-panel .panel-confirm, #export-panel .panel-confirm {
+  display: none; font-size: 12px; color: var(--muted); margin: 0 0 8px;
+}
+#save-panel .panel-confirm.active, #export-panel .panel-confirm.active { display: block; }
+#export-panel .theme-row {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+  font-size: 12px; margin-bottom: 10px;
+}
+#export-panel .theme-row label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
 #dirty-panel {
   display: none;
   position: fixed;
@@ -6785,6 +7154,50 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   </div>
   <div class="row-actions">
     <button type="button" id="btn-open-go">Open</button>
+  </div>
+</div>
+<div id="save-panel" aria-hidden="true">
+  <div class="open-head">
+    <span>Save diagram</span>
+    <button type="button" id="btn-save-close" title="Cancel">Cancel</button>
+  </div>
+  <div class="row-actions" style="margin-bottom:10px">
+    <button type="button" class="primary" id="btn-save-browse" title="Native file picker">Browse…</button>
+  </div>
+  <div class="field">
+    <label for="save-path-input">Path</label>
+    <input type="text" id="save-path-input" placeholder="C:\path\to\file.workflow.json" spellcheck="false">
+  </div>
+  <div id="save-panel-error" class="panel-error" role="alert"></div>
+  <div id="save-panel-confirm" class="panel-confirm" aria-live="polite"></div>
+  <div class="row-actions">
+    <button type="button" class="primary" id="btn-save-go">Save</button>
+    <button type="button" id="btn-save-cancel">Cancel</button>
+  </div>
+</div>
+<div id="export-panel" aria-hidden="true">
+  <div class="open-head">
+    <span>Export HTML</span>
+    <button type="button" id="btn-export-close" title="Cancel">Cancel</button>
+  </div>
+  <div class="row-actions" style="margin-bottom:10px">
+    <button type="button" class="primary" id="btn-export-browse" title="Native file picker">Browse…</button>
+  </div>
+  <div class="field">
+    <label for="export-path-input">Save HTML to</label>
+    <input type="text" id="export-path-input" placeholder="C:\path\to\file.html" spellcheck="false">
+  </div>
+  <div class="theme-row" role="radiogroup" aria-label="Theme">
+    <span>Theme</span>
+    <label><input type="radio" name="export-theme" value="dark" checked> Dark</label>
+    <label><input type="radio" name="export-theme" value="light"> Light</label>
+    <label><input type="radio" name="export-theme" value="system"> Match system</label>
+  </div>
+  <div id="export-panel-error" class="panel-error" role="alert"></div>
+  <div id="export-panel-confirm" class="panel-confirm" aria-live="polite"></div>
+  <div class="row-actions">
+    <button type="button" class="primary" id="btn-export-go">Export</button>
+    <button type="button" id="btn-export-cancel">Cancel</button>
   </div>
 </div>
 <div id="dirty-panel" aria-hidden="true">
@@ -7793,6 +8206,22 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
 
   function emptySidecar() {
     return { bendwright_sidecar: 1, edges: {}, nodes: {}, types: {}, assignments: {} };
+  }
+
+  var lastDiagramDir = null;
+
+  function rememberDiagramDir(filePath) {
+    if (!filePath) return;
+    var s = String(filePath);
+    var cut = Math.max(s.lastIndexOf("\\"), s.lastIndexOf("/"));
+    if (cut > 0) lastDiagramDir = s.slice(0, cut);
+  }
+
+  function pathJoin(dir, name) {
+    if (!dir) return name;
+    var d = String(dir);
+    if (/[\\\/]$/.test(d)) return d + name;
+    return d + ((d.indexOf("\\") >= 0 && d.indexOf("/") < 0) ? "\\" : "/") + name;
   }
 
   function ensureSidecar() {
@@ -11812,7 +12241,42 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     }
   }
 
+  function layoutModShortcut(ev) {
+    // Same chords as the parent document handler. preventDefault stops the
+    // browser Save-page dialog when the canvas iframe has focus.
+    if (!ev || ev.altKey || !(ev.ctrlKey || ev.metaKey)) return false;
+    var key = String(ev.key || "").toLowerCase();
+    if (key === "s") {
+      ev.preventDefault();
+      save();
+      return true;
+    }
+    if (key === "z" && !ev.shiftKey) {
+      ev.preventDefault();
+      undo();
+      return true;
+    }
+    if (key === "y" || (key === "z" && ev.shiftKey)) {
+      ev.preventDefault();
+      redo();
+      return true;
+    }
+    return false;
+  }
+
+  function layoutToolKeyBlocked(ev) {
+    if (!ev) return false;
+    if (!isSavePanelActive() && !isExportPanelActive() && !isDeleteConfirmActive()) return false;
+    var key = ev.key;
+    if (key === "F2" || key === "Delete" || key === "Backspace") return true;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return false;
+    var lower = String(key || "").toLowerCase();
+    return lower === "v" || lower === "c" || lower === "b";
+  }
+
   function onLayoutKeyDown(ev) {
+    if (layoutModShortcut(ev)) return;
+    if (layoutToolKeyBlocked(ev)) return;
     if (tryStartInlineRename(ev)) return;
     if (inlineRename) {
       if (ev.key === "Escape" || ev.key === "Esc") cancelInlineSession();
@@ -11900,6 +12364,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (nodeEdit || singleEdit || cardEdit || boundaryEdit || laneEdit || quickType) return true;
     if (isStatusOverlayActive()) return true;
     if (isOpenPanelActive() || isDirtyPanelActive() || isNewPanelActive()) return true;
+    if (isSavePanelActive() || isExportPanelActive()) return true;
     if (isDeleteConfirmActive()) return true;
     return false;
   }
@@ -18591,52 +19056,210 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       });
   }
 
+  var _saveWaiters = [];
+  var _saveReplacePending = false;
+  var _exportReplacePending = false;
+
+  function finishSaveWaiters(ok) {
+    var waiters = _saveWaiters;
+    _saveWaiters = [];
+    waiters.forEach(function (resolve) { resolve(!!ok); });
+  }
+
+  function suggestedSavePath() {
+    var suffix = saveSuffix();
+    if (state.file) return String(state.file);
+    var stem = "untitled";
+    var title = state.doc && state.doc.meta && state.doc.meta.title;
+    if (title && String(title).trim()) {
+      stem = String(title).trim().replace(/[<>:"\/\\|?*\u0000-\u001f]/g, "_");
+      if (!stem) stem = "untitled";
+    }
+    return pathJoin(lastDiagramDir || "", stem + suffix);
+  }
+
+  function suggestedExportPath() {
+    ensureSidecar();
+    var prefs = state.sidecar && state.sidecar.export;
+    if (prefs && typeof prefs.path === "string" && prefs.path.trim()) {
+      var stored = prefs.path.trim();
+      if (/^[a-zA-Z]:[\\\/]/.test(stored) || stored.charAt(0) === "/" || stored.charAt(0) === "\\") {
+        return stored;
+      }
+      if (state.file) {
+        var cut = Math.max(String(state.file).lastIndexOf("\\"), String(state.file).lastIndexOf("/"));
+        if (cut > 0) return pathJoin(String(state.file).slice(0, cut), stored);
+      }
+      return stored;
+    }
+    if (!state.file) return "diagram.html";
+    var name = String(state.file);
+    name = name.replace(/\.workflow\.json$/i, ".html")
+      .replace(/\.architecture\.json$/i, ".html")
+      .replace(/\.json$/i, ".html");
+    if (!/\.html$/i.test(name)) name = name + ".html";
+    return name;
+  }
+
+  function rememberedExportTheme() {
+    ensureSidecar();
+    var prefs = state.sidecar && state.sidecar.export;
+    var t = prefs && typeof prefs.theme === "string" ? prefs.theme.trim().toLowerCase() : "";
+    if (t === "dark" || t === "light" || t === "system") return t;
+    return "dark";
+  }
+
+  function setSavePanelError(msg) {
+    var el = $("save-panel-error");
+    if (!el) return;
+    if (msg) {
+      el.textContent = msg;
+      el.classList.add("active");
+    } else {
+      el.textContent = "";
+      el.classList.remove("active");
+    }
+  }
+
+  function setSavePanelConfirm(msg) {
+    var el = $("save-panel-confirm");
+    if (!el) return;
+    if (msg) {
+      el.textContent = msg;
+      el.classList.add("active");
+    } else {
+      el.textContent = "";
+      el.classList.remove("active");
+    }
+  }
+
+  function setExportPanelError(msg) {
+    var el = $("export-panel-error");
+    if (!el) return;
+    if (msg) {
+      el.textContent = msg;
+      el.classList.add("active");
+    } else {
+      el.textContent = "";
+      el.classList.remove("active");
+    }
+  }
+
+  function setExportPanelConfirm(msg) {
+    var el = $("export-panel-confirm");
+    if (!el) return;
+    if (msg) {
+      el.textContent = msg;
+      el.classList.add("active");
+    } else {
+      el.textContent = "";
+      el.classList.remove("active");
+    }
+  }
+
+  function isSavePanelActive() {
+    var panel = $("save-panel");
+    return !!(panel && panel.classList.contains("active"));
+  }
+
+  function isExportPanelActive() {
+    var panel = $("export-panel");
+    return !!(panel && panel.classList.contains("active"));
+  }
+
+  function closeSavePanel(cancelled) {
+    var panel = $("save-panel");
+    if (panel) {
+      panel.classList.remove("active");
+      panel.setAttribute("aria-hidden", "true");
+    }
+    _saveReplacePending = false;
+    setSavePanelError("");
+    setSavePanelConfirm("");
+    if (cancelled) finishSaveWaiters(false);
+  }
+
+  function closeExportPanel() {
+    var panel = $("export-panel");
+    if (panel) {
+      panel.classList.remove("active");
+      panel.setAttribute("aria-hidden", "true");
+    }
+    _exportReplacePending = false;
+    setExportPanelError("");
+    setExportPanelConfirm("");
+  }
+
+  function openSavePanel() {
+    closeOpenPanel();
+    closeExportPanel();
+    closeOverflow();
+    var panel = $("save-panel");
+    if (!panel) return;
+    _saveReplacePending = false;
+    setSavePanelError("");
+    setSavePanelConfirm("");
+    panel.classList.add("active");
+    panel.setAttribute("aria-hidden", "false");
+    var input = $("save-path-input");
+    if (input) {
+      input.value = suggestedSavePath();
+      input.focus();
+      input.select();
+    }
+  }
+
+  function openExportPanel() {
+    if (!state.file || !state.doc) {
+      setStatus("Export: open a file first", "err");
+      return;
+    }
+    if (!state.archify) {
+      setStatus("archify not available; cannot render HTML", "err");
+      return;
+    }
+    closeOpenPanel();
+    closeSavePanel(true);
+    closeOverflow();
+    var panel = $("export-panel");
+    if (!panel) return;
+    _exportReplacePending = false;
+    setExportPanelError("");
+    setExportPanelConfirm("");
+    panel.classList.add("active");
+    panel.setAttribute("aria-hidden", "false");
+    var input = $("export-path-input");
+    if (input) {
+      input.value = suggestedExportPath();
+      input.focus();
+      input.select();
+    }
+    var theme = rememberedExportTheme();
+    var radios = document.querySelectorAll('input[name="export-theme"]');
+    for (var i = 0; i < radios.length; i++) {
+      radios[i].checked = radios[i].value === theme;
+    }
+  }
+
   function save() {
     if (!state.doc) {
       setStatus("Save: no file open", "err");
       return Promise.resolve(false);
     }
-    if (!state.file) return saveAs();
-    return postSave(null);
+    return new Promise(function (resolve) {
+      _saveWaiters.push(resolve);
+      openSavePanel();
+    });
   }
 
-  function saveAs() {
-    setStatus("Choose where to save…", "");
-    return apiFetch("/api/pick", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "save", diagram_type: state.diagram_type || "workflow" }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data || data.ok === false) {
-          setStatus((data && data.error) || "Native picker unavailable — save was not written", "err");
-          return false;
-        }
-        if (data.cancelled || !data.path) {
-          setStatus("Save cancelled", "");
-          return false;
-        }
-        var suffix = saveSuffix();
-        if (!String(data.path).endsWith(suffix)) {
-          setStatus("name must end in " + suffix, "err");
-          return false;
-        }
-        return postSave(String(data.path));
-      })
-      .catch(function (e) {
-        setStatus("Save dialog failed: " + e, "err");
-        return false;
-      });
-  }
-
-  function postSave(path) {
+  function postSave(path, replace) {
     if (state.tab === "raw" && state.rawDirty) {
       if (!applyRaw(false)) return Promise.resolve(false);
     }
     setStatus("Saving…", "");
     var body = { doc: state.doc, sidecar: state.sidecar || emptySidecar() };
     if (path) body.path = path;
+    if (replace) body.replace = true;
     return apiFetch("/api/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -18645,9 +19268,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       .then(function (r) { return r.json(); })
       .then(function (receipt) {
         if (receipt && receipt.session) rememberSession(receipt.session);
-        if (state.stale) return false;
+        if (state.stale) return { ok: false };
+        if (receipt && receipt.exists) {
+          return { ok: false, exists: true, file: receipt.file, errors: receipt.errors };
+        }
         if (receipt.ok && receipt.saved) {
-          if (receipt.file) state.file = receipt.file;
+          if (receipt.file) {
+            state.file = receipt.file;
+            rememberDiagramDir(receipt.file);
+          }
           clearDirty();
           // A deliver note means the in-app cache was not replaced.
           if (!state.archify || receipt.preview) previewStale = false;
@@ -18658,55 +19287,199 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
             state.layoutLoaded = false;
             if (state.tab === "layout") loadLayoutPane(true);
           }
-          return true;
+          return { ok: true };
         }
-        var errs = receipt.errors || [receipt.error || "save failed"];
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "save failed"];
         setStatus("Not saved:\n- " + errs.join("\n- "), "err");
-        return false;
+        return { ok: false, errors: errs };
       })
       .catch(function (e) {
         setStatus("Save request failed: " + e, "err");
-        return false;
+        return { ok: false };
       });
   }
 
-  function exportHtml() {
-    if (!state.file || !state.doc) {
-      setStatus("Export: open a file first", "err");
-      return Promise.resolve(false);
+  function submitSavePanel() {
+    var input = $("save-path-input");
+    var path = input ? String(input.value || "").trim() : "";
+    if (!path) {
+      setSavePanelError("path is required");
+      return;
     }
-    if (!state.archify) {
-      setStatus("archify not available; cannot render HTML", "err");
-      return Promise.resolve(false);
-    }
-    if (state.tab === "raw" && state.rawDirty) {
-      if (!applyRaw(false)) return Promise.resolve(false);
-    }
-    setStatus("Exporting…", "");
-    var needSave = !!(state.dirty || state.rawDirty);
-    var opts = {
+    setSavePanelError("");
+    var replace = _saveReplacePending;
+    postSave(path, replace).then(function (result) {
+      if (!result) return;
+      if (result.exists) {
+        _saveReplacePending = true;
+        var name = result.file ? String(result.file).split(/[\\\/]/).pop() : "file";
+        setSavePanelConfirm("Replace " + name + "? Press Save again to confirm.");
+        setSavePanelError("");
+        return;
+      }
+      if (result.ok) {
+        closeSavePanel(false);
+        finishSaveWaiters(true);
+        return;
+      }
+      var errs = result.errors || [];
+      var folderErr = errs.filter(function (e) { return /folder does not exist/i.test(String(e)); })[0];
+      if (folderErr) setSavePanelError(String(folderErr));
+      _saveReplacePending = false;
+      setSavePanelConfirm("");
+    });
+  }
+
+  function pickSavePath() {
+    var browseBtn = $("btn-save-browse");
+    if (browseBtn) browseBtn.disabled = true;
+    var initial = $("save-path-input") ? $("save-path-input").value : "";
+    var initialFile = initial ? String(initial).split(/[\\\/]/).pop() : null;
+    return apiFetch("/api/pick", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: needSave ? JSON.stringify({ doc: state.doc, sidecar: state.sidecar || emptySidecar() }) : "{}",
+      body: JSON.stringify({
+        mode: "save",
+        diagram_type: state.diagram_type || "workflow",
+        initial_file: initialFile || undefined,
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (browseBtn) browseBtn.disabled = false;
+        if (!data || data.ok === false) {
+          setSavePanelError((data && data.error) || "Native picker unavailable");
+          return;
+        }
+        if (data.cancelled || !data.path) return;
+        if ($("save-path-input")) $("save-path-input").value = String(data.path);
+        _saveReplacePending = false;
+        setSavePanelConfirm("");
+        setSavePanelError("");
+      })
+      .catch(function (e) {
+        if (browseBtn) browseBtn.disabled = false;
+        setSavePanelError("Browse failed: " + e);
+      });
+  }
+
+  function selectedExportTheme() {
+    var radios = document.querySelectorAll('input[name="export-theme"]');
+    for (var i = 0; i < radios.length; i++) {
+      if (radios[i].checked) return radios[i].value;
+    }
+    return "dark";
+  }
+
+  function exportHtml() {
+    openExportPanel();
+    return Promise.resolve(false);
+  }
+
+  function postExport(path, theme, replace) {
+    if (state.tab === "raw" && state.rawDirty) {
+      if (!applyRaw(false)) return Promise.resolve({ ok: false });
+    }
+    setStatus("Exporting…", "");
+    var body = {
+      doc: state.doc,
+      sidecar: state.sidecar || emptySidecar(),
+      path: path,
+      theme: theme || "dark",
     };
-    return apiFetch("/api/export", opts)
+    if (replace) body.replace = true;
+    return apiFetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
       .then(function (r) { return r.json(); })
       .then(function (receipt) {
+        if (receipt && receipt.exists) {
+          return { ok: false, exists: true, file: receipt.file, errors: receipt.errors };
+        }
         if (receipt.ok && receipt.output) {
-          if (needSave) clearDirty();
-          // Export writes the sibling file only; /api/diagram is unchanged.
+          clearDirty();
+          ensureSidecar();
+          state.sidecar.export = {
+            theme: theme || "dark",
+            path: path,
+          };
           var msg = "Exported " + receipt.output;
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
-          return true;
+          return { ok: true, output: receipt.output };
         }
-        var errs = receipt.errors || [receipt.error || "export failed"];
+        var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "export failed"];
         setStatus(errs.join("\n"), "err");
-        return false;
+        return { ok: false, errors: errs };
       })
       .catch(function (e) {
         setStatus("Export request failed: " + e, "err");
-        return false;
+        return { ok: false };
+      });
+  }
+
+  function submitExportPanel() {
+    var input = $("export-path-input");
+    var path = input ? String(input.value || "").trim() : "";
+    if (!path) {
+      setExportPanelError("path is required");
+      return;
+    }
+    setExportPanelError("");
+    var theme = selectedExportTheme();
+    var replace = _exportReplacePending;
+    postExport(path, theme, replace).then(function (result) {
+      if (!result) return;
+      if (result.exists) {
+        _exportReplacePending = true;
+        var name = result.file ? String(result.file).split(/[\\\/]/).pop() : "file";
+        setExportPanelConfirm("Replace " + name + "? Press Export again to confirm.");
+        return;
+      }
+      if (result.ok) {
+        closeExportPanel();
+        return;
+      }
+      var errs = result.errors || [];
+      var folderErr = errs.filter(function (e) { return /folder does not exist/i.test(String(e)); })[0];
+      if (folderErr) setExportPanelError(String(folderErr));
+      _exportReplacePending = false;
+      setExportPanelConfirm("");
+    });
+  }
+
+  function pickExportPath() {
+    var browseBtn = $("btn-export-browse");
+    if (browseBtn) browseBtn.disabled = true;
+    var initial = $("export-path-input") ? $("export-path-input").value : "";
+    var initialFile = initial ? String(initial).split(/[\\\/]/).pop() : null;
+    return apiFetch("/api/pick", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "save",
+        file_type: "html",
+        initial_file: initialFile || undefined,
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (browseBtn) browseBtn.disabled = false;
+        if (!data || data.ok === false) {
+          setExportPanelError((data && data.error) || "Native picker unavailable");
+          return;
+        }
+        if (data.cancelled || !data.path) return;
+        if ($("export-path-input")) $("export-path-input").value = String(data.path);
+        _exportReplacePending = false;
+        setExportPanelConfirm("");
+        setExportPanelError("");
+      })
+      .catch(function (e) {
+        if (browseBtn) browseBtn.disabled = false;
+        setExportPanelError("Browse failed: " + e);
       });
   }
 
@@ -18729,6 +19502,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       .then(function (data) {
         rememberSession(data);
         state.file = data.file || null;
+        rememberDiagramDir(state.file);
         state.diagram_type = data.diagram_type;
         state.doc = data.doc || null;
         state.enums = data.enums || {};
@@ -18852,6 +19626,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     endpointDrag = null;
     resizeDrag = null;
     state.file = data.file || null;
+    rememberDiagramDir(state.file);
     state.diagram_type = data.diagram_type;
     state.doc = data.doc || null;
     state.enums = data.enums || {};
@@ -19276,6 +20051,20 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         closeNewPanel();
       }
     }
+    if (isSavePanelActive()) {
+      var savePanel = $("save-panel");
+      var saveBtn = $("btn-save");
+      if (savePanel && !savePanel.contains(ev.target) && !(saveBtn && saveBtn.contains(ev.target))) {
+        closeSavePanel(true);
+      }
+    }
+    if (isExportPanelActive()) {
+      var exportPanel = $("export-panel");
+      var exportBtn = $("btn-export");
+      if (exportPanel && !exportPanel.contains(ev.target) && !(exportBtn && exportBtn.contains(ev.target))) {
+        closeExportPanel();
+      }
+    }
     if (!isOpenPanelActive()) return;
     var panel = $("open-panel");
     var openBtn = $("btn-open");
@@ -19339,6 +20128,48 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   $("btn-export").addEventListener("click", function () {
     if ($("btn-export").disabled) return;
     exportHtml();
+  });
+  var btnSaveClose = $("btn-save-close");
+  if (btnSaveClose) btnSaveClose.addEventListener("click", function () { closeSavePanel(true); });
+  var btnSaveCancel = $("btn-save-cancel");
+  if (btnSaveCancel) btnSaveCancel.addEventListener("click", function () { closeSavePanel(true); });
+  var btnSaveGo = $("btn-save-go");
+  if (btnSaveGo) btnSaveGo.addEventListener("click", submitSavePanel);
+  var btnSaveBrowse = $("btn-save-browse");
+  if (btnSaveBrowse) btnSaveBrowse.addEventListener("click", pickSavePath);
+  var savePathInput = $("save-path-input");
+  if (savePathInput) savePathInput.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      submitSavePanel();
+    } else if (ev.key === "Escape" || ev.key === "Esc") {
+      ev.preventDefault();
+      closeSavePanel(true);
+    } else {
+      _saveReplacePending = false;
+      setSavePanelConfirm("");
+    }
+  });
+  var btnExportClose = $("btn-export-close");
+  if (btnExportClose) btnExportClose.addEventListener("click", closeExportPanel);
+  var btnExportCancel = $("btn-export-cancel");
+  if (btnExportCancel) btnExportCancel.addEventListener("click", closeExportPanel);
+  var btnExportGo = $("btn-export-go");
+  if (btnExportGo) btnExportGo.addEventListener("click", submitExportPanel);
+  var btnExportBrowse = $("btn-export-browse");
+  if (btnExportBrowse) btnExportBrowse.addEventListener("click", pickExportPath);
+  var exportPathInput = $("export-path-input");
+  if (exportPathInput) exportPathInput.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      submitExportPanel();
+    } else if (ev.key === "Escape" || ev.key === "Esc") {
+      ev.preventDefault();
+      closeExportPanel();
+    } else {
+      _exportReplacePending = false;
+      setExportPanelConfirm("");
+    }
   });
   $("btn-discard").addEventListener("click", function () {
     if (!state.dirty || state.layoutBusy) return;
@@ -20093,6 +20924,16 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (isDirtyPanelActive()) {
         ev.preventDefault();
         closeDirtyPanel();
+        return;
+      }
+      if (isSavePanelActive()) {
+        ev.preventDefault();
+        closeSavePanel(true);
+        return;
+      }
+      if (isExportPanelActive()) {
+        ev.preventDefault();
+        closeExportPanel();
         return;
       }
       if (isOpenPanelActive()) {

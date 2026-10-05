@@ -110,7 +110,8 @@ bendwright shuts its own server down a few seconds after you close the browser. 
 want it to stay running while you step away for a long time, launch with `--keep-alive`.
 
 To get the rendered diagram, choose **Export HTML** from the **⋯** menu. bendwright saves
-your JSON and writes `<name>.html` next to it, ready to open or share.
+your JSON, then asks where to write the `.html` (next to the JSON by default) and whether
+it should open in the dark theme, the light theme, or match the viewer's system.
 
 ## Tour
 
@@ -196,7 +197,7 @@ to see why. Your file is never left unrenderable.
 | **Enter** | Apply edits |
 | **Esc** | Discard unapplied edits, close a panel, or clear the selection |
 | **Delete** / **Backspace** | Delete the selected node, edge, card, boundary, or lane (asks first) |
-| **Ctrl+S** | Save |
+| **Ctrl+S** | Save (shows where; **Enter** saves in place) |
 | **Ctrl+Z** | Undo |
 | **Ctrl+Y** / **Ctrl+Shift+Z** | Redo |
 
@@ -276,12 +277,17 @@ JSON is untouched, and running Archify on its own gives its normal output.
 - **Ask before deleting** - deleting a node, edge, card, boundary, lane, or custom type
   asks first, and **Undo** brings it back.
 - **Explicit save** - edits live in a buffer and never touch disk until you press
-  **Save**. Undo/redo, **Discard changes** (reload from disk, in the **⋯** menu), and an
+  **Save**. Save shows where it will write: press **Enter** to save in place, or change
+  the name or folder (or **Browse...**) to save a copy. Saving over a different file asks
+  first. Undo/redo, **Discard changes** (reload from disk, in the **⋯** menu), and an
   unsaved-changes warning are all included.
 - **Lossless save** - key order, unknown fields, and the trailing newline are preserved.
   Files are written with 2-space indentation.
-- **Export HTML** - from the **⋯** menu, one click saves the JSON and writes the rendered
-  `.html` (via Archify) right next to it, always in sync. No CLI needed.
+- **Export HTML** - from the **⋯** menu: saves the JSON, then writes the rendered `.html`
+  (via Archify) where you choose, next to the JSON by default. Pick the theme it opens
+  in (dark, light, or match the viewer's system); a `?theme=` link and the page's own
+  toggle still work. The location and theme are remembered for each diagram. No CLI
+  needed.
 - **Two diagrams at once** - launch bendwright twice; the second one picks the next free
   port (8771, 8772, ...). If one tab opens a different diagram, any other tab on that
   server asks you to reload instead of saving into the wrong file.
