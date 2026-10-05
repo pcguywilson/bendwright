@@ -2923,9 +2923,9 @@ _OVERLAY_MARKUP: dict[str, Any] = {
 _STYLE_COLORS: dict[str, dict[str, str]] = {
     "blue": {"dark": "#6CB4F5", "light": "#0072B2", "label": "Blue"},
     "green": {"dark": "#3DDC97", "light": "#008566", "label": "Green"},
-    "red": {"dark": "#FF8A3D", "light": "#C44E00", "label": "Red"},
+    "red": {"dark": "#F04438", "light": "#B91C1C", "label": "Red"},
     "amber": {"dark": "#F0B429", "light": "#8A5E00", "label": "Amber"},
-    "purple": {"dark": "#F0A0C8", "light": "#9A4E7C", "label": "Purple"},
+    "purple": {"dark": "#C77DFF", "light": "#8E24AA", "label": "Purple"},
     "teal": {"dark": "#5EE0D0", "light": "#0E7490", "label": "Teal"},
     "gray": {"dark": "#C5CAD3", "light": "#5C6370", "label": "Gray"},
 }
@@ -2948,8 +2948,8 @@ _STYLE_DASHES: dict[str, str | None] = {
 _NODE_FILL_ALPHA = 0.22
 _LEGEND_HINT = (
     "Custom colors are bendwright presets. On a dark theme, green sits near "
-    "backend, amber near cloud, teal near frontend, red near message bus, "
-    "and gray near external."
+    "backend, amber near cloud, teal near frontend, and gray near external; "
+    "red, blue, and purple stand apart from Archify's own colors."
 )
 
 
@@ -6583,9 +6583,9 @@ html.sidebar-collapsed #inspector {
 }
 .bw-style-swatch[data-bw-color="blue"] { background: #6CB4F5; }
 .bw-style-swatch[data-bw-color="green"] { background: #3DDC97; }
-.bw-style-swatch[data-bw-color="red"] { background: #FF8A3D; }
+.bw-style-swatch[data-bw-color="red"] { background: #F04438; }
 .bw-style-swatch[data-bw-color="amber"] { background: #F0B429; }
-.bw-style-swatch[data-bw-color="purple"] { background: #F0A0C8; }
+.bw-style-swatch[data-bw-color="purple"] { background: #C77DFF; }
 .bw-style-swatch[data-bw-color="teal"] { background: #5EE0D0; }
 .bw-style-swatch[data-bw-color="gray"] { background: #C5CAD3; }
 #layout-node-editor .field,
