@@ -220,7 +220,10 @@ Tool keys are ignored while you type in a field.
   with nothing selected, the inspector shows the diagram itself and **Browse** links to
   every node, edge, lane (or component, connection, boundary), card, and custom type.
 - **Visual layout editing** - drag nodes; in a workflow they snap to the nearest lane and
-  column, in an architecture diagram they snap to a 10 px grid.
+  column, in an architecture diagram they snap to a 10 px grid. In an architecture
+  diagram a box also lines its center up with a box it's connected to when you get close
+  (a blue guide shows), so straight connections stay straight. If that would put a
+  connection label on top of a box, bendwright moves the label into the gap.
 - **Nodes** - add, duplicate, and delete nodes. The inspector edits type, label,
   sublabel, tag, position (lane and column, or position and size), color, and icon.
   **Enter** applies your edits as one undo step; **Esc** throws them away.

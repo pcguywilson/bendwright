@@ -11032,10 +11032,124 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return Math.round(Number(n) / ARCH_SNAP) * ARCH_SNAP;
   }
 
+  // P1: center snap. A dragged or resized component lines its center up with
+  // a component it is connected to when within ARCH_CENTER_SNAP (svg units),
+  // so bottom->top / right->left links run straight instead of jogging.
+  var ARCH_CENTER_SNAP = 8;
+
+  function archLaidBox(id) {
+    var laid = (state.layout && state.layout.components) || [];
+    for (var i = 0; i < laid.length; i++) {
+      var n = laid[i];
+      if (!n || String(n.id) !== String(id)) continue;
+      var w = Number(n.width) > 0 ? Number(n.width) : ARCH_MIN_W;
+      var h = Number(n.height) > 0 ? Number(n.height) : ARCH_MIN_H;
+      return { x: Number(n.x), y: Number(n.y), w: w, h: h };
+    }
+    return null;
+  }
+
+  function archNeighborIds(id) {
+    var out = [];
+    var conns = (state.doc && Array.isArray(state.doc.connections)) ? state.doc.connections : [];
+    for (var i = 0; i < conns.length; i++) {
+      var c = conns[i];
+      if (!c) continue;
+      var other = String(c.from) === String(id) ? c.to : (String(c.to) === String(id) ? c.from : null);
+      if (other != null && String(other) !== String(id) && out.indexOf(String(other)) < 0) out.push(String(other));
+    }
+    return out;
+  }
+
+  // Best center match per axis: {x: neighbor center x or null, y: ...}.
+  function archCenterMatch(id, cx, cy) {
+    var best = { x: null, y: null, dx: ARCH_CENTER_SNAP + 1, dy: ARCH_CENTER_SNAP + 1, nx: null, ny: null };
+    var ids = archNeighborIds(id);
+    for (var i = 0; i < ids.length; i++) {
+      var b = archLaidBox(ids[i]);
+      if (!b) continue;
+      var ncx = b.x + b.w / 2;
+      var ncy = b.y + b.h / 2;
+      var ddx = Math.abs(cx - ncx);
+      var ddy = Math.abs(cy - ncy);
+      if (ddx <= ARCH_CENTER_SNAP && ddx < best.dx) { best.dx = ddx; best.x = ncx; best.nx = b; }
+      if (ddy <= ARCH_CENTER_SNAP && ddy < best.dy) { best.dy = ddy; best.y = ncy; best.ny = b; }
+    }
+    return best;
+  }
+
+  function clearSnapGuides(svg) {
+    if (!svg) return;
+    var old = svg.querySelectorAll("line.bw-snap-guide");
+    for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
+  }
+
+  function drawSnapGuide(svg, x1, y1, x2, y2) {
+    var ln = svg.ownerDocument.createElementNS("http://www.w3.org/2000/svg", "line");
+    ln.setAttribute("class", "bw-snap-guide");
+    ln.setAttribute("x1", String(x1));
+    ln.setAttribute("y1", String(y1));
+    ln.setAttribute("x2", String(x2));
+    ln.setAttribute("y2", String(y2));
+    ln.setAttribute("stroke", "rgba(61,139,253,0.95)");
+    ln.setAttribute("stroke-width", "1");
+    ln.setAttribute("stroke-dasharray", "4 3");
+    ln.setAttribute("vector-effect", "non-scaling-stroke");
+    ln.style.pointerEvents = "none";
+    svg.appendChild(ln);
+  }
+
+  // Applies center snap to a box being dragged (moves x/y). Returns snapped box.
+  function snapDraggedBox(svg, id, x, y, w, h) {
+    clearSnapGuides(svg);
+    var m = archCenterMatch(id, x + w / 2, y + h / 2);
+    var out = { x: x, y: y, snappedX: false, snappedY: false };
+    if (m.x != null) {
+      out.x = Math.round(m.x - w / 2);
+      out.snappedX = true;
+      var top = Math.min(m.nx.y, y);
+      var bottom = Math.max(m.nx.y + m.nx.h, y + h);
+      drawSnapGuide(svg, m.x, top - 6, m.x, bottom + 6);
+    }
+    if (m.y != null) {
+      out.y = Math.round(m.y - h / 2);
+      out.snappedY = true;
+      var left = Math.min(m.ny.x, x);
+      var right = Math.max(m.ny.x + m.ny.w, x + w);
+      drawSnapGuide(svg, left - 6, m.y, right + 6, m.y);
+    }
+    return out;
+  }
+
+  // Resize keeps the top-left corner, so snap the size to put the center in line.
+  function snapResizeWH(drag, w, h) {
+    var svg = drag.svg;
+    clearSnapGuides(svg);
+    var x = Number(drag.baseX);
+    var y = Number(drag.baseY);
+    if (!isFinite(x) || !isFinite(y)) return { w: w, h: h };
+    var m = archCenterMatch(drag.id, x + w / 2, y + h / 2);
+    if (m.x != null) {
+      var nw = Math.round(2 * (m.x - x));
+      if (nw >= ARCH_MIN_W) {
+        w = nw;
+        if (svg) drawSnapGuide(svg, m.x, Math.min(m.nx.y, y) - 6, m.x, Math.max(m.nx.y + m.nx.h, y + h) + 6);
+      }
+    }
+    if (m.y != null) {
+      var nh = Math.round(2 * (m.y - y));
+      if (nh >= ARCH_MIN_H) {
+        h = nh;
+        if (svg) drawSnapGuide(svg, Math.min(m.ny.x, x) - 6, m.y, Math.max(m.ny.x + m.ny.w, x + w) + 6, m.y);
+      }
+    }
+    return { w: w, h: h };
+  }
+
   function clearLayoutOverlays(svg) {
     if (!svg) return;
     var old = svg.querySelectorAll(
-      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, rect.bw-lane-outline, circle.bw-endpoint, rect.bw-boundary, rect.bw-boundary-tab, rect.bw-boundary-outline, rect.bw-lasso"
+      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, rect.bw-lane-outline, circle.bw-endpoint, rect.bw-boundary, rect.bw-boundary-tab, rect.bw-boundary-outline, rect.bw-lasso, line.bw-snap-guide"
     );
     for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
   }
@@ -11374,7 +11488,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (!line) continue;
       if (/^suggested fix:/i.test(line) || /^diagnostics:\s*\d+\s*$/i.test(line)) continue;
       var m = ROUTE_REPAIR_RE.exec(line);
-      if (!m) return null;
+      if (!m) {
+        if (LABEL_OVERLAP_RE.test(line)) continue;
+        return null;
+      }
       var conn = conns[Number(m[1])];
       if (!conn || String(conn.from) !== m[2] || String(conn.to) !== m[3]) return null;
       if (exclude && exclude.indexOf(conn) >= 0) return null;
@@ -11395,6 +11512,42 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (!(w > 0)) w = ARCH_MIN_W;
     if (!(h > 0)) h = ARCH_MIN_H;
     return { x: Number(node.pos[0]) + w / 2, y: Number(node.pos[1]) + h / 2 };
+  }
+
+  // P1: Archify refuses a label that would overlap a box and suggests a spot:
+  //   Label "LOCAL" overlaps component "c7" ... Suggested fix: labelAt [475, 274] ...
+  // Returns [{conn, at}] when EVERY error is routing or such a label overlap
+  // (routing errors are left to routingRepairTargets), else null.
+  var LABEL_OVERLAP_RE = /Label "([^"]*)" overlaps component "([^"]+)"[\s\S]*?Suggested fix:\s*labelAt \[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]/;
+  function labelOverlapFixes(receipt) {
+    if (!isArchitecture() || !receipt || receipt.ok || !state.doc) return null;
+    var errs = (Array.isArray(receipt.errors) && receipt.errors.length)
+      ? receipt.errors
+      : (receipt.error ? [receipt.error] : []);
+    var conns = Array.isArray(state.doc.connections) ? state.doc.connections : [];
+    var fixes = [];
+    var any = false;
+    for (var i = 0; i < errs.length; i++) {
+      var line = String(errs[i] == null ? "" : errs[i]).trim();
+      if (!line) continue;
+      if (/^suggested fix:/i.test(line) || /^diagnostics:\s*\d+\s*$/i.test(line)) continue;
+      var m = LABEL_OVERLAP_RE.exec(line);
+      if (!m) {
+        if (ROUTE_REPAIR_RE.test(line)) continue;
+        return null;
+      }
+      var hits = [];
+      for (var c = 0; c < conns.length; c++) {
+        if (conns[c] && edgeLabelValue(conns[c]) === m[1]) hits.push(conns[c]);
+      }
+      if (hits.length > 1) {
+        hits = hits.filter(function (k) { return String(k.from) === m[2] || String(k.to) === m[2]; });
+      }
+      if (hits.length !== 1) return null;
+      fixes.push({ conn: hits[0], at: [Math.round(Number(m[3])), Math.round(Number(m[4]))] });
+      any = true;
+    }
+    return any ? fixes : null;
   }
 
   function repairPlansFor(conn, snap) {
@@ -11423,21 +11576,45 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function postPreviewRepair(exclude) {
     exclude = exclude || [];
     return postPreviewDoc().then(function (first) {
-      if (!routingRepairTargets(first, exclude)) return first;
+      if (!routingRepairTargets(first, exclude) && !labelOverlapFixes(first)) return first;
       var touched = [];
       var snaps = [];
       var notes = [];
+      var labelSnaps = [];
+      var labelNotes = [];
+      var labelRounds = 0;
       function giveUp() {
         for (var k = touched.length - 1; k >= 0; k--) restoreConnRouting(touched[k], snaps[k]);
+        for (var j = labelSnaps.length - 1; j >= 0; j--) {
+          var ls = labelSnaps[j];
+          if (ls.had) ls.conn.labelAt = ls.value;
+          else delete ls.conn.labelAt;
+        }
         return first;
       }
       function step(receipt) {
         if (receipt && receipt.ok) {
-          if (notes.length) {
-            receipt.note = (receipt.note ? receipt.note + "\n" : "") +
-              "Also re-routed " + notes.join("; ");
-          }
+          var extra = [];
+          if (notes.length) extra.push("Also re-routed " + notes.join("; "));
+          if (labelNotes.length) extra.push("Moved label " + labelNotes.join("; ") + " so it doesn't cover a box");
+          if (extra.length) receipt.note = (receipt.note ? receipt.note + "\n" : "") + extra.join("\n");
           return receipt;
+        }
+        var lfix = labelOverlapFixes(receipt);
+        if (lfix && labelRounds < 3) {
+          labelRounds += 1;
+          lfix.forEach(function (fx) {
+            labelSnaps.push({
+              conn: fx.conn,
+              had: Object.prototype.hasOwnProperty.call(fx.conn, "labelAt"),
+              value: fx.conn.labelAt
+            });
+            fx.conn.labelAt = fx.at;
+            var name = "\"" + edgeLabelValue(fx.conn) + "\"";
+            if (labelNotes.indexOf(name) < 0) labelNotes.push(name);
+          });
+          setStatus("Moving a label out of the way\u2026", "");
+          return postPreviewDoc().then(step);
         }
         var targets = routingRepairTargets(receipt, exclude);
         if (!targets) return giveUp();
@@ -14535,22 +14712,38 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var next = val == null ? "" : String(val);
     if (edgeFieldUnchanged(edge, field, next, optional)) return;
     var captured = (field === "from" || field === "to") ? captureEdgeStyleKeys() : null;
+    var docBefore = clone(state.doc);
+    var sideBefore = clone(state.sidecar);
     pushHistory();
     if (optional && !next) delete edge[field];
     else edge[field] = next;
     if (captured) rekeyEdgeStyles(captured);
+    var straightened = (field === "route" && next === "straight") ? straightenForStraightRoute(edge) : null;
     state.rawDirty = false;
     previewStale = true;
     markDirty();
     renderAll();
     setLayoutBusy(true);
-    var sent = bufferToken();
     setStatus("previewing edge " + (edge.from || "?") + " → " + (edge.to || "?") + "…", "");
-    postPreviewDoc()
+    var previewCall = isArchitecture() ? postPreviewRepair([edge]) : postPreviewDoc();
+    function revertField() {
+      // P1: a refused change puts the old value back, like every other edit.
+      state.doc = docBefore;
+      state.sidecar = sideBefore;
+      ensureSidecar();
+      revertHistoryPush();
+      syncDirtyFromDoc();
+      setLayoutBusy(false);
+      renderAll();
+      var again = relationRecords()[docIndex];
+      if (again) fillEdgeAdvanced(again);
+    }
+    previewCall
       .then(function (receipt) {
         if (receipt && receipt.ok) {
           var msg = "Updated edge " + (edge.from || "?") + " → " + (edge.to || "?") +
             " " + field + " (unsaved)";
+          if (straightened) msg += "\n" + straightened;
           if (receipt.note) msg += "\nNote: " + receipt.note;
           setStatus(msg, "ok");
           return loadLayoutPane(true, { keepSingleEditor: true }).then(function () {
@@ -14558,20 +14751,48 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
             renderAll();
           });
         }
-        if (sent === bufferToken()) previewStale = true;
-        setLayoutBusy(false);
+        revertField();
         var errs = (receipt && receipt.errors) || [(receipt && receipt.error) || "preview failed"];
-        setStatus("Diagram not updated - preview failed:\n- " + errs.join("\n- "), "err");
-        showPreviewFailedHint();
+        var lead = "Not changed (put back): Archify refused " + field + " " + (next || "(none)") + ".";
+        if (field === "route" && next === "straight") {
+          lead = "Not changed (put back): a straight line needs the two boxes lined up on the sides you picked. " +
+            "Drag one box until the blue guide shows, or keep the route automatic.";
+        }
+        setStatus(lead + "\n- " + errs.join("\n- "), "err");
       })
       .catch(function (e) {
-        if (sent === bufferToken()) previewStale = true;
-        setLayoutBusy(false);
+        revertField();
         if (!(e && e.bendwrightOffline)) {
-          setStatus("Preview failed: " + e, "err");
+          setStatus("Preview failed (put back): " + e, "err");
         }
-        showPreviewFailedHint();
       });
+  }
+
+
+  // P1: route straight with vertical (or horizontal) sides needs centers in
+  // line. When they are off by a little, move the target box into line.
+  var STRAIGHTEN_MAX = 30;
+  function straightenForStraightRoute(edge) {
+    if (!isArchitecture() || !edge) return null;
+    var vertical = (edge.fromSide === "bottom" && edge.toSide === "top") ||
+      (edge.fromSide === "top" && edge.toSide === "bottom");
+    var horizontal = (edge.fromSide === "right" && edge.toSide === "left") ||
+      (edge.fromSide === "left" && edge.toSide === "right");
+    if (!vertical && !horizontal) return null;
+    var src = findDocNode(edge.from);
+    var dst = findDocNode(edge.to);
+    if (!src || !dst || !Array.isArray(dst.pos) || dst.pos.length < 2) return null;
+    var a = docComponentCenter(edge.from);
+    var b = docComponentCenter(edge.to);
+    if (!a || !b) return null;
+    var off = vertical ? (a.x - b.x) : (a.y - b.y);
+    if (!off || Math.abs(off) > STRAIGHTEN_MAX) return null;
+    off = Math.round(off);
+    if (vertical) dst.pos = [Number(dst.pos[0]) + off, Number(dst.pos[1])];
+    else dst.pos = [Number(dst.pos[0]), Number(dst.pos[1]) + off];
+    var dir = vertical ? (off > 0 ? "right" : "left") : (off > 0 ? "down" : "up");
+    return "Moved " + nodeDisplayLabel(edge.to) + " " + Math.abs(off) + "px " + dir +
+      " to line up with " + nodeDisplayLabel(edge.from) + ".";
   }
 
   function restoreEdgePopupAfterRemount() {
@@ -18433,6 +18654,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (!rpt) return;
       var rw = Math.max(ARCH_MIN_W, Math.round(resizeDrag.baseW + (rpt.x - resizeDrag.startSvgX)));
       var rh = Math.max(ARCH_MIN_H, Math.round(resizeDrag.baseH + (rpt.y - resizeDrag.startSvgY)));
+      var rs = snapResizeWH(resizeDrag, rw, rh);
+      rw = rs.w;
+      rh = rs.h;
       resizeDrag.lastW = rw;
       resizeDrag.lastH = rh;
       paintResizeBox(resizeDrag, rw, rh);
@@ -18470,8 +18694,21 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var pt = clientToSvg(layoutDrag.svg, ev.clientX, ev.clientY);
     layoutDrag.lastX = pt.x;
     layoutDrag.lastY = pt.y;
-    layoutDrag.rect.setAttribute("x", String(pt.x - layoutDrag.ox));
-    layoutDrag.rect.setAttribute("y", String(pt.y - layoutDrag.oy));
+    var nx = pt.x - layoutDrag.ox;
+    var ny = pt.y - layoutDrag.oy;
+    layoutDrag.snapX = null;
+    layoutDrag.snapY = null;
+    if (isArchitecture()) {
+      var sw = Number(layoutDrag.rect.getAttribute("width"));
+      var sh = Number(layoutDrag.rect.getAttribute("height"));
+      if (sw > 0 && sh > 0) {
+        var snapped = snapDraggedBox(layoutDrag.svg, layoutDrag.id, nx, ny, sw, sh);
+        if (snapped.snappedX) { nx = snapped.x; layoutDrag.snapX = snapped.x; }
+        if (snapped.snappedY) { ny = snapped.y; layoutDrag.snapY = snapped.y; }
+      }
+    }
+    layoutDrag.rect.setAttribute("x", String(nx));
+    layoutDrag.rect.setAttribute("y", String(ny));
   }
 
   function onLayoutPointerUp(ev) {
@@ -18519,13 +18756,17 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       if (resizeDrag.moved && typeof ev.clientX === "number") {
         var upPt = resizePointerSvg(resizeDrag, ev.clientX, ev.clientY);
         if (upPt) {
-          resizeDrag.lastW = Math.max(ARCH_MIN_W, Math.round(resizeDrag.baseW + (upPt.x - resizeDrag.startSvgX)));
-          resizeDrag.lastH = Math.max(ARCH_MIN_H, Math.round(resizeDrag.baseH + (upPt.y - resizeDrag.startSvgY)));
+          var upRs = snapResizeWH(resizeDrag,
+            Math.max(ARCH_MIN_W, Math.round(resizeDrag.baseW + (upPt.x - resizeDrag.startSvgX))),
+            Math.max(ARCH_MIN_H, Math.round(resizeDrag.baseH + (upPt.y - resizeDrag.startSvgY))));
+          resizeDrag.lastW = upRs.w;
+          resizeDrag.lastH = upRs.h;
           paintResizeBox(resizeDrag, resizeDrag.lastW, resizeDrag.lastH);
         }
       }
       var rz = resizeDrag;
       resizeDrag = null;
+      clearSnapGuides(rz.svg);
       unbindArchResizeWindow();
       try { rz.handle.releasePointerCapture(ev.pointerId); } catch (eRzUp) {}
       if (!rz.moved) {
@@ -18641,8 +18882,9 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function finishArchitectureDrag(drag) {
     var node = findDocNode(drag.id);
     if (!node) return;
-    var x = snap10(Number(drag.rect.getAttribute("x")));
-    var y = snap10(Number(drag.rect.getAttribute("y")));
+    clearSnapGuides(drag.svg);
+    var x = drag.snapX != null ? Math.round(drag.snapX) : snap10(Number(drag.rect.getAttribute("x")));
+    var y = drag.snapY != null ? Math.round(drag.snapY) : snap10(Number(drag.rect.getAttribute("y")));
     if (!isFinite(x) || !isFinite(y)) {
       drag.rect.setAttribute("x", String(drag.origX));
       drag.rect.setAttribute("y", String(drag.origY));
