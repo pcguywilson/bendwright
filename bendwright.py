@@ -4253,7 +4253,8 @@ def _apply_style_overlay(
     text = _insert_style_block(text, css)
     painted_edges = [target for target in edge_targets if target.get("apply")]
     legend = _legend_html(_legend_entries(painted_edges, node_targets), kind_targets, sidecar)
-    if legend:
+    # The color key is opt-in (Display > Show color key); off by default.
+    if legend and isinstance(sidecar, dict) and sidecar.get("showColorKey") is True:
         text = _insert_style_legend(text, legend)
     note = status
     if missed:
@@ -4390,11 +4391,15 @@ _DISPLAY_FLAG_ENV = {
 }
 
 
+# Opt-in flags bendwright applies itself (no archify env).
+_LOCAL_DISPLAY_FLAGS = ("showColorKey",)
+
+
 def _normalize_display_flags(sidecar: dict[str, Any]) -> None:
     """Keep opt-in render flags only when true. Absent means stock archify."""
     if not isinstance(sidecar, dict):
         return
-    for key in _DISPLAY_FLAG_ENV:
+    for key in list(_DISPLAY_FLAG_ENV) + list(_LOCAL_DISPLAY_FLAGS):
         if sidecar.get(key) is True:
             continue
         sidecar.pop(key, None)
@@ -7497,6 +7502,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
           <div class="inspector-kicker">Display</div>
           <label for="display-brand-replaces"><input type="checkbox" id="display-brand-replaces"> Icons replace the type symbol</label>
           <label for="display-hide-lanes" id="display-hide-lanes-row"><input type="checkbox" id="display-hide-lanes"> Hide lane frames</label>
+          <label for="display-color-key"><input type="checkbox" id="display-color-key"> Show color key under the diagram</label>
           <p class="bw-ed-hint">Saved beside the diagram, not in the Archify file.</p>
         </section>
         <section id="inspector-legend" aria-label="Legend">
@@ -10754,10 +10760,15 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       lanes.checked = displayFlagOn("hideLaneChrome");
       lanes.disabled = !workflow || !!state.layoutBusy;
     }
+    var colorKey = $("display-color-key");
+    if (colorKey) {
+      colorKey.checked = displayFlagOn("showColorKey");
+      colorKey.disabled = !state.doc || !!state.layoutBusy;
+    }
   }
 
   function setDisplayFlag(name, on) {
-    if (name !== "brandReplacesTypeIcon" && name !== "hideLaneChrome") return;
+    if (name !== "brandReplacesTypeIcon" && name !== "hideLaneChrome" && name !== "showColorKey") return;
     if (!state.doc || state.layoutBusy || (name === "hideLaneChrome" && isArchitecture())) {
       syncDisplayToggles();
       return;
@@ -10772,7 +10783,8 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     state.rawDirty = false;
     syncDisplayToggles();
     setLayoutBusy(true);
-    var label = name === "brandReplacesTypeIcon" ? "Icons replace the type symbol" : "Hide lane frames";
+    var label = name === "brandReplacesTypeIcon" ? "Icons replace the type symbol"
+      : (name === "showColorKey" ? "Color key" : "Hide lane frames");
     setStatus("previewing " + label + "…", "");
 
     function revertFlag() {
@@ -21508,6 +21520,10 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   var hideLanesInput = $("display-hide-lanes");
   if (hideLanesInput) hideLanesInput.addEventListener("change", function () {
     setDisplayFlag("hideLaneChrome", hideLanesInput.checked);
+  });
+  var colorKeyInput = $("display-color-key");
+  if (colorKeyInput) colorKeyInput.addEventListener("change", function () {
+    setDisplayFlag("showColorKey", colorKeyInput.checked);
   });
   $("btn-delete-edge").addEventListener("click", function () {
     deleteSelectedEdge();

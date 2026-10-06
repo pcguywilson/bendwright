@@ -275,12 +275,14 @@ Tool keys are ignored while you type in a field.
 
 ### Display options
 
-With nothing selected, the inspector's **Display** section has two per-diagram switches.
+With nothing selected, the inspector's **Display** section has three per-diagram switches.
 Both are saved beside the diagram and only change how bendwright renders it; the Archify
 JSON is untouched, and running Archify on its own gives its normal output.
 
 - **Icons replace the type symbol** - a node with an icon shows that icon in the top-left
   corner instead of the type symbol. With it off, the icon sits in the top-right corner.
+- **Show color key under the diagram** - off by default. Turn it on to list the custom
+  colors and line styles the diagram uses, under the drawing.
 - **Hide lane frames** - a workflow draws no lane frames or lane headers. The lanes still
   exist (Archify needs them), so you can still click and edit them.
 
