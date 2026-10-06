@@ -5120,6 +5120,7 @@ _HELP_BODY = r"""<header class="help-head">
   <ul>
     <li>Press <kbd>C</kbd> (or click <b>Connect</b>), click a source node, then a target. Press <kbd>V</kbd> to go back to Select.</li>
     <li>In Connect mode, drag an edge's endpoint onto another node to reroute it.</li>
+    <li>Drag a connection's end circle to another side of the same box to move it there.</li>
     <li>Click an edge to edit its label, line style (solid, dashed, dotted), and color. <b>Advanced</b> holds Archify's own settings: role, variant, route, and sides.</li>
     <li>Line style and color are saved beside the diagram, not in the Archify file, so the file stays valid Archify.</li>
   </ul>
@@ -11149,7 +11150,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
   function clearLayoutOverlays(svg) {
     if (!svg) return;
     var old = svg.querySelectorAll(
-      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, rect.bw-lane-outline, circle.bw-endpoint, rect.bw-boundary, rect.bw-boundary-tab, rect.bw-boundary-outline, rect.bw-lasso, line.bw-snap-guide"
+      "rect.bw-handle, rect.bw-resize, polyline.bw-edge-hit, rect.bw-lane-hit, rect.bw-lane-outline, circle.bw-endpoint, circle.bw-endpoint-ghost, line.bw-endpoint-side, rect.bw-boundary, rect.bw-boundary-tab, rect.bw-boundary-outline, rect.bw-lasso, line.bw-snap-guide"
     );
     for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
   }
@@ -11844,6 +11845,42 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
     }
     return plans;
+  }
+
+  // Q1: keep the dragged end on the side the user dropped. Vary only the
+  // other end (and any route the source plan already carries). Drop automatic
+  // plans — those clear the side the user just chose. Cap 8.
+  function routingPlansFixedEnd(plans, end, side, cap) {
+    var out = [];
+    if (!plans || (end !== "from" && end !== "to") || !side) return out;
+    if (!(cap > 0)) cap = 8;
+    var i, pl;
+    for (i = 0; i < plans.length; i++) {
+      pl = plans[i];
+      if (!pl || pl.auto) continue;
+      if (end === "from" && pl.fromSide !== side) continue;
+      if (end === "to" && pl.toSide !== side) continue;
+      pushRoutingPlan(out, pl, cap);
+    }
+    return out;
+  }
+
+  function boxSideMidpoint(box, side) {
+    if (!box || !(box.w > 0) || !(box.h > 0)) return null;
+    if (side === "left") return { x: box.x, y: box.y + box.h / 2 };
+    if (side === "right") return { x: box.x + box.w, y: box.y + box.h / 2 };
+    if (side === "top") return { x: box.x + box.w / 2, y: box.y };
+    if (side === "bottom") return { x: box.x + box.w / 2, y: box.y + box.h };
+    return null;
+  }
+
+  function boxSideSegment(box, side) {
+    if (!box || !(box.w > 0) || !(box.h > 0)) return null;
+    if (side === "left") return { x1: box.x, y1: box.y, x2: box.x, y2: box.y + box.h };
+    if (side === "right") return { x1: box.x + box.w, y1: box.y, x2: box.x + box.w, y2: box.y + box.h };
+    if (side === "top") return { x1: box.x, y1: box.y, x2: box.x + box.w, y2: box.y };
+    if (side === "bottom") return { x1: box.x, y1: box.y + box.h, x2: box.x + box.w, y2: box.y + box.h };
+    return null;
   }
   // J1-ROUTING-END
 
@@ -12932,6 +12969,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
       if (endpointDrag) {
         ev.preventDefault();
+        clearEndpointSideCue(endpointDrag);
         endpointDrag = null;
         mountLayoutOverlays();
         setStatus("Reroute cancelled", "");
@@ -18023,6 +18061,112 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     return null;
   }
 
+  function sideDragRefusedMessage(side, nodeId, receipt) {
+    var msg = "Archify can't run this line from the " + side + " of " + nodeDisplayLabel(nodeId) +
+      " here. Try another side or move a box.";
+    var errs;
+    if (receipt && Array.isArray(receipt.errors) && receipt.errors.length) errs = receipt.errors;
+    else if (receipt && receipt.error) errs = [receipt.error];
+    else errs = ["preview failed"];
+    return msg + "\n" + errs.join("\n");
+  }
+
+  function routingPlanAlreadyOnEdge(edge, plan) {
+    if (!edge || !plan || plan.auto) return false;
+    var from = Object.prototype.hasOwnProperty.call(edge, "fromSide") ? edge.fromSide : "";
+    var to = Object.prototype.hasOwnProperty.call(edge, "toSide") ? edge.toSide : "";
+    var route = Object.prototype.hasOwnProperty.call(edge, "route") ? (edge.route || "") : "";
+    return from === plan.fromSide && to === plan.toSide && route === (plan.route || "");
+  }
+
+  // Q1: drop on the node this end already uses. Set that end's side and keep
+  // the other end. One undo step. Other connections and labels repair as usual.
+  function moveSameNodeEdgeEnd(docIdx, end, nodeId, dropPoint) {
+    var edges = relationRecords();
+    var edge = edges[docIdx];
+    if (!edge || (end !== "from" && end !== "to")) {
+      mountLayoutOverlays();
+      return;
+    }
+    var side = nearestSideFor(nodeId, dropPoint);
+    var key = end === "from" ? "fromSide" : "toSide";
+    var current = Object.prototype.hasOwnProperty.call(edge, key) ? edge[key] : "";
+    if (!side || side === current) {
+      mountLayoutOverlays();
+      setStatus("No change", "");
+      return;
+    }
+    pushHistory();
+    edge[key] = side;
+    state.rawDirty = false;
+    renderLists();
+    setLayoutBusy(true);
+    var which = end === "from" ? "from" : "to";
+    var labelA = nodeDisplayLabel(edge.from);
+    var labelB = nodeDisplayLabel(edge.to);
+    setStatus("Moving the " + which + " end of " + labelA + " -> " + labelB +
+      " to the " + side + " side…", "");
+    var plans = routingPlansFixedEnd(
+      archRoutingPlanList(docComponentCenter(edge.from), docComponentCenter(edge.to), null),
+      end,
+      side,
+      8
+    );
+    var lastReceipt = null;
+    function succeed(receipt) {
+      markDirty();
+      var msg = "Moved the " + which + " end of " + labelA + " -> " + labelB +
+        " to the " + side + " side (unsaved)";
+      if (receipt && receipt.note) msg += "\n" + receipt.note;
+      setStatus(msg, "ok");
+      return loadLayoutPane(true).then(function () {
+        setLayoutBusy(false);
+        renderAll();
+      }).catch(function (e) {
+        setLayoutBusy(false);
+        renderAll();
+        setStatus(msg + "\nPreview reload failed: " + e, "ok");
+      });
+    }
+    function fail(receipt) {
+      revertLastHistorySnapshot();
+      state.rawDirty = false;
+      setLayoutBusy(false);
+      mountLayoutOverlays();
+      renderLists();
+      setStatus(sideDragRefusedMessage(side, nodeId, receipt), "err");
+    }
+    postPreviewRepair([edge])
+      .then(function (receipt) {
+        lastReceipt = receipt;
+        if (receipt && receipt.ok) return succeed(receipt);
+        function tryAt(i) {
+          if (i >= plans.length) {
+            fail(lastReceipt);
+            return;
+          }
+          if (routingPlanAlreadyOnEdge(edge, plans[i])) return tryAt(i + 1);
+          applyConnRouting(edge, plans[i]);
+          if (end === "from") edge.fromSide = side;
+          else edge.toSide = side;
+          return postPreviewRepair([edge]).then(function (r) {
+            lastReceipt = r || lastReceipt;
+            if (r && r.ok) return succeed(r);
+            return tryAt(i + 1);
+          });
+        }
+        return tryAt(0);
+      })
+      .catch(function (e) {
+        revertLastHistorySnapshot();
+        state.rawDirty = false;
+        setLayoutBusy(false);
+        mountLayoutOverlays();
+        renderLists();
+        setStatus(sideDragRefusedMessage(side, nodeId, { error: String(e) }), "err");
+      });
+  }
+
   function rerouteEdgeEnd(docIdx, end, newNodeId, dropPoint) {
     var routeEdges = relationRecords();
     if (!routeEdges[docIdx]) {
@@ -18036,8 +18180,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     var edge = routeEdges[docIdx];
     var prev = edge[end];
     if (String(prev) === String(newNodeId)) {
-      mountLayoutOverlays();
-      setStatus("No reroute (same node)", "");
+      moveSameNodeEdgeEnd(docIdx, end, newNodeId, dropPoint);
       return;
     }
     var newFrom = end === "from" ? newNodeId : edge.from;
@@ -18404,6 +18547,71 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       '</div>';
   }
 
+  function clearEndpointSideCue(drag) {
+    if (!drag) return;
+    if (drag.ghost && drag.ghost.parentNode) drag.ghost.parentNode.removeChild(drag.ghost);
+    if (drag.sideLine && drag.sideLine.parentNode) drag.sideLine.parentNode.removeChild(drag.sideLine);
+    drag.ghost = null;
+    drag.sideLine = null;
+  }
+
+  // While the circle is over its own node, mark the side it will snap to:
+  // a line on that edge and a ghost circle at the side midpoint.
+  function paintEndpointSideCue(drag) {
+    if (!drag || !drag.svg) return;
+    var target = findDropNodeAt(drag.lastX, drag.lastY);
+    var overOwn = target && String(target) === String(drag.ownId);
+    var box = overOwn ? componentBox(drag.ownId) : null;
+    var side = box ? nearestSideFor(drag.ownId, { x: drag.lastX, y: drag.lastY }) : null;
+    var mid = boxSideMidpoint(box, side);
+    var seg = boxSideSegment(box, side);
+    if (!mid || !seg) {
+      clearEndpointSideCue(drag);
+      if (drag.cueSide) {
+        drag.cueSide = "";
+        setStatus("Rerouting " + drag.end + " endpoint…", "");
+      }
+      return;
+    }
+    var svg = drag.svg;
+    var doc = svg.ownerDocument;
+    if (!drag.ghost) {
+      var ghost = doc.createElementNS("http://www.w3.org/2000/svg", "circle");
+      ghost.setAttribute("class", "bw-endpoint-ghost");
+      ghost.setAttribute("r", String(LAYOUT_ENDPOINT_R));
+      ghost.setAttribute("fill", "none");
+      ghost.setAttribute("stroke", "rgba(255,170,50,0.95)");
+      ghost.setAttribute("stroke-width", "2");
+      ghost.setAttribute("stroke-dasharray", "3 2");
+      ghost.setAttribute("vector-effect", "non-scaling-stroke");
+      ghost.setAttribute("pointer-events", "none");
+      if (drag.circle && drag.circle.parentNode === svg) svg.insertBefore(ghost, drag.circle);
+      else svg.appendChild(ghost);
+      drag.ghost = ghost;
+    }
+    drag.ghost.setAttribute("cx", String(mid.x));
+    drag.ghost.setAttribute("cy", String(mid.y));
+    if (!drag.sideLine) {
+      var line = doc.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("class", "bw-endpoint-side");
+      line.setAttribute("stroke", "rgba(255,170,50,0.95)");
+      line.setAttribute("stroke-width", "3");
+      line.setAttribute("vector-effect", "non-scaling-stroke");
+      line.setAttribute("pointer-events", "none");
+      if (drag.circle && drag.circle.parentNode === svg) svg.insertBefore(line, drag.circle);
+      else svg.appendChild(line);
+      drag.sideLine = line;
+    }
+    drag.sideLine.setAttribute("x1", String(seg.x1));
+    drag.sideLine.setAttribute("y1", String(seg.y1));
+    drag.sideLine.setAttribute("x2", String(seg.x2));
+    drag.sideLine.setAttribute("y2", String(seg.y2));
+    if (drag.cueSide !== side) {
+      drag.cueSide = side;
+      setStatus("Snap to the " + side + " side of " + nodeDisplayLabel(drag.ownId), "");
+    }
+  }
+
   function onLayoutPointerDown(ev) {
     if (inlineRename) commitInlineSession();
     if (state.layoutBusy || !state.layout) return;
@@ -18445,12 +18653,14 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       var docIdxEp = parseInt(t.getAttribute("data-doc-index"), 10);
       var endEp = t.getAttribute("data-end");
       if (isNaN(docIdxEp) || (endEp !== "from" && endEp !== "to")) return;
-      if (!relationRecords()[docIdxEp]) return;
+      var ownEdge = relationRecords()[docIdxEp];
+      if (!ownEdge) return;
       try { t.setPointerCapture(ev.pointerId); } catch (eEp) {}
       var ptEp = clientToSvg(svgEp, ev.clientX, ev.clientY);
       endpointDrag = {
         docIdx: docIdxEp,
         end: endEp,
+        ownId: ownEdge[endEp],
         circle: t,
         svg: svgEp,
         origCx: Number(t.getAttribute("cx")),
@@ -18460,6 +18670,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
         startClientX: ev.clientX,
         startClientY: ev.clientY,
         moved: false,
+        cueSide: "",
       };
       return;
     }
@@ -18678,6 +18889,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       endpointDrag.lastY = ept.y;
       endpointDrag.circle.setAttribute("cx", String(ept.x));
       endpointDrag.circle.setAttribute("cy", String(ept.y));
+      paintEndpointSideCue(endpointDrag);
       return;
     }
     if (!layoutDrag) return;
@@ -18779,6 +18991,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
     if (endpointDrag) {
       var epDrag = endpointDrag;
       endpointDrag = null;
+      clearEndpointSideCue(epDrag);
       epDrag.circle.style.cursor = "grab";
       try { epDrag.circle.releasePointerCapture(ev.pointerId); } catch (eEpUp) {}
       if (!epDrag.moved) {
@@ -22038,6 +22251,7 @@ button.primary.dirty-emphasis { box-shadow: 0 0 0 2px rgba(143,180,201,0.55); }
       }
       if (endpointDrag) {
         ev.preventDefault();
+        clearEndpointSideCue(endpointDrag);
         endpointDrag = null;
         mountLayoutOverlays();
         setStatus("Reroute cancelled", "");

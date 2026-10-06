@@ -142,7 +142,8 @@ diagram.
 **Connect and reroute** - press **C**, click a source, then a target. Click near the side
 you want the line to leave from and arrive at; if Archify can't draw it that way,
 bendwright tries other sides and uses the first clean route. Drag an endpoint onto
-another node to reroute the connection.
+another node to reroute the connection, or onto another side of the same box to move it
+there (the side lights up before you let go).
 
 **Move a label** - click a connection to select it; its label gets a dashed blue outline
 and a grip. Drag the label where you want it. Labels of connections you haven't selected
